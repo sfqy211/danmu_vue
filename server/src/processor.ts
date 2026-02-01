@@ -89,17 +89,27 @@ export async function scanDirectory(dirPath: string) {
     return;
   }
 
-  const files = fs.readdirSync(dirPath);
-  const xmlFiles = files.filter(f => f.endsWith('.xml'));
-  
-  console.log(`开始手动扫描目录: ${dirPath}, 发现 ${xmlFiles.length} 个 XML 文件`);
+  console.log(`开始扫描目录: ${dirPath}`);
   
   let processedCount = 0;
-  for (const file of xmlFiles) {
-    const fullPath = path.join(dirPath, file);
-    const result = await processDanmakuFile(fullPath);
-    if (result) processedCount++;
-  }
+
+  const processDir = async (currentDir: string) => {
+    const files = fs.readdirSync(currentDir);
+    
+    for (const file of files) {
+      const fullPath = path.join(currentDir, file);
+      const stat = fs.statSync(fullPath);
+      
+      if (stat.isDirectory()) {
+        await processDir(fullPath);
+      } else if (file.endsWith('.xml')) {
+        const result = await processDanmakuFile(fullPath);
+        if (result) processedCount++;
+      }
+    }
+  };
+
+  await processDir(dirPath);
   
   console.log(`扫描完成。新增处理文件数: ${processedCount}`);
   return processedCount;
@@ -229,12 +239,43 @@ export async function processDanmakuFile(filePath: string) {
       .map(([word, count]) => ({ word, count }));
 
     // 使用相对于数据目录的相对路径存储
-    const relativeFilePath = path.basename(filePath);
+    const danmakuDir = process.env.DANMAKU_DIR 
+        ? path.resolve(process.env.DANMAKU_DIR)
+        : path.resolve(__dirname, '../data/danmaku');
+    let relativeFilePath = path.relative(danmakuDir, filePath);
+    // Normalize to POSIX style for DB storage compatibility across platforms
+    relativeFilePath = relativeFilePath.split(path.sep).join('/');
 
     // 检查是否已存在
-    const existing = await dbGet('SELECT id FROM sessions WHERE file_path = ?', [relativeFilePath]);
+    // 兼容旧的 basename 存储方式 (如果数据库里存的是 file.xml，而现在是 123/file.xml，我们可能需要处理)
+    // 但这里是插入新记录，所以我们只需要检查 relativeFilePath 是否存在
+    // 不过为了避免重复，我们还是应该检查 basename 是否已存在于任何记录中？
+    // 不，不同房间可能有同名文件（虽然不太可能，因为有时间戳）。
+    // 最好的方式是检查 relativeFilePath。
+    // 如果是老文件被移动了，它的 relativeFilePath 变了，会被重新插入吗？
+    // 是的，会被重新插入。这是一个问题。
+    // 我们应该通过 meta 信息 (room_id + start_time) 来查重，而不仅仅是 file_path。
+    
+    // 尝试通过 room_id 和 start_time 查重
+    const existing = await dbGet(
+      'SELECT id FROM sessions WHERE room_id = ? AND start_time = ?', 
+      [meta.room_id, meta.recordStartTimestamp]
+    );
+    
     if (existing) {
-      console.log(`文件已处理过，跳过: ${relativeFilePath}`);
+      console.log(`文件已处理过 (根据元数据)，跳过: ${relativeFilePath}`);
+      // 可选：更新 file_path 为新路径
+      if (existing.file_path !== relativeFilePath) {
+         await dbRun('UPDATE sessions SET file_path = ? WHERE id = ?', [relativeFilePath, existing.id]);
+         console.log(`更新文件路径: ${existing.id} -> ${relativeFilePath}`);
+      }
+      return;
+    }
+
+    // 回退到文件路径查重 (为了兼容旧数据中可能缺失 meta 的情况?)
+    const existingPath = await dbGet('SELECT id FROM sessions WHERE file_path = ?', [relativeFilePath]);
+    if (existingPath) {
+      console.log(`文件已处理过 (根据路径)，跳过: ${relativeFilePath}`);
       return;
     }
 
@@ -311,7 +352,7 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
   await ensureDbInit();
   
   // 1. 获取文件路径和开播时间
-  const session = await dbGet('SELECT file_path, start_time FROM sessions WHERE id = ?', [sessionId]);
+  const session = await dbGet('SELECT file_path, start_time, room_id FROM sessions WHERE id = ?', [sessionId]);
   if (!session || !session.file_path) {
     throw new Error('未找到该直播记录');
   }
@@ -322,20 +363,26 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
     : path.resolve(__dirname, '../data/danmaku');
 
   let fullPath = session.file_path;
-  
-  // 强制提取文件名，兼容 Windows (\) 和 Unix (/) 路径分隔符
-  const extractBasename = (p: string) => {
-    // 将所有反斜杠替换为正斜杠，然后取最后一部分
-    const normalized = p.replace(/\\/g, '/');
-    return normalized.split('/').pop() || normalized;
-  };
+  let resolvedPath = path.resolve(danmakuDir, fullPath);
 
-  fullPath = extractBasename(fullPath);
+  if (!fs.existsSync(resolvedPath)) {
+    console.log(`Debug: 直接路径不存在: ${resolvedPath}，尝试查找...`);
+    const basename = path.basename(fullPath);
+    
+    // 1. 尝试根目录 (旧逻辑)
+    const rootPath = path.resolve(danmakuDir, basename);
+    if (fs.existsSync(rootPath)) {
+        resolvedPath = rootPath;
+    } else if (session.room_id) {
+        // 2. 尝试房间子目录 (如果我们移动了文件但没更新数据库)
+        const roomPath = path.resolve(danmakuDir, String(session.room_id), basename);
+        if (fs.existsSync(roomPath)) {
+            resolvedPath = roomPath;
+        }
+    }
+  }
 
-  // 拼接当前环境下的完整路径
-  const resolvedPath = path.resolve(danmakuDir, fullPath);
-
-  console.log(`Debug: 尝试读取弹幕文件: ${resolvedPath} (原始记录: ${session.file_path})`);
+  console.log(`Debug: 最终读取弹幕文件: ${resolvedPath} (原始记录: ${session.file_path})`);
 
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`原始弹幕文件已丢失: ${fullPath} (尝试路径: ${resolvedPath})`);

@@ -61,31 +61,68 @@ function log(msg: string) {
 }
 
 // Startup Cleanup
-function convertLegacyRawFiles() {
-  const dir = process.env.DANMAKU_DIR || path.resolve(__dirname, '../data/danmaku');
-  if (!fs.existsSync(dir)) return;
-
-  const files = fs.readdirSync(dir);
-  const rawFiles = files.filter(f => f.endsWith('.raw'));
+function convertLegacyRawFiles(targetRoomId?: number) {
+  const baseDir = process.env.DANMAKU_DIR || path.resolve(__dirname, '../data/danmaku');
   
-  for (const file of rawFiles) {
-    const filePath = path.join(dir, file);
-    const xmlPath = filePath.replace(/\.raw$/, '.xml');
+  const dirsToScan = [baseDir];
+  if (targetRoomId) {
+    dirsToScan.push(path.join(baseDir, String(targetRoomId)));
+  }
+
+  for (const dir of dirsToScan) {
+    if (!fs.existsSync(dir)) continue;
+
+    const files = fs.readdirSync(dir);
+    const rawFiles = files.filter(f => f.endsWith('.raw'));
     
-    // Skip if current recording
-    if (currentTempFile && path.resolve(filePath) === path.resolve(currentTempFile)) continue;
-    
-    log(`Found legacy raw file: ${file}, converting...`);
-    try {
-      let content = fs.readFileSync(filePath, 'utf-8');
-      if (!content.trim().endsWith('</i>')) {
-        content = content.trim() + '\n</i>';
-        fs.writeFileSync(filePath, content);
+    for (const file of rawFiles) {
+      const filePath = path.join(dir, file);
+      const xmlPath = filePath.replace(/\.raw$/, '.xml');
+      
+      // Skip if current recording
+      if (currentTempFile && path.resolve(filePath) === path.resolve(currentTempFile)) continue;
+
+      // Check if file belongs to this room
+      if (targetRoomId) {
+        try {
+          const fd = fs.openSync(filePath, 'r');
+          const buffer = Buffer.alloc(1024); // Read enough for header
+          const bytesRead = fs.readSync(fd, buffer, 0, 1024, 0);
+          fs.closeSync(fd);
+          
+          if (bytesRead > 0) {
+            const content = buffer.toString('utf-8', 0, bytesRead);
+            const match = content.match(/<room_id>(\d+)<\/room_id>/);
+            if (match) {
+              const fileRoomId = parseInt(match[1]);
+              if (fileRoomId !== targetRoomId) {
+                // Belongs to another room, skip
+                continue;
+              }
+            } else {
+              // No room_id found, maybe not a valid recording file or empty
+              // Skip to be safe
+              continue;
+            }
+          }
+        } catch (e) {
+          // Error reading file, skip
+          continue;
+        }
       }
-      fs.renameSync(filePath, xmlPath);
-      log(`Converted legacy file: ${file} -> ${path.basename(xmlPath)}`);
-    } catch (e: any) {
-      log(`Failed to convert legacy file ${file}: ${e.message}`);
+      
+      log(`Found legacy raw file: ${file}, converting...`);
+      try {
+        let content = fs.readFileSync(filePath, 'utf-8');
+        if (!content.trim().endsWith('</i>')) {
+          content = content.trim() + '\n</i>';
+          fs.writeFileSync(filePath, content);
+        }
+        fs.renameSync(filePath, xmlPath);
+        log(`Converted legacy file: ${file} -> ${path.basename(xmlPath)}`);
+      } catch (e: any) {
+        log(`Failed to convert legacy file ${file}: ${e.message}`);
+      }
     }
   }
 }
@@ -173,7 +210,8 @@ function initFile() {
   const filenameBase = `${dateStr} ${safeTitle}`;
   const filename = `${filenameBase}.xml`;
   const tempFilename = `${filenameBase}.raw`;
-  const dir = process.env.DANMAKU_DIR || path.resolve(__dirname, '../data/danmaku');
+  const baseDir = process.env.DANMAKU_DIR || path.resolve(__dirname, '../data/danmaku');
+  const dir = path.join(baseDir, String(roomInfo.room_id));
   
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -261,10 +299,10 @@ function decodePacket(buffer: Buffer) {
 // Main Logic
 async function start() {
   try {
-    // Check for legacy raw files on startup
-    convertLegacyRawFiles();
-
     roomInfo = await getRoomInfo(parseInt(ROOM_ID as string));
+
+    // Check for legacy raw files on startup
+    convertLegacyRawFiles(roomInfo.room_id);
     
     if (roomInfo.live_status !== 1) {
       if (isRecording) {

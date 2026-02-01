@@ -106,7 +106,7 @@ if (!fs.existsSync(danmakuDir)) {
 const watcher = chokidar.watch(danmakuDir, {
   persistent: true,
   ignoreInitial: false, // 处理启动时已存在的文件
-  depth: 0,
+  // depth: 0, // Removed to allow recursion for subdirectories
   awaitWriteFinish: {
     stabilityThreshold: 2000,
     pollInterval: 100
