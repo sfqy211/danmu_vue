@@ -1,0 +1,416 @@
+<template>
+  <div class="header-container">
+    <div class="left-panel">
+      <el-button 
+        class="menu-btn mobile-only" 
+        :icon="Expand" 
+        circle 
+        @click="store.toggleSidebar" 
+        title="打开列表"
+      />
+      <div v-if="store.currentSession" class="session-info">
+        <h2 class="session-title">{{ store.currentSession.title || '未命名直播' }}</h2>
+        <a 
+          v-if="store.currentSession.room_id"
+          :href="`https://live.bilibili.com/${store.currentSession.room_id}`" 
+          target="_blank" 
+          class="room-link"
+          title="点击跳转至直播间"
+        >
+          <el-icon><Position /></el-icon>
+          <span>{{ store.currentSession.user_name }} 的直播间</span>
+        </a>
+      </div>
+      <h2 v-else>请选择直播回放</h2>
+    </div>
+    
+    <div class="right-panel">
+      <el-button class="settings-btn" :icon="Setting" circle @click="drawerVisible = true" title="设置与工具" />
+    </div>
+
+    <!-- Settings Drawer -->
+    <el-drawer
+      v-model="drawerVisible"
+      title="设置与工具"
+      direction="rtl"
+      size="320px"
+      class="settings-drawer"
+      :append-to-body="true"
+    >
+      <div class="drawer-content">
+        <!-- Search & Filter -->
+        <div class="drawer-section">
+          <div class="section-title">搜索与筛选</div>
+          <el-input
+            v-model="store.searchText"
+            placeholder="搜索弹幕/用户..."
+            :prefix-icon="Search"
+            clearable
+            class="drawer-search-input"
+          />
+        </div>
+
+        <el-divider />
+
+        <!-- Navigation -->
+        <div class="drawer-section">
+          <div class="section-title">导航</div>
+          <div class="drawer-item clickable" @click="router.push('/')">
+            <div class="item-left">
+              <el-icon><ArrowLeft /></el-icon>
+              <span>返回歌单列表</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+        </div>
+
+        <el-divider />
+
+        <!-- Data & Analysis -->
+        <div class="drawer-section">
+          <div class="section-title">数据与分析</div>
+          <div class="drawer-item clickable" @click="openStats">
+            <div class="item-left">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>弹幕发送统计</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+          <div class="drawer-item clickable" @click="openTimeline">
+            <div class="item-left">
+              <el-icon><Histogram /></el-icon>
+              <span>弹幕时间轴分布</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+        </div>
+
+        <el-divider />
+
+        <!-- Interface Settings -->
+        <div class="drawer-section">
+          <div class="section-title">界面设置</div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><Moon /></el-icon>
+              <span>深色模式</span>
+            </div>
+            <el-switch v-model="isDarkMode" @change="toggleTheme" />
+          </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><ZoomIn /></el-icon>
+              <span>页面缩放</span>
+            </div>
+            <div class="zoom-control">
+              <el-slider v-model="store.zoomLevel" :min="80" :max="150" :step="5" :format-tooltip="(val: number) => val + '%'" @input="(val: number) => handleZoom(val)" style="width: 100px;" />
+              <span class="zoom-value">{{ store.zoomLevel }}%</span>
+            </div>
+          </div>
+        </div>
+        
+        <el-divider />
+        
+        <!-- About -->
+        <div class="drawer-section">
+          <div class="drawer-item clickable" @click="aboutDialogVisible = true">
+            <div class="item-left">
+              <el-icon><InfoFilled /></el-icon>
+              <span>关于本工具</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+        </div>
+      </div>
+      
+      <template #footer>
+        <div class="drawer-footer">
+          <p>弹幕预览工具 Vue版 v1.0</p>
+        </div>
+      </template>
+    </el-drawer>
+
+    <!-- Stats Dialog -->
+    <el-dialog
+      v-model="statsDialogVisible"
+      title="弹幕发送统计"
+      width="70%"
+      destroy-on-close
+      align-center
+      append-to-body
+    >
+      <DanmakuStats v-if="statsDialogVisible" />
+    </el-dialog>
+
+    <!-- Timeline Dialog -->
+    <el-dialog
+      v-model="timelineDialogVisible"
+      title="弹幕时间轴分布"
+      width="70%"
+      destroy-on-close
+      align-center
+      append-to-body
+    >
+      <TimelineAnalysis v-if="timelineDialogVisible" />
+    </el-dialog>
+
+    <!-- About Dialog -->
+    <el-dialog
+      v-model="aboutDialogVisible"
+      title="关于本工具"
+      width="500px"
+      align-center
+      append-to-body
+      class="about-dialog"
+    >
+      <div class="about-content">
+        <div class="about-section">
+          <h3>项目介绍</h3>
+          <p>这是一个专为 Bilibili 直播回放设计的弹幕预览与数据分析工具，旨在提供极致的复盘体验。</p>
+          <p>核心功能：</p>
+          <ul>
+            <li><strong>弹幕回放与筛选</strong>：支持按需加载海量弹幕，提供精准的用户/内容搜索与筛选功能。</li>
+            <li><strong>发送数据统计</strong>：可视化展示弹幕发送排行，支持按发送频次过滤，可一键导出或复制统计图表。</li>
+            <li><strong>全场热度分布</strong>：基于整场直播的时间轴统计，直观呈现直播过程中的弹幕高能时刻。</li>
+            <li><strong>跨端响应式布局</strong>：完美适配网页与手机端，网页端左右分栏提升效率，手机端上下布局优化观感。</li>
+          </ul>
+        </div>
+        
+        <el-divider />
+        
+        <div class="about-section">
+          <h3>个人介绍</h3>
+          <p>B站主页：<a href="https://space.bilibili.com/182587768" target="_blank">朔风秋叶</a></p>
+          <p>Github主页：<a href="https://github.com/sfqy211" target="_blank">sfqy211</a></p>
+        </div>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useDanmakuStore } from '../stores/danmakuStore';
+import { 
+  Search, 
+  Setting, 
+  DataAnalysis, 
+  InfoFilled, 
+  ArrowRight, 
+  ArrowLeft,
+  Expand,
+  Moon, 
+  ZoomIn,
+  Histogram,
+  Download,
+  Position
+} from '@element-plus/icons-vue';
+import DanmakuStats from './DanmakuStats.vue';
+import TimelineAnalysis from './TimelineAnalysis.vue';
+
+const router = useRouter();
+const store = useDanmakuStore();
+const statsDialogVisible = ref(false);
+const timelineDialogVisible = ref(false);
+const aboutDialogVisible = ref(false);
+const drawerVisible = ref(false);
+const isDarkMode = ref(false);
+
+const openStats = () => {
+  statsDialogVisible.value = true;
+};
+
+const openTimeline = () => {
+  timelineDialogVisible.value = true;
+};
+
+const toggleTheme = (val: boolean) => {
+  if (val) {
+    document.documentElement.classList.add('dark-mode');
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark-mode');
+    document.documentElement.classList.remove('dark');
+  }
+};
+
+const handleZoom = (val: number) => {
+  store.setZoomLevel(val);
+};
+
+onMounted(() => {
+    isDarkMode.value = document.documentElement.classList.contains('dark-mode') || document.documentElement.classList.contains('dark');
+});
+</script>
+
+<style scoped>
+.header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.left-panel {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.back-btn {
+  margin-right: 5px;
+}
+.left-panel h2 {
+  font-size: 18px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+.session-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.session-title {
+  color: var(--text-primary);
+}
+.room-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+  width: fit-content;
+  transition: opacity 0.2s;
+}
+.room-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+.room-link .el-icon {
+  font-size: 14px;
+}
+.right-panel {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.drawer-search-input {
+  margin-bottom: 10px;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-only {
+    display: inline-flex;
+  }
+  .session-title {
+    font-size: 14px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .room-link {
+    display: none; /* 手机端隐藏直播间链接以节省空间 */
+  }
+}
+
+/* Drawer Styles */
+:deep(.el-drawer) {
+  background-color: var(--bg-primary);
+}
+:deep(.el-drawer__header) {
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+:deep(.el-drawer__title) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.drawer-content {
+  padding: 0 10px;
+}
+.section-title {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.drawer-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+.drawer-item.clickable {
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.drawer-item.clickable:hover {
+    color: var(--accent);
+}
+.item-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.zoom-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.zoom-value {
+    font-size: 12px;
+    color: var(--text-secondary);
+    width: 35px;
+    text-align: right;
+}
+.drawer-footer {
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+:deep(.el-divider--horizontal) {
+    margin: 16px 0;
+}
+
+.about-content {
+    padding: 0 5px;
+}
+.about-section h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+.about-section p {
+    margin-bottom: 10px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+.about-section ul {
+    padding-left: 20px;
+    margin-bottom: 10px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+.about-section li {
+    margin-bottom: 5px;
+}
+</style>

@@ -1,0 +1,18 @@
+version: '3'
+services:
+  danmu-viewer:
+    build: .
+    container_name: danmu-viewer
+    ports:
+      - "5200:3001"
+    volumes:
+      # 映射数据目录
+      # 如果想读取上级目录的 data，可以将 ./data 改为 ../data
+      # 容器内路径为 /app/server/data，程序会自动在其中寻找 danmaku 子目录
+      - ./server/data:/app/server/data
+    environment:
+      - PORT=3001
+      # 可选环境变量
+      # - DANMAKU_DIR=/app/server/data/danmaku
+      - DB_PATH=/app/server/data/danmaku_data.db
+    restart: unless-stopped

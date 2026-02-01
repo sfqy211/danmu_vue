@@ -1,0 +1,33 @@
+{
+  "name": "danmu_vue",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "cd server && npm run dev",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "cd server && npm start"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.3",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vue-tsc": "^3.2.4"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "axios": "^1.13.4",
+    "echarts": "^6.0.0",
+    "element-plus": "^2.13.2",
+    "html2canvas": "^1.4.1",
+    "pinia": "^3.0.4",
+    "sass": "^1.97.3",
+    "vue-router": "^5.0.1"
+  }
+}

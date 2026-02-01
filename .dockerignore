@@ -1,0 +1,11 @@
+node_modules
+dist
+server/node_modules
+server/*.db
+server/*.db-journal
+server/data/*.db
+server/data/*.db-journal
+.git
+.vscode
+.idea
+*.log
