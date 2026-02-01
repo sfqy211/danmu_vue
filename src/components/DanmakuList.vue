@@ -185,7 +185,7 @@ const openLaplace = (uid: string | number) => {
 
 // SC Styles logic from original project
 const getSCLevel = (price: number) => {
-  const yuan = price / 1000;
+  const yuan = price;
   if (yuan >= 2000) return 6;
   if (yuan >= 1000) return 5;
   if (yuan >= 500) return 4;
@@ -209,7 +209,8 @@ const getSCStyle = (price: number) => {
 };
 
 const formatPrice = (price: number) => {
-  return (price / 1000).toFixed(0);
+  // If price is 0, it might be that the price was not parsed correctly or is actually 0
+  return price.toString();
 };
 
 // Resizer Logic

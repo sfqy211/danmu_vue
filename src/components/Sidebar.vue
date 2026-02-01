@@ -20,19 +20,24 @@
       </el-select>
     </div>
     <div class="session-list" v-show="!store.isSidebarCollapsed">
-      <div 
-        v-for="session in sessions" 
-        :key="session.id"
-        class="session-item"
-        :class="{ active: activeSessionId === session.id.toString() }"
-        @click="handleSelect(session)"
-      >
-        <div class="session-title" :title="session.title">{{ session.title || '无标题' }}</div>
-        <div class="session-meta">
-          <span class="user-name">{{ session.user_name }}</span>
-          <span class="start-time">{{ formatTime(session.start_time) }}</span>
-        </div>
+      <div v-if="!selectedStreamer" class="empty-list-tip">
+        <el-empty description="请选择主播以查看回放列表" :image-size="60" />
       </div>
+      <template v-else>
+        <div 
+          v-for="session in sessions" 
+          :key="session.id"
+          class="session-item"
+          :class="{ active: activeSessionId === session.id.toString() }"
+          @click="handleSelect(session)"
+        >
+          <div class="session-title" :title="session.title">{{ session.title || '无标题' }}</div>
+          <div class="session-meta">
+            <span class="user-name">{{ session.user_name }}</span>
+            <span class="start-time">{{ formatTime(session.start_time) }}</span>
+          </div>
+        </div>
+      </template>
     </div>
     
     <!-- Collapsed State Placeholder -->
@@ -60,9 +65,13 @@ const formatTime = (ts: number) => {
 };
 
 const fetchSessions = async () => {
+  if (!selectedStreamer.value) {
+    sessions.value = [];
+    return;
+  }
   try {
     sessions.value = await getSessions({
-      userName: selectedStreamer.value || undefined
+      userName: selectedStreamer.value
     });
   } catch (e) {
     console.error(e);
@@ -81,7 +90,6 @@ const handleSelect = (session: SessionInfo) => {
 onMounted(async () => {
   try {
     streamers.value = await getStreamers();
-    await fetchSessions();
   } catch (e) {
     console.error(e);
   }
@@ -176,5 +184,18 @@ onMounted(async () => {
   background-color: var(--bg-card);
   box-shadow: none;
   border: 1px solid var(--border);
+}
+
+.empty-list-tip {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 40px;
+}
+
+.empty-list-tip :deep(.el-empty__description p) {
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
 }
 </style>

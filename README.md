@@ -40,7 +40,7 @@ npm run dev:all
 - **启动后端 API**：`npm run dev:server`
 
 #### 弹幕监控开启方式
-- 'pm2 start ecosystem.config.cjs'
+- `pm2 start ecosystem.config.cjs`
 ### 生产环境部署 (1Panel + PM2)
 
 项目采用前后端分离部署方案，建议使用 1Panel 面板进行管理。

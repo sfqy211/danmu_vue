@@ -417,7 +417,15 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
         isSC: false
       });
     } else if (tagName === 'sc') {
-      const price = parseInt(getAttr('price') || '0');
+      let price = parseInt(getAttr('price') || '0');
+      const tsAttr = getAttr('ts');
+      // 优化价格解析逻辑：
+      // 1. 带有 ts 属性的 <sc> 标签（如 <sc ts="411.766" price="30000" ...>）通常来自 B 站标准 XML 录制格式，其 price 单位为毫元 (1元=1000)。
+      // 2. 不带 ts 属性的（如 <sc price="50" ...>）通常直接是元单位。
+      // 3. 只有当存在 ts 属性且价格明显是毫元倍数（>=1000）时才进行转换，这样即使有 10 万元的 SC (price="100000")，如果没有 ts 属性，也会被正确识别为 10 万元。
+      if (tsAttr && price >= 1000) {
+        price = Math.floor(price / 1000);
+      }
       messages.push({
         time: relativeSeconds,
         timestamp: timestamp, // 添加绝对时间戳
