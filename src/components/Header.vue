@@ -134,7 +134,8 @@
     <el-dialog
       v-model="statsDialogVisible"
       title="弹幕发送统计"
-      width="70%"
+      :width="isMobile ? '100%' : '70%'"
+      :fullscreen="isMobile"
       destroy-on-close
       align-center
       append-to-body
@@ -146,7 +147,8 @@
     <el-dialog
       v-model="timelineDialogVisible"
       title="弹幕时间轴分布"
-      width="70%"
+      :width="isMobile ? '100%' : '70%'"
+      :fullscreen="isMobile"
       destroy-on-close
       align-center
       append-to-body
@@ -189,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { 
@@ -216,6 +218,11 @@ const timelineDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
+const isMobile = ref(window.innerWidth <= 768);
+
+const handleResize = () => {
+  isMobile.value = window.innerWidth <= 768;
+};
 
 const openStats = () => {
   statsDialogVisible.value = true;
@@ -241,6 +248,11 @@ const handleZoom = (val: number) => {
 
 onMounted(() => {
     isDarkMode.value = document.documentElement.classList.contains('dark-mode') || document.documentElement.classList.contains('dark');
+    window.addEventListener('resize', handleResize);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize);
 });
 </script>
 

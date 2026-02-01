@@ -1,5 +1,7 @@
 <template>
-  <div class="danmaku-container" v-loading="loading" @mousemove="onMouseMove" @mouseup="stopResize" @mouseleave="stopResize">
+  <div class="danmaku-container" v-loading="loading" 
+    @mousemove="onMouseMove" @mouseup="stopResize" @mouseleave="stopResize"
+    @touchmove="onTouchMove" @touchend="stopResize" @touchcancel="stopResize">
     <div v-if="!currentSession && !loading" class="empty-state">
       <el-empty description="暂无弹幕数据，请选择左侧直播回放" />
     </div>
@@ -71,7 +73,7 @@
       </div>
 
       <!-- 拖动条 -->
-      <div class="resizer" @mousedown="startResize"></div>
+      <div class="resizer" @mousedown="startResize" @touchstart="startResize"></div>
 
       <!-- 下部分/右部分：SC 付费弹幕 -->
       <div class="column-side" :style="columnSideStyle(false)">
@@ -253,15 +255,27 @@ const stopResize = () => {
 };
 
 const onMouseMove = (e: MouseEvent) => {
+  handleResizeMove(e.clientX, e.clientY);
+};
+
+const onTouchMove = (e: TouchEvent) => {
+  if (isResizing.value && e.touches.length > 0) {
+    // Only prevent default if we are actually resizing to allow normal scrolling otherwise
+    if (e.cancelable) e.preventDefault();
+    handleResizeMove(e.touches[0].clientX, e.touches[0].clientY);
+  }
+};
+
+const handleResizeMove = (clientX: number, clientY: number) => {
   if (!isResizing.value || !splitContainer.value) return;
   
   const containerRect = splitContainer.value.getBoundingClientRect();
   let newRatio: number;
   
   if (isMobile.value) {
-    newRatio = ((e.clientY - containerRect.top) / containerRect.height) * 100;
+    newRatio = ((clientY - containerRect.top) / containerRect.height) * 100;
   } else {
-    newRatio = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+    newRatio = ((clientX - containerRect.left) / containerRect.width) * 100;
   }
   
   // Clamp between 0% and 100% to allow columns to be hidden
@@ -378,10 +392,14 @@ onMounted(() => {
     updateRightHeight();
   });
   window.addEventListener('mouseup', stopResize);
+  window.addEventListener('touchend', stopResize);
+  window.addEventListener('touchcancel', stopResize);
 });
 
 onUnmounted(() => {
   window.removeEventListener('mouseup', stopResize);
+  window.removeEventListener('touchend', stopResize);
+  window.removeEventListener('touchcancel', stopResize);
 });
 </script>
 
@@ -539,12 +557,15 @@ onUnmounted(() => {
 
 /* Mobile Resizer (Horizontal bar) */
 .split-container.is-mobile .resizer {
-  height: 8px;
+  height: 24px; /* 增加触摸区域 */
   width: 100%;
   cursor: row-resize;
   flex-direction: column;
   justify-content: center;
   background-color: transparent;
+  margin: -8px 0; /* 负边距防止撑开过多空间 */
+  position: relative;
+  z-index: 30;
 }
 
 .split-container.is-mobile .resizer:hover,

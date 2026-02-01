@@ -10,49 +10,16 @@
       </div>
     </div>
     
-    <div class="stats-toolbar" v-if="!isExporting">
-      <div class="filter-group">
-        <span class="label">最少弹幕数:</span>
-        <el-slider 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
-          class="count-slider"
-          :show-tooltip="false"
-        />
-        <el-input-number 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
-          size="small" 
-          controls-position="right"
-          class="count-input"
-        />
-      </div>
-      <div class="action-group">
-        <el-button type="primary" class="action-btn export-btn" size="default" @click="handleExport" :loading="exportLoading">
-          <template #icon v-if="!exportLoading">
-            <span class="btn-icon">📸</span>
-          </template>
-          {{ exportLoading ? '正在生成...' : '导出图片' }}
-        </el-button>
-        <el-button class="action-btn copy-btn" size="default" @click="handleCopy" :loading="copyLoading">
-          <template #icon v-if="!copyLoading">
-            <span class="btn-icon">📋</span>
-          </template>
-          {{ copyLoading ? '正在处理...' : '复制图片' }}
-        </el-button>
-      </div>
-    </div>
-
     <div class="stats-list-wrapper">
-      <div class="stats-list">
+      <!-- 列表视图 -->
+      <div v-if="viewMode === 'bar'" class="stats-list">
         <div v-if="filteredStats.length === 0" class="empty-tip">
           没有匹配的用户
         </div>
         <div v-else v-for="(item, index) in filteredStats" :key="item.name" class="user-stats-row">
-          <div class="user-name-col" :title="item.name">
-            {{ item.name }}
+          <div class="user-name-col" :title="`${item.name}${item.uid ? ' (ID: ' + item.uid + ')' : ''}`">
+            <div class="user-name-text">{{ item.name }}</div>
+            <div class="user-id-text" v-if="item.uid">ID: {{ item.uid }}</div>
           </div>
           <div class="bar-col">
             <div class="bar-bg">
@@ -67,22 +34,97 @@
           </div>
         </div>
       </div>
+      
+      <!-- 扇形图视图 -->
+      <div v-else class="chart-wrapper">
+        <div ref="pieChartRef" class="pie-chart"></div>
+      </div>
+    </div>
+
+    <div class="stats-toolbar" v-if="!isExporting">
+      <div class="filter-group">
+        <template v-if="viewMode === 'bar'">
+          <span class="label">最少弹幕数:</span>
+          <el-slider 
+            v-model="minCount" 
+            :min="1" 
+            :max="Math.max(1, maxCount)" 
+            class="count-slider"
+            :show-tooltip="false"
+          />
+          <el-input-number 
+            v-model="minCount" 
+            :min="1" 
+            :max="Math.max(1, maxCount)" 
+            size="small" 
+            controls-position="right"
+            class="count-input"
+          />
+        </template>
+        <template v-else>
+          <span class="label">显示前 N 名:</span>
+          <el-slider 
+            v-model="topN" 
+            :min="5" 
+            :max="20" 
+            :step="1"
+            class="count-slider"
+            :show-tooltip="true"
+          />
+          <el-input-number 
+            v-model="topN" 
+            :min="5" 
+            :max="20" 
+            size="small" 
+            controls-position="right"
+            class="count-input"
+          />
+        </template>
+      </div>
+      <div class="action-group">
+        <el-radio-group v-model="viewMode" size="small" @change="handleViewChange" class="view-toggle custom-toggle">
+          <el-radio-button value="bar">
+            <el-icon><Menu /></el-icon>
+          </el-radio-button>
+          <el-radio-button value="pie">
+            <el-icon><PieChart /></el-icon>
+          </el-radio-button>
+        </el-radio-group>
+        <el-button type="primary" class="action-btn export-btn" size="default" @click="handleExport" :loading="exportLoading">
+          <template #icon v-if="!exportLoading">
+            <span class="btn-icon">📸</span>
+          </template>
+          {{ exportLoading ? '正在生成...' : '导出图片' }}
+        </el-button>
+        <el-button class="action-btn copy-btn" size="default" @click="handleCopy" :loading="copyLoading">
+          <template #icon v-if="!copyLoading">
+            <span class="btn-icon">📋</span>
+          </template>
+          {{ copyLoading ? '正在处理...' : '复制图片' }}
+        </el-button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { ElMessage } from 'element-plus';
+import { Menu, PieChart } from '@element-plus/icons-vue';
 import html2canvas from 'html2canvas';
+import * as echarts from 'echarts';
 
 const store = useDanmakuStore();
 const minCount = ref(1);
+const topN = ref(5);
 const statsContent = ref<HTMLElement | null>(null);
 const isExporting = ref(false);
 const exportLoading = ref(false);
 const copyLoading = ref(false);
+const viewMode = ref<'bar' | 'pie'>('bar');
+const pieChartRef = ref<HTMLElement | null>(null);
+let chartInstance: echarts.ECharts | null = null;
 
 const streamerName = computed(() => store.currentSession?.user_name || '未知主播');
 
@@ -239,6 +281,133 @@ const maxCount = computed(() => stats.value.length > 0 ? stats.value[0].count : 
 const filteredStats = computed(() => {
   return stats.value.filter(item => item.count >= minCount.value);
 });
+
+const handleViewChange = async () => {
+  if (viewMode.value === 'pie') {
+    await nextTick();
+    initChart();
+  } else {
+    chartInstance?.dispose();
+    chartInstance = null;
+  }
+};
+
+const initChart = () => {
+  if (!pieChartRef.value) return;
+  
+  if (chartInstance) {
+    chartInstance.dispose();
+  }
+  
+  chartInstance = echarts.init(pieChartRef.value);
+  updateChart();
+};
+
+const updateChart = () => {
+  if (!chartInstance || viewMode.value !== 'pie') return;
+
+  // Clone and sort data
+  const sortedData = [...stats.value].sort((a, b) => b.count - a.count);
+  
+  // Take top N
+  const topData = sortedData.slice(0, topN.value);
+  
+  // Calculate others
+  const othersCount = sortedData.slice(topN.value).reduce((sum, item) => sum + item.count, 0);
+  
+  const chartData = topData.map(item => ({
+    name: item.name,
+    value: item.count
+  }));
+
+  if (othersCount > 0) {
+    chartData.push({
+      name: '其他',
+      value: othersCount
+    });
+  }
+
+  const isMobile = window.innerWidth <= 768;
+
+  const option: echarts.EChartsOption = {
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)'
+    },
+    legend: {
+      show: isMobile,
+      bottom: 0,
+      left: 'center',
+      type: 'scroll',
+      orient: 'horizontal',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: {
+        fontSize: 12
+      }
+    },
+    series: [
+      {
+        name: '弹幕统计',
+        type: 'pie',
+        radius: isMobile ? ['30%', '60%'] : ['40%', '70%'],
+        center: isMobile ? ['50%', '40%'] : ['50%', '50%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderRadius: 10,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        label: {
+          show: true,
+          position: isMobile ? 'inner' : 'outside',
+          formatter: isMobile ? '{b}' : '{b}: {c} ({d}%)',
+          fontSize: isMobile ? 10 : 14,
+          color: isMobile ? '#fff' : 'inherit',
+          textBorderColor: isMobile ? 'rgba(0,0,0,0.5)' : 'none',
+          textBorderWidth: isMobile ? 2 : 0
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: isMobile ? 12 : 18,
+            fontWeight: 'bold',
+            position: isMobile ? 'inner' : 'outside',
+            formatter: '{b}: {c} ({d}%)'
+          }
+        },
+        labelLine: {
+          show: !isMobile,
+          length: 15,
+          length2: 10,
+          smooth: true
+        },
+        data: chartData
+      }
+    ]
+  };
+
+  chartInstance.setOption(option);
+};
+
+watch([filteredStats, topN], () => {
+  if (viewMode.value === 'pie') {
+    updateChart();
+  }
+});
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize);
+  chartInstance?.dispose();
+});
+
+const handleResize = () => {
+  chartInstance?.resize();
+};
 </script>
 
 <style scoped>
@@ -280,6 +449,7 @@ const filteredStats = computed(() => {
 
 .stats-header {
   padding: 8px 0 16px;
+  flex-shrink: 0;
 }
 
 .title-row {
@@ -314,8 +484,9 @@ const filteredStats = computed(() => {
   padding: 12px 16px;
   background-color: var(--bg-secondary);
   border-radius: 12px;
-  margin-bottom: 20px;
+  margin-top: 20px;
   gap: 20px;
+  border-top: 1px solid var(--border);
 }
 
 .filter-group {
@@ -375,7 +546,7 @@ const filteredStats = computed(() => {
 .stats-list-wrapper {
   flex: 1;
   overflow: hidden;
-  border-top: 1px solid var(--border);
+  margin-top: 10px;
 }
 
 .stats-list {
@@ -394,11 +565,28 @@ const filteredStats = computed(() => {
 
 .user-name-col {
   width: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.user-name-text {
   font-size: 0.9rem;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
+}
+
+.user-id-text {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .bar-col {
@@ -461,5 +649,102 @@ const filteredStats = computed(() => {
 :deep(.el-input-number.is-controls-right .el-input-number__decrease) {
   background-color: var(--bg-hover);
   border-left: 1px solid var(--border);
+}
+
+.chart-wrapper {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.pie-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
+
+.view-toggle {
+  margin-right: 10px;
+}
+
+.custom-toggle :deep(.el-radio-button__inner) {
+  padding: 8px 12px;
+}
+
+@media (max-width: 768px) {
+  .stats-container {
+    height: calc(100vh - 54px); /* 减去对话框头部高度 */
+    padding: 0 12px 10px;
+  }
+
+  .user-name-col {
+    width: 90px;
+  }
+
+  .stats-header {
+    margin-bottom: 10px;
+  }
+
+  .stats-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .stats-summary {
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    font-size: 0.85rem;
+    color: #909399;
+  }
+
+  .stats-toolbar {
+    padding: 10px;
+    margin-top: 10px;
+    margin-bottom: 0;
+    gap: 8px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+
+  .filter-group {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .filter-group .label {
+    font-size: 0.85rem;
+    min-width: auto;
+  }
+
+  .count-slider {
+    order: 3;
+    width: 100%;
+    margin: 5px 10px !important;
+    flex: none;
+  }
+
+  .count-input {
+    order: 2;
+  }
+
+  .action-group {
+    margin-top: 5px;
+    justify-content: center;
+  }
+
+  .export-btn,
+  .copy-btn {
+    display: none !important;
+  }
+
+  .custom-toggle :deep(.el-radio-button__inner) {
+    padding: 6px 10px;
+  }
+
+  .chart-container {
+    height: 350px !important;
+  }
 }
 </style>
