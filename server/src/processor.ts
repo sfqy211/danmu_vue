@@ -130,62 +130,60 @@ export async function processDanmakuFile(filePath: string) {
     let messages: DanmakuMessage[] = [];
     let meta: any = {};
 
-    if (filePath.endsWith('.xml')) {
-      // 解析 XML 格式
-      console.log('正在解析 XML 格式...');
-      
-      // 提取元数据
-      const titleMatch = content.match(/<room_title>(.*?)<\/room_title>/);
-      const userMatch = content.match(/<user_name>(.*?)<\/user_name>/);
-      const roomMatch = content.match(/<room_id>(.*?)<\/room_id>/);
-      const startMatch = content.match(/<video_start_time>(.*?)<\/video_start_time>/);
-      
-      meta = {
-        title: titleMatch ? titleMatch[1] : '未知直播',
-        user_name: userMatch ? userMatch[1] : '未知主播',
-        room_id: roomMatch ? roomMatch[1] : '',
-        recordStartTimestamp: startMatch ? parseInt(startMatch[1]) : Date.now()
-      };
-
-      // 提取弹幕 <d p="...">内容</d>
-      const danmakuRegex = /<d p="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"[^>]*>(.*?)<\/d>/g;
-      let match;
-      while ((match = danmakuRegex.exec(content)) !== null) {
-        messages.push({
-          type: 'comment',
-          text: match[5],
-          timestamp: parseInt(match[4]),
-          sender: {
-            name: match[2],
-            uid: match[3]
-          }
-        });
-      }
-
-      // 提取礼物 <gift ...>
-      const giftRegex = /<gift ts="[^"]+" giftname="([^"]+)" giftcount="([^"]+)" price="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"/g;
-      while ((match = giftRegex.exec(content)) !== null) {
-        messages.push({
-          type: 'give_gift',
-          name: match[1],
-          count: parseInt(match[2]),
-          price: parseInt(match[3]),
-          timestamp: parseInt(match[6]),
-          sender: {
-            name: match[4],
-            uid: match[5]
-          }
-        });
-      }
-      
-      // 排序消息
-      messages.sort((a, b) => a.timestamp - b.timestamp);
-    } else {
-      // 解析 JSON 格式
-      const data = JSON.parse(content);
-      messages = data.messages || [];
-      meta = data.meta || {};
+    if (!filePath.endsWith('.xml')) {
+      console.warn(`跳过非 XML 文件: ${filePath}`);
+      return;
     }
+
+    // 解析 XML 格式
+    console.log(`正在处理 XML: ${path.basename(filePath)}`);
+    
+    // 提取元数据
+    const titleMatch = content.match(/<room_title>(.*?)<\/room_title>/);
+    const userMatch = content.match(/<user_name>(.*?)<\/user_name>/);
+    const roomMatch = content.match(/<room_id>(.*?)<\/room_id>/);
+    const startMatch = content.match(/<video_start_time>(.*?)<\/video_start_time>/);
+    
+    meta = {
+      title: titleMatch ? titleMatch[1] : '未知直播',
+      user_name: userMatch ? userMatch[1] : '未知主播',
+      room_id: roomMatch ? roomMatch[1] : '',
+      recordStartTimestamp: startMatch ? parseInt(startMatch[1]) : Date.now()
+    };
+
+    // 提取弹幕 <d p="...">内容</d>
+    const danmakuRegex = /<d p="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"[^>]*>(.*?)<\/d>/g;
+    let match;
+    while ((match = danmakuRegex.exec(content)) !== null) {
+      messages.push({
+        type: 'comment',
+        text: match[5],
+        timestamp: parseInt(match[4]),
+        sender: {
+          name: match[2],
+          uid: match[3]
+        }
+      });
+    }
+
+    // 提取礼物 <gift ...>
+    const giftRegex = /<gift ts="[^"]+" giftname="([^"]+)" giftcount="([^"]+)" price="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"/g;
+    while ((match = giftRegex.exec(content)) !== null) {
+      messages.push({
+        type: 'give_gift',
+        name: match[1],
+        count: parseInt(match[2]),
+        price: parseInt(match[3]),
+        timestamp: parseInt(match[6]),
+        sender: {
+          name: match[4],
+          uid: match[5]
+        }
+      });
+    }
+    
+    // 排序消息
+    messages.sort((a, b) => a.timestamp - b.timestamp);
 
     const analysis: AnalysisResult = {
       totalCount: messages.length,
@@ -246,36 +244,20 @@ export async function processDanmakuFile(filePath: string) {
     // Normalize to POSIX style for DB storage compatibility across platforms
     relativeFilePath = relativeFilePath.split(path.sep).join('/');
 
-    // 检查是否已存在
-    // 兼容旧的 basename 存储方式 (如果数据库里存的是 file.xml，而现在是 123/file.xml，我们可能需要处理)
-    // 但这里是插入新记录，所以我们只需要检查 relativeFilePath 是否存在
-    // 不过为了避免重复，我们还是应该检查 basename 是否已存在于任何记录中？
-    // 不，不同房间可能有同名文件（虽然不太可能，因为有时间戳）。
-    // 最好的方式是检查 relativeFilePath。
-    // 如果是老文件被移动了，它的 relativeFilePath 变了，会被重新插入吗？
-    // 是的，会被重新插入。这是一个问题。
-    // 我们应该通过 meta 信息 (room_id + start_time) 来查重，而不仅仅是 file_path。
-    
-    // 尝试通过 room_id 和 start_time 查重
+    // 尝试通过 room_id 和 start_time 查重 (最可靠的方式)
     const existing = await dbGet(
-      'SELECT id FROM sessions WHERE room_id = ? AND start_time = ?', 
+      'SELECT id, file_path FROM sessions WHERE room_id = ? AND start_time = ?', 
       [meta.room_id, meta.recordStartTimestamp]
     );
     
     if (existing) {
-      console.log(`文件已处理过 (根据元数据)，跳过: ${relativeFilePath}`);
-      // 可选：更新 file_path 为新路径
+      // 如果路径变了（例如从根目录移动到了子目录），更新数据库
       if (existing.file_path !== relativeFilePath) {
          await dbRun('UPDATE sessions SET file_path = ? WHERE id = ?', [relativeFilePath, existing.id]);
          console.log(`更新文件路径: ${existing.id} -> ${relativeFilePath}`);
+      } else {
+         console.log(`文件已处理过，跳过: ${relativeFilePath}`);
       }
-      return;
-    }
-
-    // 回退到文件路径查重 (为了兼容旧数据中可能缺失 meta 的情况?)
-    const existingPath = await dbGet('SELECT id FROM sessions WHERE file_path = ?', [relativeFilePath]);
-    if (existingPath) {
-      console.log(`文件已处理过 (根据路径)，跳过: ${relativeFilePath}`);
       return;
     }
 
@@ -366,7 +348,6 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
   let resolvedPath = path.resolve(danmakuDir, fullPath);
 
   if (!fs.existsSync(resolvedPath)) {
-    console.log(`Debug: 直接路径不存在: ${resolvedPath}，尝试查找...`);
     const basename = path.basename(fullPath);
     
     // 1. 尝试根目录 (旧逻辑)
@@ -381,8 +362,6 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
         }
     }
   }
-
-  console.log(`Debug: 最终读取弹幕文件: ${resolvedPath} (原始记录: ${session.file_path})`);
 
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`原始弹幕文件已丢失: ${fullPath} (尝试路径: ${resolvedPath})`);

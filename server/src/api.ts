@@ -106,31 +106,26 @@ if (!fs.existsSync(danmakuDir)) {
 const watcher = chokidar.watch(danmakuDir, {
   persistent: true,
   ignoreInitial: false, // 处理启动时已存在的文件
-  // depth: 0, // Removed to allow recursion for subdirectories
   awaitWriteFinish: {
-    stabilityThreshold: 2000,
+    stabilityThreshold: 3000, // 稍微增加稳定性阈值，确保录制结束并改名后才处理
     pollInterval: 100
   }
 });
 
-watcher.on('add', async (filePath) => {
+// 监听新增和修改，因为 .raw 改名为 .xml 可能会触发 add 或 change
+const handleFile = async (filePath: string) => {
   if (filePath.endsWith('.xml')) {
-    console.log(`检测到新文件: ${filePath}`);
+    console.log(`检测到文件变化: ${filePath}`);
     await processDanmakuFile(filePath);
   }
-});
+};
 
-// 手动触发目录扫描
-app.post('/api/scan', async (req, res) => {
-  try {
-    // const danmakuDir = path.resolve(__dirname, '../data/danmaku'); // Use global danmakuDir
-    const count = await scanDirectory(danmakuDir);
-    res.json({ success: true, message: `扫描完成，新增 ${count} 条记录` });
-  } catch (error) {
-    console.error('API Error /api/scan:', error);
-    res.status(500).json({ error: '扫描失败' });
-  }
-});
+watcher.on('add', handleFile);
+watcher.on('change', handleFile);
+
+// 移除不再需要的 API 路由
+// app.post('/api/scan', ...);
+
 
 // SPA Fallback: 将所有非 API 请求重定向到 index.html
 app.get('*', (req, res) => {
