@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
-import pm2 from 'pm2';
+import { exec } from 'node:child_process';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged } from './processor.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -97,20 +97,18 @@ app.get('/api/danmaku', async (req, res) => {
 
 // 获取 PM2 进程状态
 app.get('/api/status', (req, res) => {
-  pm2.connect((err) => {
-    if (err) {
-      console.error('PM2 Connection Error:', err);
-      return res.status(500).json({ error: '无法连接到进程管理器' });
+  // 使用 exec 执行 npx pm2 jlist 获取 JSON 格式的进程列表
+  // 这种方式比 pm2 库连接更可靠，因为它直接复用了 shell 环境
+  exec('npx pm2 jlist', (error: Error | null, stdout: string, stderr: string) => {
+    if (error) {
+      console.error('PM2 Exec Error:', error);
+      console.error('Stderr:', stderr);
+      return res.status(500).json({ error: '无法获取进程列表' });
     }
 
-    pm2.list((err, list) => {
-      pm2.disconnect();
-      if (err) {
-        console.error('PM2 List Error:', err);
-        return res.status(500).json({ error: '获取进程列表失败' });
-      }
-
-      const status = list.map(proc => ({
+    try {
+      const list = JSON.parse(stdout);
+      const status = list.map((proc: any) => ({
         name: proc.name,
         status: proc.pm2_env?.status,
         cpu: proc.monit?.cpu,
@@ -118,9 +116,11 @@ app.get('/api/status', (req, res) => {
         uptime: proc.pm2_env?.pm_uptime,
         id: proc.pm_id
       }));
-
       res.json(status);
-    });
+    } catch (parseError) {
+      console.error('PM2 Parse Error:', parseError);
+      res.status(500).json({ error: '解析进程数据失败' });
+    }
   });
 });
 
