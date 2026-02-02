@@ -1,0 +1,48 @@
+name: 自动部署 Danmu 项目 (前后端分离)
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: set Node.js condition
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install & Build Frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Deploy Frontend
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "dist/*"
+          target: "/opt/1panel/www/sites/43.143.121.223/index"
+          strip_components: 1
+
+      - name: Update Backend & Restart
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            cd /opt/1panel/apps/danmu-tools
+            
+            git pull origin master
+            
+            docker-compose up --build -d
+            
+            docker image prune -f
