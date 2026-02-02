@@ -113,6 +113,13 @@
         
         <!-- About -->
         <div class="drawer-section">
+          <div class="drawer-item clickable" @click="openProcessMonitor">
+            <div class="item-left">
+              <el-icon><Monitor /></el-icon>
+              <span>服务监控</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
           <div class="drawer-item clickable" @click="aboutDialogVisible = true">
             <div class="item-left">
               <el-icon><InfoFilled /></el-icon>
@@ -154,6 +161,50 @@
       append-to-body
     >
       <TimelineAnalysis v-if="timelineDialogVisible" />
+    </el-dialog>
+
+    <!-- Process Monitor Dialog -->
+    <el-dialog
+      v-model="processDialogVisible"
+      title="服务运行状态"
+      :width="isMobile ? '90%' : '500px'"
+      align-center
+      append-to-body
+    >
+      <div v-loading="loadingProcess" class="process-list-container">
+        <div class="process-header">
+          <span>进程列表</span>
+          <el-button :icon="Refresh" circle size="small" @click="fetchProcessStatus" />
+        </div>
+        <el-empty v-if="!processList.length && !loadingProcess" description="未检测到运行中的进程" />
+        <div v-else class="process-list">
+          <div v-for="proc in processList" :key="proc.id" class="process-item">
+            <div class="process-main">
+              <div class="process-name">
+                <span class="status-indicator" :class="proc.status"></span>
+                {{ proc.name }}
+              </div>
+              <el-tag :type="proc.status === 'online' ? 'success' : 'info'" size="small" effect="plain">
+                {{ proc.status }}
+              </el-tag>
+            </div>
+            <div class="process-details">
+              <div class="detail-item">
+                <span class="label">CPU</span>
+                <span class="value">{{ proc.cpu }}%</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">内存</span>
+                <span class="value">{{ formatMemory(proc.memory) }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="label">运行时长</span>
+                <span class="value">{{ formatUptime(proc.uptime) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </el-dialog>
 
     <!-- About Dialog -->
@@ -229,8 +280,9 @@ import {
   Moon, 
   ZoomIn,
   Histogram,
-  Download,
-  Position
+  Position,
+  Monitor,
+  Refresh
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import TimelineAnalysis from './TimelineAnalysis.vue';
@@ -243,6 +295,44 @@ const aboutDialogVisible = ref(false);
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
 const isMobile = ref(window.innerWidth <= 768);
+
+// Process Monitor
+const processDialogVisible = ref(false);
+const processList = ref<any[]>([]);
+const loadingProcess = ref(false);
+
+const openProcessMonitor = () => {
+  processDialogVisible.value = true;
+  fetchProcessStatus();
+};
+
+const fetchProcessStatus = async () => {
+  loadingProcess.value = true;
+  try {
+    const res = await fetch(import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/api/status` : '/api/status');
+    if (res.ok) {
+      processList.value = await res.json();
+    }
+  } catch (e) {
+    console.error('Failed to fetch process status', e);
+  } finally {
+    loadingProcess.value = false;
+  }
+};
+
+const formatMemory = (bytes: number) => {
+  if (!bytes) return '0 MB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+};
+
+const formatUptime = (timestamp: number) => {
+  if (!timestamp) return '-';
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  return `${minutes}m`;
+};
 
 const handleResize = () => {
   isMobile.value = window.innerWidth <= 768;
@@ -482,5 +572,75 @@ onUnmounted(() => {
 
 .changelog-list li strong {
     color: var(--text-primary);
+}
+
+.process-list-container {
+  padding: 10px 0;
+}
+.process-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  font-weight: bold;
+  color: var(--el-text-color-primary);
+}
+.process-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.process-item {
+  background: var(--el-bg-color-page);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+.process-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.process-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--el-color-info);
+}
+.status-indicator.online {
+  background-color: var(--el-color-success);
+}
+.status-indicator.stopped, .status-indicator.errored {
+  background-color: var(--el-color-danger);
+}
+.process-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.detail-item .label {
+  font-size: 10px;
+  opacity: 0.8;
+}
+.detail-item .value {
+  font-weight: 500;
+  font-family: monospace;
 }
 </style>

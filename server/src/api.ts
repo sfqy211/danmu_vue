@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
+import pm2 from 'pm2';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged } from './processor.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +93,35 @@ app.get('/api/danmaku', async (req, res) => {
     console.error('API Error /api/danmaku:', error);
     res.status(500).json({ error: error.message || '获取弹幕失败' });
   }
+});
+
+// 获取 PM2 进程状态
+app.get('/api/status', (req, res) => {
+  pm2.connect((err) => {
+    if (err) {
+      console.error('PM2 Connection Error:', err);
+      return res.status(500).json({ error: '无法连接到进程管理器' });
+    }
+
+    pm2.list((err, list) => {
+      pm2.disconnect();
+      if (err) {
+        console.error('PM2 List Error:', err);
+        return res.status(500).json({ error: '获取进程列表失败' });
+      }
+
+      const status = list.map(proc => ({
+        name: proc.name,
+        status: proc.pm2_env?.status,
+        cpu: proc.monit?.cpu,
+        memory: proc.monit?.memory,
+        uptime: proc.pm2_env?.pm_uptime,
+        id: proc.pm_id
+      }));
+
+      res.json(status);
+    });
+  });
 });
 
 // 监听 data/danmaku 目录下的 XML 文件变化
