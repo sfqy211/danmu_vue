@@ -125,7 +125,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>弹幕预览工具 Vue版 v1.0</p>
+          <p>弹幕预览工具 Vue版 v1.1</p>
         </div>
       </template>
     </el-drawer>
@@ -160,7 +160,7 @@
     <el-dialog
       v-model="aboutDialogVisible"
       title="关于本工具"
-      width="500px"
+      :width="isMobile ? '90%' : '550px'"
       align-center
       append-to-body
       class="about-dialog"
@@ -176,6 +176,29 @@
             <li><strong>全场热度分布</strong>：基于整场直播的时间轴统计，直观呈现直播过程中的弹幕高能时刻。</li>
             <li><strong>跨端响应式布局</strong>：完美适配网页与手机端，网页端左右分栏提升效率，手机端上下布局优化观感。</li>
           </ul>
+        </div>
+        
+        <el-divider />
+
+        <div class="about-section">
+          <h3>更新日志</h3>
+          <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v1.1 - 2026-02-02 (最新更新)" name="1.1">
+              <ul class="changelog-list">
+                <li><strong>手机端图表优化</strong>：弹幕时间轴分析图表在手机端支持强制横屏旋转显示，提升观看体验，增加扇形图显示。</li>
+                <li><strong>侧边栏按需加载</strong>：默认不加载回放列表，仅在选择主播后加载，大幅减少初始流量消耗。</li>
+                <li><strong>界面细节优化</strong>：手机端统计弹窗支持全屏显示，优化了 UID 的展示方式。</li>
+                <li><strong>交互修复</strong>：修复了手机端侧边栏宽度调整条无法拖动的问题。</li>
+              </ul>
+            </el-collapse-item>
+            <el-collapse-item title="v1.0 - 2026-01-20" name="1.0">
+              <ul class="changelog-list">
+                <li><strong>基础功能上线</strong>：支持弹幕列表查看、主播筛选、基本的统计分析。</li>
+                <li><strong>可视化集成</strong>：集成 ECharts 实现柱状图统计。</li>
+                <li><strong>导出功能</strong>：支持统计图表导出为图片或复制到剪贴板。</li>
+              </ul>
+            </el-collapse-item>
+          </el-collapse>
         </div>
         
         <el-divider />
@@ -424,5 +447,39 @@ onUnmounted(() => {
 }
 .about-section li {
     margin-bottom: 5px;
+}
+
+.changelog-collapse {
+    border: none;
+    margin-top: 10px;
+}
+
+:deep(.changelog-collapse .el-collapse-item__header) {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background-color: transparent;
+    height: 40px;
+}
+
+:deep(.changelog-collapse .el-collapse-item__content) {
+    padding-bottom: 10px;
+    color: var(--text-secondary);
+}
+
+.changelog-list {
+    margin: 0;
+    padding-left: 18px;
+    list-style-type: disc;
+}
+
+.changelog-list li {
+    font-size: 13px;
+    margin-bottom: 6px;
+    line-height: 1.5;
+}
+
+.changelog-list li strong {
+    color: var(--text-primary);
 }
 </style>
