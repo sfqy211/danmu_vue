@@ -41,18 +41,43 @@ npm run dev:all
 
 #### 弹幕监控开启方式
 - `pm2 start ecosystem.config.cjs`
-### 生产环境部署 (1Panel + PM2)
+### 生产环境部署 (1Panel)
 
-项目采用前后端分离部署方案，建议使用 1Panel 面板进行管理。
+建议使用 1Panel 面板进行管理，提供 Docker 一键部署与 PM2 手动部署两种方案。
 
-### 1. 后端部署 (API & 录制监控)
+---
+
+### 方案一：Docker 部署 (推荐)
+
+使用 Docker 部署可以一键完成前后端环境搭建，无需在宿主机安装 Node.js。
+
+1. **上传文件**：将项目所有文件上传到服务器目录（如 `/opt/1panel/apps/danmu-tools`）。
+2. **创建 Compose 项目**：
+   - 进入 1Panel 控制台 -> **容器** -> **编排 (Compose)**。
+   - 点击 **创建**，项目名称填 `danmu-server`。
+   - 在 **编辑编排文件** 中，填入项目根目录下的 `docker-compose.yml` 内容。
+   - 点击 **确认**，1Panel 会自动构建镜像并启动容器。
+3. **查看日志**：
+   - 在 **容器** 列表中点击 `danmu-server` 容器的 **日志** 图标，查看录制状态。
+4. **访问说明**：
+   - 默认访问端口为 `5200`（可在 `docker-compose.yml` 中修改）。
+   - 该方案会自动编译前端代码并由后端服务统一托管，无需额外配置 Nginx 即可通过 `http://服务器IP:5200` 直接访问。
+   - 数据存储在宿主机的 `./server/data` 目录下。
+
+---
+
+### 方案二：PM2 手动部署
+
+如果你希望直接在宿主机运行，可采用此方案。
+
+#### 1. 后端部署 (API & 录制监控)
 
 1. **上传文件**：将以下文件上传到服务器目录（例如 `/opt/1panel/apps/danmu-tools`）：
    - `server/` 文件夹 (包含源码和后端 `package.json`)
    - `ecosystem.config.cjs` (PM2 配置文件)
    - `package.json` (根目录配置文件)
    - `tsconfig.json` (根目录配置文件)
-   - `.env` (可选，配置 BILI_COOKIE)
+   - `.env` (配置 BILI_COOKIE)
 
 2. **创建 Node.js 项目**：
    - 在 1Panel 中创建 Node.js 项目。

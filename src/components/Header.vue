@@ -185,6 +185,7 @@
           <el-collapse class="changelog-collapse">
             <el-collapse-item title="v1.1 - 2026-02-02 (最新更新)" name="1.1">
               <ul class="changelog-list">
+                <li><strong>自动化部署上线</strong>：成功配置 GitHub Actions，实现代码推送后自动编译、上传并重启服务。</li>
                 <li><strong>手机端图表优化</strong>：弹幕时间轴分析图表在手机端支持强制横屏旋转显示，提升观看体验，增加扇形图显示。</li>
                 <li><strong>侧边栏按需加载</strong>：默认不加载回放列表，仅在选择主播后加载，大幅减少初始流量消耗。</li>
                 <li><strong>界面细节优化</strong>：手机端统计弹窗支持全屏显示，优化了 UID 的展示方式。</li>
