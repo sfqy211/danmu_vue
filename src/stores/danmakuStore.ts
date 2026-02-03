@@ -52,7 +52,12 @@ export const useDanmakuStore = defineStore('danmaku', () => {
       
       // Load ONLY summary by default
       const summaryRes = await getSessionSummary(sessionId);
-      sessionSummary.value = summaryRes.summary || null;
+      
+      // 合并摘要字段，确保保留 gift_summary_json 等顶级字段
+      sessionSummary.value = {
+        ...summaryRes,
+        ...(summaryRes.summary || {})
+      };
       
       // Get total count from summary if available
       if (sessionSummary.value && sessionSummary.value.totalCount) {

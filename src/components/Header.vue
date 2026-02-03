@@ -76,6 +76,13 @@
             </div>
             <el-icon><ArrowRight /></el-icon>
           </div>
+          <div class="drawer-item clickable" @click="openRevenue">
+            <div class="item-left">
+              <el-icon><Wallet /></el-icon>
+              <span>营收统计</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
           <div class="drawer-item clickable" @click="openTimeline">
             <div class="item-left">
               <el-icon><Histogram /></el-icon>
@@ -157,6 +164,19 @@
       append-to-body
     >
       <DanmakuStats v-if="statsDialogVisible" />
+    </el-dialog>
+
+    <!-- Revenue Dialog -->
+    <el-dialog
+      v-model="revenueDialogVisible"
+      title="营收统计"
+      :width="isMobile ? '100%' : '70%'"
+      :fullscreen="isMobile"
+      destroy-on-close
+      align-center
+      append-to-body
+    >
+      <RevenueStats v-if="revenueDialogVisible" />
     </el-dialog>
 
     <!-- Timeline Dialog -->
@@ -248,14 +268,17 @@ import {
   Position,
   Monitor,
   CircleCheckFilled,
-  WarningFilled
+  WarningFilled,
+  Wallet
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
+import RevenueStats from './RevenueStats.vue';
 import TimelineAnalysis from './TimelineAnalysis.vue';
 
 const router = useRouter();
 const store = useDanmakuStore();
 const statsDialogVisible = ref(false);
+const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
 const drawerVisible = ref(false);
@@ -289,6 +312,10 @@ const handleResize = () => {
 
 const openStats = () => {
   statsDialogVisible.value = true;
+};
+
+const openRevenue = () => {
+  revenueDialogVisible.value = true;
 };
 
 const openTimeline = () => {

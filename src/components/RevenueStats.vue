@@ -1,16 +1,16 @@
 <template>
   <StatsBase 
-    :title="`弹幕发送统计 - ${streamerName}`"
+    :title="`营收统计 - ${streamerName}`"
     :sub-title="sessionTime"
-    :summary="`显示 ${filteredStats.length} / ${stats.length} 位用户 | 总弹幕 ${totalDanmaku} 条 | 1 场直播`"
-    :file-name-prefix="`弹幕统计_${streamerName}`"
+    :summary="summaryText"
+    :file-name-prefix="`营收统计_${streamerName}`"
   >
     <!-- 列表视图 -->
-    <div v-if="viewMode === 'bar'" class="stats-list">
-      <div v-if="filteredStats.length === 0" class="empty-tip">
-        没有匹配的用户
+    <div v-if="viewMode === 'user'" class="stats-list">
+      <div v-if="userStatsList.length === 0" class="empty-tip">
+        暂无营收数据
       </div>
-      <div v-else v-for="(item) in filteredStats" :key="item.name" class="user-stats-row">
+      <div v-else v-for="(item) in filteredUserStats" :key="item.name" class="user-stats-row">
         <div class="user-name-col" :title="`${item.name}${item.uid ? ' (ID: ' + item.uid + ')' : ''}`">
           <div class="user-name-text">{{ item.name }}</div>
           <div class="user-id-text" v-if="item.uid">ID: {{ item.uid }}</div>
@@ -19,67 +19,64 @@
           <div class="bar-bg">
             <div 
               class="bar-fill" 
-              :style="{ width: (item.count / maxCount * 100) + '%' }"
+              :style="{ width: (item.totalPrice / maxUserPrice * 100) + '%' }"
             ></div>
           </div>
         </div>
         <div class="count-col">
-          {{ item.count }}
+          ¥{{ item.totalPrice.toFixed(1) }}
         </div>
       </div>
     </div>
-    
+
     <!-- 扇形图视图 -->
     <div v-else class="chart-wrapper">
       <div ref="pieChartRef" class="pie-chart"></div>
     </div>
 
     <template #filters>
-      <template v-if="viewMode === 'bar'">
-        <span class="label">最少弹幕数:</span>
+      <div v-if="viewMode === 'user'" class="filter-item">
+        <span class="label">最少打赏金额:</span>
         <el-slider 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
+          v-model="minPrice" 
+          :min="0" 
+          :max="maxPossiblePrice" 
           class="count-slider"
-          :show-tooltip="false"
         />
         <el-input-number 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
+          v-model="minPrice" 
+          :min="0" 
+          :max="maxPossiblePrice" 
           size="small" 
           controls-position="right"
           class="count-input"
         />
-      </template>
-      <template v-else>
+      </div>
+      <div v-else class="filter-item">
         <span class="label">显示前 {{ topN }} 名:</span>
         <el-slider 
           v-model="topN" 
-          :min="5" 
-          :max="20" 
-          :step="1"
+          :min="1" 
+          :max="maxTopN" 
           class="count-slider"
-          :show-tooltip="true"
         />
         <el-input-number 
           v-model="topN" 
-          :min="5" 
-          :max="20" 
+          :min="1" 
+          :max="maxTopN" 
           size="small" 
           controls-position="right"
           class="count-input"
         />
-      </template>
+      </div>
     </template>
 
     <template #actions>
       <el-radio-group v-model="viewMode" size="small" @change="handleViewChange" class="view-toggle custom-toggle">
-        <el-radio-button value="bar">
-          <el-icon><Menu /></el-icon>
+        <el-radio-button value="user" title="用户排行">
+          <el-icon><User /></el-icon>
         </el-radio-button>
-        <el-radio-button value="pie">
+        <el-radio-button value="pie" title="占比分布">
           <el-icon><PieChart /></el-icon>
         </el-radio-button>
       </el-radio-group>
@@ -90,14 +87,14 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
-import { Menu, PieChart } from '@element-plus/icons-vue';
+import { User, PieChart } from '@element-plus/icons-vue';
 import * as echarts from 'echarts';
 import StatsBase from './StatsBase.vue';
 
 const store = useDanmakuStore();
-const minCount = ref(1);
-const topN = ref(5);
-const viewMode = ref<'bar' | 'pie'>('bar');
+const minPrice = ref(0);
+const topN = ref(20);
+const viewMode = ref<'user' | 'pie'>('user');
 const pieChartRef = ref<HTMLElement | null>(null);
 let chartInstance: echarts.ECharts | null = null;
 
@@ -118,60 +115,59 @@ const sessionTime = computed(() => {
   }).replace(/\//g, '-');
 });
 
-const stats = computed(() => {
-  if (store.sessionSummary && store.sessionSummary.userStats) {
-    // Use full session stats from server
-    return Object.entries(store.sessionSummary.userStats)
-      .map(([name, data]: [string, any]) => ({
-        name,
-        count: data.count,
-        scCount: data.scCount,
-        uid: data.uid || ''
-      }))
-      .sort((a, b) => b.count - a.count);
+// 解析 gift_summary_json
+const giftData = computed(() => {
+  if (!store.sessionSummary || !store.sessionSummary.gift_summary_json) {
+    return null;
   }
+  try {
+    const raw = store.sessionSummary.gift_summary_json;
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (e) {
+    console.error('Failed to parse gift_summary_json', e);
+    return null;
+  }
+});
 
-  // Fallback: Process partial data from store.danmakuList
-  const userStats: Record<string, { count: number; scCount: number; firstTime: number; uid: string }> = {};
+const userStatsList = computed(() => {
+  if (!giftData.value || !giftData.value.userStats) return [];
   
-  store.danmakuList.forEach(d => {
-    if (!userStats[d.user]) {
-      userStats[d.user] = {
-        count: 0,
-        scCount: 0,
-        firstTime: d.timestamp,
-        uid: d.uid || ''
-      };
-    }
-    userStats[d.user].count++;
-    if (d.isSC) {
-      userStats[d.user].scCount++;
-    }
-  });
-
-  const sorted = Object.entries(userStats)
-    .map(([name, data]) => ({
+  return Object.entries(giftData.value.userStats)
+    .map(([name, stats]: [string, any]) => ({
       name,
-      ...data
+      totalPrice: stats.totalPrice || 0,
+      giftPrice: stats.giftPrice || 0,
+      scPrice: stats.scPrice || 0,
+      uid: stats.uid || ''
     }))
-    .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return a.firstTime - b.firstTime;
-    });
-
-  return sorted;
+    .sort((a, b) => b.totalPrice - a.totalPrice);
 });
 
-const totalDanmaku = computed(() => {
-  if (store.sessionSummary && store.sessionSummary.totalCount) {
-    return store.sessionSummary.totalCount;
+const totalRevenue = computed(() => {
+  return giftData.value?.totalPrice || 0;
+});
+
+const summaryText = computed(() => {
+  if (!giftData.value) return '暂无营收数据';
+  return `总营收 ¥${totalRevenue.value.toFixed(1)} | 参与人数 ${userStatsList.value.length} 人`;
+});
+
+const maxUserPrice = computed(() => userStatsList.value.length > 0 ? userStatsList.value[0].totalPrice : 0);
+
+const filteredUserStats = computed(() => {
+  if (viewMode.value === 'user') {
+    return userStatsList.value.filter(item => item.totalPrice >= minPrice.value);
+  } else {
+    return userStatsList.value.slice(0, topN.value);
   }
-  return store.danmakuList.length;
 });
-const maxCount = computed(() => stats.value.length > 0 ? stats.value[0].count : 0);
 
-const filteredStats = computed(() => {
-  return stats.value.filter(item => item.count >= minCount.value);
+const maxPossiblePrice = computed(() => {
+  return userStatsList.value.length > 0 ? Math.ceil(userStatsList.value[0].totalPrice) : 100;
+});
+
+const maxTopN = computed(() => {
+  return Math.max(userStatsList.value.length, 10);
 });
 
 const handleViewChange = async () => {
@@ -198,24 +194,19 @@ const initChart = () => {
 const updateChart = () => {
   if (!chartInstance || viewMode.value !== 'pie') return;
 
-  // Clone and sort data
-  const sortedData = [...stats.value].sort((a, b) => b.count - a.count);
-  
-  // Take top N
-  const topData = sortedData.slice(0, topN.value);
-  
-  // Calculate others
-  const othersCount = sortedData.slice(topN.value).reduce((sum, item) => sum + item.count, 0);
-  
-  const chartData = topData.map(item => ({
+  const data = filteredUserStats.value.map(item => ({
     name: item.name,
-    value: item.count
+    value: item.totalPrice
   }));
 
-  if (othersCount > 0) {
-    chartData.push({
+  const othersPrice = userStatsList.value
+    .slice(topN.value)
+    .reduce((sum, item) => sum + item.totalPrice, 0);
+
+  if (othersPrice > 0) {
+    data.push({
       name: '其他',
-      value: othersCount
+      value: Math.round(othersPrice * 10) / 10
     });
   }
 
@@ -224,7 +215,7 @@ const updateChart = () => {
   const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'item',
-      formatter: '{b}: {c} ({d}%)'
+      formatter: '{b}: ¥{c} ({d}%)'
     },
     legend: {
       show: isMobile,
@@ -240,7 +231,7 @@ const updateChart = () => {
     },
     series: [
       {
-        name: '弹幕统计',
+        name: '营收分布',
         type: 'pie',
         radius: isMobile ? ['30%', '60%'] : ['40%', '70%'],
         center: isMobile ? ['50%', '40%'] : ['50%', '50%'],
@@ -253,7 +244,7 @@ const updateChart = () => {
         label: {
           show: true,
           position: isMobile ? 'inner' : 'outside',
-          formatter: isMobile ? '{b}' : '{b}: {c} ({d}%)',
+          formatter: isMobile ? '{b}' : '{b}: ¥{c} ({d}%)',
           fontSize: isMobile ? 10 : 14,
           color: isMobile ? '#fff' : 'inherit',
           textBorderColor: isMobile ? 'rgba(0,0,0,0.5)' : 'none',
@@ -265,7 +256,7 @@ const updateChart = () => {
             fontSize: isMobile ? 12 : 18,
             fontWeight: 'bold',
             position: isMobile ? 'inner' : 'outside',
-            formatter: '{b}: {c} ({d}%)'
+            formatter: '{b}: ¥{c} ({d}%)'
           }
         },
         labelLine: {
@@ -274,7 +265,7 @@ const updateChart = () => {
           length2: 10,
           smooth: true
         },
-        data: chartData
+        data: data
       }
     ]
   };
@@ -282,7 +273,7 @@ const updateChart = () => {
   chartInstance.setOption(option);
 };
 
-watch([filteredStats, topN], () => {
+watch([filteredUserStats, minPrice], () => {
   if (viewMode.value === 'pie') {
     updateChart();
   }
@@ -303,7 +294,8 @@ const handleResize = () => {
 </script>
 
 <style scoped>
-/* Specific styles for DanmakuStats */
+/* Reuse styles from DanmakuStats/StatsBase where possible */
+/* Specific list styles */
 .stats-list {
   height: 100%;
   overflow-y: auto;
@@ -358,17 +350,27 @@ const handleResize = () => {
 
 .bar-fill {
   height: 100%;
-  background-color: #0071e3;
+  background-color: #ff9500; /* Orange for money/gold */
   border-radius: 5px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .count-col {
-  width: 50px;
+  width: 100px; /* Wider for price */
   text-align: right;
   font-size: 0.95rem;
   color: var(--text-secondary);
   font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.sub-text {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
 }
 
 .empty-tip {
@@ -393,11 +395,11 @@ const handleResize = () => {
 
 /* Deep overrides for element-plus */
 :deep(.el-slider__bar) {
-  background-color: #0071e3;
+  background-color: #ff9500;
 }
 
 :deep(.el-slider__button) {
-  border-color: #0071e3;
+  border-color: #ff9500;
 }
 
 :deep(.el-input-number.is-controls-right .el-input-number__increase),
