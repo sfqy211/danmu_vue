@@ -95,6 +95,45 @@ app.get('/api/danmaku', async (req, res) => {
   }
 });
 
+// 获取 AI 分析结果
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing session ID' });
+    }
+
+    // TODO: 实现真正的 AI 分析逻辑 (调用本地 LLM 或 外部 API)
+    // 目前先返回一个模拟结果，证明接口已打通
+    
+    // 模拟延时
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const mockAnalysis = `
+# 弹幕情感分析报告 (模拟数据)
+
+## 核心观点
+本次直播观众情绪高涨，主要集中在以下几个话题：
+1. 对主播操作的赞赏 (60%)
+2. 玩梗互动 (30%)
+3. 其他讨论 (10%)
+
+## 热门关键词
+- 666
+- 哈哈哈哈
+- 强啊
+- 这种事情见多了
+
+*注：此功能为接口测试，尚未接入真实 AI 模型。*
+    `;
+
+    res.json({ analysis: mockAnalysis });
+  } catch (error) {
+    console.error('API Error /api/analyze:', error);
+    res.status(500).json({ error: 'AI 分析服务暂不可用' });
+  }
+});
+
 // 获取 PM2 进程状态
 app.get('/api/pm2-status', (req, res) => {
   pm2.connect((err) => {

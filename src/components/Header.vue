@@ -90,6 +90,13 @@
             </div>
             <el-icon><ArrowRight /></el-icon>
           </div>
+          <div class="drawer-item clickable" @click="openAiAnalysis">
+            <div class="item-left">
+              <el-icon><MagicStick /></el-icon>
+              <span>弹幕AI分析</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
         </div>
 
         <el-divider />
@@ -148,7 +155,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>弹幕预览工具 Vue版 v1.1</p>
+          <p>弹幕预览工具 Vue版 v1.2</p>
         </div>
       </template>
     </el-drawer>
@@ -192,6 +199,19 @@
       <TimelineAnalysis v-if="timelineDialogVisible" />
     </el-dialog>
 
+    <!-- AI Analysis Dialog -->
+    <el-dialog
+      v-model="aiAnalysisDialogVisible"
+      title="弹幕 AI 分析"
+      :width="isMobile ? '100%' : '70%'"
+      :fullscreen="isMobile"
+      destroy-on-close
+      align-center
+      append-to-body
+    >
+      <AiAnalysis v-if="aiAnalysisDialogVisible" />
+    </el-dialog>
+
     <!-- About Dialog -->
     <el-dialog
       v-model="aboutDialogVisible"
@@ -219,7 +239,16 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
-            <el-collapse-item title="v1.1 - 2026-02-02 (最新更新)" name="1.1">
+            <el-collapse-item title="v1.2 - 2026-02-03 (最新更新)" name="1.2">
+              <ul class="changelog-list">
+                <li><strong>组件重构与复用</strong>：抽象并统一了统计逻辑，封装为通用的数据统计组件，提升代码可维护性。</li>
+                <li><strong>营收统计深度优化</strong>：新增营收统计功能，支持按金额筛选和用户排行，并修复了数据丢失与计算精度问题。</li>
+                <li><strong>交互体验升级</strong>：统计图表标签支持随滑动条实时动态更新，扇形图改为实心样式，视觉效果更扎实。</li>
+                <li><strong>配置灵活性提升</strong>：支持为不同类型的统计设置独立的默认显示项数。</li>
+                <li><strong>准备添加AI分析</strong>：预留接口，未来版本将集成基于弹幕内容的智能分析功能。</li>
+              </ul>
+            </el-collapse-item>
+            <el-collapse-item title="v1.1 - 2026-02-02" name="1.1">
               <ul class="changelog-list">
                 <li><strong>自动化部署上线</strong>：成功配置 GitHub Actions，实现代码推送后自动编译、上传并重启服务。</li>
                 <li><strong>手机端图表优化</strong>：弹幕时间轴分析图表在手机端支持强制横屏旋转显示，提升观看体验，增加扇形图显示。</li>
@@ -254,6 +283,7 @@
 import { ref , onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
+import { ElMessage } from 'element-plus';
 import { 
   Search, 
   Setting, 
@@ -261,6 +291,7 @@ import {
   InfoFilled, 
   ArrowRight, 
   ArrowLeft,
+  MagicStick,
   Expand,
   Moon, 
   ZoomIn,
@@ -274,12 +305,14 @@ import {
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';
 import TimelineAnalysis from './TimelineAnalysis.vue';
+import AiAnalysis from './AiAnalysis.vue';
 
 const router = useRouter();
 const store = useDanmakuStore();
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
+const aiAnalysisDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
@@ -311,15 +344,35 @@ const handleResize = () => {
 };
 
 const openStats = () => {
+  if (!store.currentSession) {
+    ElMessage.warning('请在左侧直播回放中选择主播与具体场次');
+    return;
+  }
   statsDialogVisible.value = true;
 };
 
 const openRevenue = () => {
+  if (!store.currentSession) {
+    ElMessage.warning('请在左侧直播回放中选择主播与具体场次');
+    return;
+  }
   revenueDialogVisible.value = true;
 };
 
 const openTimeline = () => {
+  if (!store.currentSession) {
+    ElMessage.warning('请在左侧直播回放中选择主播与具体场次');
+    return;
+  }
   timelineDialogVisible.value = true;
+};
+
+const openAiAnalysis = () => {
+  if (!store.currentSession) {
+    ElMessage.warning('请在左侧直播回放中选择主播与具体场次');
+    return;
+  }
+  aiAnalysisDialogVisible.value = true;
 };
 
 const toggleTheme = (val: boolean) => {
