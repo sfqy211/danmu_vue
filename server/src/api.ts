@@ -5,8 +5,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
-import { exec } from 'node:child_process';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged } from './processor.js';
+import pm2 from 'pm2';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,31 +96,33 @@ app.get('/api/danmaku', async (req, res) => {
 });
 
 // 获取 PM2 进程状态
-app.get('/api/status', (req, res) => {
-  // 使用 exec 执行 npx pm2 jlist 获取 JSON 格式的进程列表
-  // 这种方式比 pm2 库连接更可靠，因为它直接复用了 shell 环境
-  exec('npx pm2 jlist', (error: Error | null, stdout: string, stderr: string) => {
-    if (error) {
-      console.error('PM2 Exec Error:', error);
-      console.error('Stderr:', stderr);
-      return res.status(500).json({ error: '无法获取进程列表' });
+app.get('/api/pm2-status', (req, res) => {
+  pm2.connect((err) => {
+    if (err) {
+      console.error('PM2 connect error:', err);
+      return res.status(500).json({ status: 'error', error: '无法连接到 PM2' });
     }
 
-    try {
-      const list = JSON.parse(stdout);
-      const status = list.map((proc: any) => ({
-        name: proc.name,
-        status: proc.pm2_env?.status,
-        cpu: proc.monit?.cpu,
-        memory: proc.monit?.memory,
-        uptime: proc.pm2_env?.pm_uptime,
-        id: proc.pm_id
-      }));
-      res.json(status);
-    } catch (parseError) {
-      console.error('PM2 Parse Error:', parseError);
-      res.status(500).json({ error: '解析进程数据失败' });
-    }
+    pm2.list((err, list) => {
+      pm2.disconnect(); // 获取完后断开连接，避免保持 socket
+      
+      if (err) {
+        console.error('PM2 list error:', err);
+        return res.status(500).json({ status: 'error', error: '无法获取进程列表' });
+      }
+
+      // 检查是否有任何进程处于 errored 状态
+      const hasError = list.some((p) => p.pm2_env?.status === 'errored');
+      
+      res.json({
+        status: hasError ? 'error' : 'success',
+        processes: list.map((p) => ({
+          name: p.name,
+          status: p.pm2_env?.status,
+          id: p.pm_id
+        }))
+      });
+    });
   });
 });
 

@@ -19,8 +19,6 @@ WORKDIR /app/server
 COPY server/package*.json ./
 # Install all dependencies (including devDependencies like tsx) to run typescript directly
 RUN npm install
-# Install PM2 globally
-RUN npm install pm2 -g
 
 # Create data directory
 RUN mkdir -p data/danmaku
@@ -28,5 +26,5 @@ RUN mkdir -p data/danmaku
 # Expose port
 EXPOSE 3001
 
-# Start server with PM2
-CMD ["pm2-runtime", "start", "src/api.ts", "--interpreter", "./node_modules/.bin/tsx", "--name", "danmu-api"]
+# Start server
+CMD ["npm", "start"]
