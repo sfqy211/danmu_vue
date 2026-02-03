@@ -1,105 +1,23 @@
 <template>
-  <StatsBase 
+  <DataStats
+    type="danmaku"
     :title="`弹幕发送统计 - ${streamerName}`"
     :sub-title="sessionTime"
-    :summary="`显示 ${filteredStats.length} / ${stats.length} 位用户 | 总弹幕 ${totalDanmaku} 条 | 1 场直播`"
+    :summary="`显示 ${stats.length} 位用户 | 总弹幕 ${totalDanmaku} 条 | 1 场直播`"
     :file-name-prefix="`弹幕统计_${streamerName}`"
-  >
-    <!-- 列表视图 -->
-    <div v-if="viewMode === 'bar'" class="stats-list">
-      <div v-if="filteredStats.length === 0" class="empty-tip">
-        没有匹配的用户
-      </div>
-      <div v-else v-for="(item) in filteredStats" :key="item.name" class="user-stats-row">
-        <div class="user-name-col" :title="`${item.name}${item.uid ? ' (ID: ' + item.uid + ')' : ''}`">
-          <div class="user-name-text">{{ item.name }}</div>
-          <div class="user-id-text" v-if="item.uid">ID: {{ item.uid }}</div>
-        </div>
-        <div class="bar-col">
-          <div class="bar-bg">
-            <div 
-              class="bar-fill" 
-              :style="{ width: (item.count / maxCount * 100) + '%' }"
-            ></div>
-          </div>
-        </div>
-        <div class="count-col">
-          {{ item.count }}
-        </div>
-      </div>
-    </div>
-    
-    <!-- 扇形图视图 -->
-    <div v-else class="chart-wrapper">
-      <div ref="pieChartRef" class="pie-chart"></div>
-    </div>
-
-    <template #filters>
-      <template v-if="viewMode === 'bar'">
-        <span class="label">最少弹幕数:</span>
-        <el-slider 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
-          class="count-slider"
-          :show-tooltip="false"
-        />
-        <el-input-number 
-          v-model="minCount" 
-          :min="1" 
-          :max="Math.max(1, maxCount)" 
-          size="small" 
-          controls-position="right"
-          class="count-input"
-        />
-      </template>
-      <template v-else>
-        <span class="label">显示前 {{ topN }} 名:</span>
-        <el-slider 
-          v-model="topN" 
-          :min="5" 
-          :max="20" 
-          :step="1"
-          class="count-slider"
-          :show-tooltip="true"
-        />
-        <el-input-number 
-          v-model="topN" 
-          :min="5" 
-          :max="20" 
-          size="small" 
-          controls-position="right"
-          class="count-input"
-        />
-      </template>
-    </template>
-
-    <template #actions>
-      <el-radio-group v-model="viewMode" size="small" @change="handleViewChange" class="view-toggle custom-toggle">
-        <el-radio-button value="bar">
-          <el-icon><Menu /></el-icon>
-        </el-radio-button>
-        <el-radio-button value="pie">
-          <el-icon><PieChart /></el-icon>
-        </el-radio-button>
-      </el-radio-group>
-    </template>
-  </StatsBase>
+    :data="stats"
+    filter-label="最少弹幕数"
+    empty-text="没有匹配的用户"
+    list-title="用户排行"
+  />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { computed } from 'vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
-import { Menu, PieChart } from '@element-plus/icons-vue';
-import * as echarts from 'echarts';
-import StatsBase from './StatsBase.vue';
+import DataStats from './DataStats.vue';
 
 const store = useDanmakuStore();
-const minCount = ref(1);
-const topN = ref(5);
-const viewMode = ref<'bar' | 'pie'>('bar');
-const pieChartRef = ref<HTMLElement | null>(null);
-let chartInstance: echarts.ECharts | null = null;
 
 const streamerName = computed(() => store.currentSession?.user_name || '未知主播');
 
@@ -120,46 +38,35 @@ const sessionTime = computed(() => {
 
 const stats = computed(() => {
   if (store.sessionSummary && store.sessionSummary.userStats) {
-    // Use full session stats from server
     return Object.entries(store.sessionSummary.userStats)
       .map(([name, data]: [string, any]) => ({
         name,
-        count: data.count,
-        scCount: data.scCount,
+        value: data.count,
         uid: data.uid || ''
       }))
-      .sort((a, b) => b.count - a.count);
+      .sort((a, b) => b.value - a.value);
   }
 
   // Fallback: Process partial data from store.danmakuList
-  const userStats: Record<string, { count: number; scCount: number; firstTime: number; uid: string }> = {};
+  const userStats: Record<string, { count: number; uid: string }> = {};
   
   store.danmakuList.forEach(d => {
     if (!userStats[d.user]) {
       userStats[d.user] = {
         count: 0,
-        scCount: 0,
-        firstTime: d.timestamp,
         uid: d.uid || ''
       };
     }
     userStats[d.user].count++;
-    if (d.isSC) {
-      userStats[d.user].scCount++;
-    }
   });
 
-  const sorted = Object.entries(userStats)
+  return Object.entries(userStats)
     .map(([name, data]) => ({
       name,
-      ...data
+      value: data.count,
+      uid: data.uid
     }))
-    .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return a.firstTime - b.firstTime;
-    });
-
-  return sorted;
+    .sort((a, b) => b.value - a.value);
 });
 
 const totalDanmaku = computed(() => {
@@ -168,284 +75,8 @@ const totalDanmaku = computed(() => {
   }
   return store.danmakuList.length;
 });
-const maxCount = computed(() => stats.value.length > 0 ? stats.value[0].count : 0);
-
-const filteredStats = computed(() => {
-  return stats.value.filter(item => item.count >= minCount.value);
-});
-
-const handleViewChange = async () => {
-  if (viewMode.value === 'pie') {
-    await nextTick();
-    initChart();
-  } else {
-    chartInstance?.dispose();
-    chartInstance = null;
-  }
-};
-
-const initChart = () => {
-  if (!pieChartRef.value) return;
-  
-  if (chartInstance) {
-    chartInstance.dispose();
-  }
-  
-  chartInstance = echarts.init(pieChartRef.value);
-  updateChart();
-};
-
-const updateChart = () => {
-  if (!chartInstance || viewMode.value !== 'pie') return;
-
-  // Clone and sort data
-  const sortedData = [...stats.value].sort((a, b) => b.count - a.count);
-  
-  // Take top N
-  const topData = sortedData.slice(0, topN.value);
-  
-  // Calculate others
-  const othersCount = sortedData.slice(topN.value).reduce((sum, item) => sum + item.count, 0);
-  
-  const chartData = topData.map(item => ({
-    name: item.name,
-    value: item.count
-  }));
-
-  if (othersCount > 0) {
-    chartData.push({
-      name: '其他',
-      value: othersCount
-    });
-  }
-
-  const isMobile = window.innerWidth <= 768;
-
-  const option: echarts.EChartsOption = {
-    tooltip: {
-      trigger: 'item',
-      formatter: '{b}: {c} ({d}%)'
-    },
-    legend: {
-      show: isMobile,
-      bottom: 0,
-      left: 'center',
-      type: 'scroll',
-      orient: 'horizontal',
-      itemWidth: 10,
-      itemHeight: 10,
-      textStyle: {
-        fontSize: 12
-      }
-    },
-    series: [
-      {
-        name: '弹幕统计',
-        type: 'pie',
-        radius: isMobile ? ['30%', '60%'] : ['40%', '70%'],
-        center: isMobile ? ['50%', '40%'] : ['50%', '50%'],
-        avoidLabelOverlap: true,
-        itemStyle: {
-          borderRadius: 10,
-          borderColor: '#fff',
-          borderWidth: 2
-        },
-        label: {
-          show: true,
-          position: isMobile ? 'inner' : 'outside',
-          formatter: isMobile ? '{b}' : '{b}: {c} ({d}%)',
-          fontSize: isMobile ? 10 : 14,
-          color: isMobile ? '#fff' : 'inherit',
-          textBorderColor: isMobile ? 'rgba(0,0,0,0.5)' : 'none',
-          textBorderWidth: isMobile ? 2 : 0
-        },
-        emphasis: {
-          label: {
-            show: true,
-            fontSize: isMobile ? 12 : 18,
-            fontWeight: 'bold',
-            position: isMobile ? 'inner' : 'outside',
-            formatter: '{b}: {c} ({d}%)'
-          }
-        },
-        labelLine: {
-          show: !isMobile,
-          length: 15,
-          length2: 10,
-          smooth: true
-        },
-        data: chartData
-      }
-    ]
-  };
-
-  chartInstance.setOption(option);
-};
-
-watch([filteredStats, topN], () => {
-  if (viewMode.value === 'pie') {
-    updateChart();
-  }
-});
-
-onMounted(() => {
-  window.addEventListener('resize', handleResize);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize);
-  chartInstance?.dispose();
-});
-
-const handleResize = () => {
-  chartInstance?.resize();
-};
 </script>
 
 <style scoped>
-/* Specific styles for DanmakuStats */
-.stats-list {
-  height: 100%;
-  overflow-y: auto;
-  padding-right: 8px;
-}
-
-.user-stats-row {
-  display: flex;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-  gap: 16px;
-}
-
-.user-name-col {
-  width: 120px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-}
-
-.user-name-text {
-  font-size: 0.9rem;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.user-id-text {
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.bar-col {
-  flex: 1;
-  padding: 0 4px;
-}
-
-.bar-bg {
-  height: 10px;
-  background-color: var(--bg-hover);
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  background-color: #0071e3;
-  border-radius: 5px;
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.count-col {
-  width: 50px;
-  text-align: right;
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.empty-tip {
-  text-align: center;
-  color: var(--text-tertiary);
-  padding: 40px 0;
-}
-
-/* Custom Scrollbar */
-.stats-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.stats-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.stats-list::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 3px;
-}
-
-/* Deep overrides for element-plus */
-:deep(.el-slider__bar) {
-  background-color: #0071e3;
-}
-
-:deep(.el-slider__button) {
-  border-color: #0071e3;
-}
-
-:deep(.el-input-number.is-controls-right .el-input-number__increase),
-:deep(.el-input-number.is-controls-right .el-input-number__decrease) {
-  background-color: var(--bg-hover);
-  border-left: 1px solid var(--border);
-}
-
-.chart-wrapper {
-  height: 100%;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.pie-chart {
-  width: 100%;
-  height: 100%;
-  min-height: 400px;
-}
-
-.view-toggle {
-  margin-right: 10px;
-}
-
-.custom-toggle :deep(.el-radio-button__inner) {
-  padding: 8px 12px;
-}
-
-@media (max-width: 768px) {
-  .user-name-col {
-    width: 90px;
-  }
-  
-  .count-slider {
-    order: 3;
-    width: 100%;
-    margin: 5px 10px !important;
-    flex: none;
-  }
-
-  .count-input {
-    order: 2;
-  }
-
-  .custom-toggle :deep(.el-radio-button__inner) {
-    padding: 6px 10px;
-  }
-}
+/* DataStats handles styles */
 </style>
