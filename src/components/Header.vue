@@ -223,7 +223,7 @@
         <div class="about-section">
           <h3>个人介绍</h3>
           <p>B站主页：<a href="https://space.bilibili.com/182587768" target="_blank">朔风秋叶</a></p>
-          <p>Github主页：<a href="https://github.com/sfqy211" target="_blank">sfqy211</a></p>
+          <p>项目主页：<a href="https://github.com/sfqy211/danmu_vue" target="_blank">danmu_vue</a></p>
         </div>
       </div>
     </el-dialog>

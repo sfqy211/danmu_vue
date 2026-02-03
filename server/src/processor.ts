@@ -37,9 +37,15 @@ export async function initDb() {
       end_time INTEGER,
       file_path TEXT,
       summary_json TEXT,
+      gift_summary_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  
+  // 检查是否存在 gift_summary_json 列，如果不存在则添加
+  try {
+    await dbRun('ALTER TABLE sessions ADD COLUMN gift_summary_json TEXT');
+  } catch (e) {}
 }
 
 // 导出初始化函数，确保在使用前调用
@@ -69,6 +75,20 @@ export interface AnalysisResult {
   };
   timeline: [number, number][];
   topKeywords: { word: string; count: number }[];
+}
+
+export interface GiftAnalysisResult {
+  totalPrice: number;
+  userStats: {
+    [userName: string]: {
+      totalPrice: number;
+      giftPrice: number;
+      scPrice: number;
+      uid: string;
+    };
+  };
+  timeline: [number, number][]; // [timestamp, price]
+  topGifts: { name: string; count: number; price: number }[];
 }
 
 let isDbInitialized = false;
@@ -167,17 +187,50 @@ export async function processDanmakuFile(filePath: string) {
     }
 
     // 提取礼物 <gift ...>
+    // 用户反馈：新版 gift 中 price 多了三个 0，需要除以 1000
     const giftRegex = /<gift ts="[^"]+" giftname="([^"]+)" giftcount="([^"]+)" price="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"/g;
+    let totalGiftPrice = 0;
     while ((match = giftRegex.exec(content)) !== null) {
+      // 礼物价格统一除以 1000
+      const price = (parseInt(match[3]) || 0) / 1000;
+      const count = parseInt(match[2]) || 1;
+      
       messages.push({
         type: 'give_gift',
         name: match[1],
-        count: parseInt(match[2]),
-        price: parseInt(match[3]),
+        count: count,
+        price: price,
         timestamp: parseInt(match[6]),
         sender: {
           name: match[4],
           uid: match[5]
+        }
+      });
+    }
+
+    // 提取 SC <sc ...>
+    // 格式: <sc ts="..." price="..." user="..." uid="..." ...>Content</sc>
+    // 用户反馈：
+    // 旧版 SC: 包含 ts="..."，价格多了三个 0，需要除以 1000
+    // 新版 SC: 不含 ts="..."，价格是真实的
+    const scRegex = /<sc [^>]*price="([^"]+)"[^>]*user="([^"]+)"[^>]*uid="([^"]+)"[^>]*timestamp="([^"]+)"[^>]*>(.*?)<\/sc>/g;
+    while ((match = scRegex.exec(content)) !== null) {
+      let price = parseFloat(match[1]) || 0; 
+      const fullTag = match[0];
+      
+      // 通过是否存在 ts="xxx" 来区分新旧版
+      if (fullTag.includes(' ts="')) {
+        price = price / 1000;
+      }
+      
+      messages.push({
+        type: 'super_chat',
+        text: match[5],
+        price: price,
+        timestamp: parseInt(match[4]),
+        sender: {
+          name: match[2],
+          uid: match[3]
         }
       });
     }
@@ -192,11 +245,23 @@ export async function processDanmakuFile(filePath: string) {
       topKeywords: []
     };
 
+    const giftAnalysis: GiftAnalysisResult = {
+      totalPrice: 0,
+      userStats: {},
+      timeline: [],
+      topGifts: []
+    };
+
     const timelineMap = new Map<number, number>();
+    const giftTimelineMap = new Map<number, number>();
     const keywordMap = new Map<string, number>();
+    const giftCountMap = new Map<string, { count: number; price: number }>();
+
+    // 辅助函数：保留一位小数，解决浮点数精度问题
+    const roundPrice = (p: number) => Math.round(p * 10) / 10;
 
     messages.forEach((msg) => {
-      // 1. 用户统计
+      // 1. 用户统计 (Chat)
       const userName = msg.sender.name;
       if (!analysis.userStats[userName]) {
         analysis.userStats[userName] = {
@@ -210,13 +275,48 @@ export async function processDanmakuFile(filePath: string) {
         analysis.userStats[userName].scCount++;
       }
 
-      // 2. 时间轴 (每分钟)
+      // 2. 礼物/SC 统计 (Gift)
+      if (msg.type === 'give_gift' || msg.type === 'super_chat') {
+        const price = msg.price || 0;
+        giftAnalysis.totalPrice += price;
+        
+        if (!giftAnalysis.userStats[userName]) {
+          giftAnalysis.userStats[userName] = {
+            totalPrice: 0,
+            giftPrice: 0,
+            scPrice: 0,
+            uid: msg.sender.uid
+          };
+        }
+        
+        giftAnalysis.userStats[userName].totalPrice += price;
+        if (msg.type === 'give_gift') {
+          giftAnalysis.userStats[userName].giftPrice += price;
+          // 统计热门礼物
+          const giftName = msg.name || 'Unknown';
+          if (!giftCountMap.has(giftName)) {
+            giftCountMap.set(giftName, { count: 0, price: 0 });
+          }
+          const g = giftCountMap.get(giftName)!;
+          g.count += (msg.count || 1);
+          g.price += price;
+        } else if (msg.type === 'super_chat') {
+          giftAnalysis.userStats[userName].scPrice += price;
+        }
+
+        // 礼物时间轴
+        const ts = msg.timestamp;
+        const bucketTime = Math.floor(ts / 60000) * 60000;
+        giftTimelineMap.set(bucketTime, (giftTimelineMap.get(bucketTime) || 0) + price);
+      }
+
+      // 3. 时间轴 (每分钟)
       const ts = msg.timestamp;
       const bucketTime = Math.floor(ts / 60000) * 60000;
       timelineMap.set(bucketTime, (timelineMap.get(bucketTime) || 0) + 1);
 
-      // 3. 关键词
-      if (msg.text && msg.text.length > 1) {
+      // 4. 关键词
+      if (msg.type === 'comment' && msg.text && msg.text.length > 1) {
         const words = msg.text.split(/\s+/);
         words.forEach(w => {
           if (w.length > 1) {
@@ -226,9 +326,30 @@ export async function processDanmakuFile(filePath: string) {
       }
     });
 
+    // 格式化数据并应用舍入逻辑
+    giftAnalysis.totalPrice = roundPrice(giftAnalysis.totalPrice);
+    
+    // 格式化用户统计
+    Object.keys(giftAnalysis.userStats).forEach(user => {
+      const stats = giftAnalysis.userStats[user];
+      stats.totalPrice = roundPrice(stats.totalPrice);
+      stats.giftPrice = roundPrice(stats.giftPrice);
+      stats.scPrice = roundPrice(stats.scPrice);
+    });
+
     // 格式化时间轴
     analysis.timeline = Array.from(timelineMap.entries())
       .sort((a, b) => a[0] - b[0]);
+    
+    giftAnalysis.timeline = Array.from(giftTimelineMap.entries())
+      .map(([ts, price]) => [ts, roundPrice(price)] as [number, number])
+      .sort((a, b) => a[0] - b[0]);
+
+    // 格式化热门礼物
+    giftAnalysis.topGifts = Array.from(giftCountMap.entries())
+      .map(([name, stats]) => ({ name, count: stats.count, price: roundPrice(stats.price) }))
+      .sort((a, b) => b.price - a.price)
+      .slice(0, 20);
 
     // 格式化关键词
     analysis.topKeywords = Array.from(keywordMap.entries())
@@ -265,8 +386,8 @@ export async function processDanmakuFile(filePath: string) {
     const endTime = messages.length > 0 ? messages[messages.length - 1].timestamp : Date.now();
     
     await dbRun(
-      `INSERT INTO sessions (room_id, title, user_name, start_time, end_time, file_path, summary_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sessions (room_id, title, user_name, start_time, end_time, file_path, summary_json, gift_summary_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         meta.room_id || '',
         meta.title || '未知直播',
@@ -274,7 +395,8 @@ export async function processDanmakuFile(filePath: string) {
         meta.recordStartTimestamp || Date.now(),
         endTime,
         relativeFilePath,
-        JSON.stringify(analysis)
+        JSON.stringify(analysis),
+        JSON.stringify(giftAnalysis)
       ]
     );
 
@@ -290,7 +412,7 @@ export async function processDanmakuFile(filePath: string) {
  */
 export async function getSessions(filters: { userName?: string; startTime?: number; endTime?: number } = {}) {
   await ensureDbInit();
-  let sql = 'SELECT id, room_id, title, user_name, start_time, end_time FROM sessions';
+  let sql = 'SELECT id, room_id, title, user_name, start_time, end_time, summary_json, gift_summary_json FROM sessions';
   const params: any[] = [];
   const whereClauses: string[] = [];
 
