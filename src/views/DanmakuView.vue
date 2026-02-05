@@ -14,6 +14,17 @@
         </div>
       </div>
     </div>
+    
+    <el-dialog
+      v-model="store.isVupListVisible"
+      title="VUP列表"
+      fullscreen
+      destroy-on-close
+      append-to-body
+      class="vup-list-dialog"
+    >
+      <VupList />
+    </el-dialog>
   </div>
 </template>
 
@@ -22,6 +33,7 @@ import { computed } from 'vue';
 import Sidebar from '../components/Sidebar.vue';
 import Header from '../components/Header.vue';
 import DanmakuList from '../components/DanmakuList.vue';
+import VupList from '../components/VupList.vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
 
 const store = useDanmakuStore();
@@ -92,5 +104,14 @@ const zoomStyle = computed(() => {
   .mobile-only {
     display: block;
   }
+}
+</style>
+
+<style>
+.vup-list-dialog .el-dialog__body {
+  padding: 0 !important;
+  height: calc(100vh - 54px); /* 减去头部高度 */
+  overflow: hidden;
+  background-color: var(--bg-primary);
 }
 </style>

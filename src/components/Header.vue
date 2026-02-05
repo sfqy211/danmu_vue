@@ -55,10 +55,10 @@
         <!-- Navigation -->
         <div class="drawer-section">
           <div class="section-title">导航</div>
-          <div class="drawer-item clickable" @click="router.push('/')">
+          <div class="drawer-item clickable" @click="handleVupListClick">
             <div class="item-left">
-              <el-icon><ArrowLeft /></el-icon>
-              <span>返回歌单列表</span>
+              <el-icon><List /></el-icon>
+              <span>VUP列表</span>
             </div>
             <el-icon><ArrowRight /></el-icon>
           </div>
@@ -281,7 +281,6 @@
 
 <script setup lang="ts">
 import { ref , onMounted, onUnmounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { ElMessage } from 'element-plus';
 import { 
@@ -290,7 +289,6 @@ import {
   DataAnalysis, 
   InfoFilled, 
   ArrowRight, 
-  ArrowLeft,
   MagicStick,
   Expand,
   Moon, 
@@ -300,14 +298,14 @@ import {
   Monitor,
   CircleCheckFilled,
   WarningFilled,
-  Wallet
+  Wallet,
+  List
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';
 import TimelineAnalysis from './TimelineAnalysis.vue';
 import AiAnalysis from './AiAnalysis.vue';
 
-const router = useRouter();
 const store = useDanmakuStore();
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
@@ -341,6 +339,11 @@ watch(drawerVisible, (val) => {
 
 const handleResize = () => {
   isMobile.value = window.innerWidth <= 768;
+};
+
+const handleVupListClick = () => {
+  store.toggleVupList();
+  drawerVisible.value = false;
 };
 
 const openStats = () => {

@@ -7,11 +7,7 @@
           <h1 class="page-title">VUP链接汇总</h1>
           <p class="page-subtitle">快速访问你喜爱的VUP主页、直播间和歌单</p>
         </div>
-        <div class="header-action">
-          <router-link to="/danmu" class="apple-button apple-primary link-btn">
-            <span class="icon">💬</span> 弹幕预览工具
-          </router-link>
-        </div>
+        <!-- Removed header-action (link to danmaku tool) -->
       </div>
 
       <div class="content-layout">
@@ -217,7 +213,7 @@ const filteredArtists = computed(() => {
   --home-text-secondary: #424245;
   --home-border: #E8E8ED;
   
-  height: 100vh;
+  height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--home-bg);
@@ -276,9 +272,6 @@ const filteredArtists = computed(() => {
     text-align: left;
     order: 1;
   }
-  .header-action {
-    order: 2;
-  }
 }
 
 .page-title {
@@ -291,20 +284,6 @@ const filteredArtists = computed(() => {
 .page-subtitle {
   font-size: 1rem;
   color: var(--home-text-secondary);
-}
-
-.link-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.625rem 1.5rem;
-  font-weight: 500;
-  text-decoration: none;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  border-radius: 0.75rem; /* 统一圆角 */
-}
-
-.icon {
-  margin-right: 0.5rem;
 }
 
 /* 布局 */

@@ -19,7 +19,8 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const searchText = ref('');
   const showSC = ref(true);
   const showDanmaku = ref(true);
-  const isSidebarCollapsed = ref(false);
+  const isSidebarCollapsed = ref(true);
+  const isVupListVisible = ref(false);
   const zoomLevel = ref(100);
 
   // Actions
@@ -28,6 +29,9 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   };
   const toggleSidebar = () => {
     isSidebarCollapsed.value = !isSidebarCollapsed.value;
+  };
+  const toggleVupList = () => {
+    isVupListVisible.value = !isVupListVisible.value;
   };
 
   const loadSession = async (session: SessionInfo | number) => {
@@ -143,9 +147,11 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     showSC,
     showDanmaku,
     isSidebarCollapsed,
+    isVupListVisible,
     zoomLevel,
     setZoomLevel,
     toggleSidebar,
+    toggleVupList,
     loadSession,
     fetchDanmaku,
     loadMore,
