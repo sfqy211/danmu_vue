@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId } from './processor.js';
+import { startAvatarScheduler } from './avatar_manager.js';
 import pm2 from 'pm2';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -253,4 +254,7 @@ app.get('*', (req, res) => {
 app.listen(Number(port), '0.0.0.0', () => {
   console.log(`API 服务已启动: http://0.0.0.0:${port}`);
   console.log(`正在监听目录: ${danmakuDir}`);
+  
+  // 启动头像自动更新服务
+  startAvatarScheduler();
 });

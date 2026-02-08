@@ -17,9 +17,8 @@
       <!-- 内容网格 -->
       <div class="content-grid">
         <div v-for="artist in filteredArtists" :key="artist.id" class="vup-card">
-          <div class="vup-avatar-placeholder">
-             <!-- 如果有头像可以用 img，这里暂时用首字代替 -->
-             {{ artist.name[0] }}
+          <div class="vup-avatar-wrapper">
+             <img :src="artist.imageUrl" :alt="artist.name" class="vup-avatar" @error="handleImageError" />
           </div>
           <div class="vup-info">
             <h3 class="vup-name">{{ artist.name }}</h3>
@@ -44,6 +43,20 @@ const selectedGroup = ref(GROUPS.OVO_FAMILY);
 const filteredArtists = computed(() => {
   return VUP_LIST.filter(artist => artist.groups.includes(selectedGroup.value));
 });
+
+const handleImageError = (e: Event) => {
+  const target = e.target as HTMLImageElement;
+  // 如果图片加载失败，显示默认占位图或颜色
+  target.style.display = 'none';
+  target.parentElement!.style.backgroundColor = '#409EFF';
+  target.parentElement!.textContent = target.alt[0];
+  target.parentElement!.style.display = 'flex';
+  target.parentElement!.style.alignItems = 'center';
+  target.parentElement!.style.justifyContent = 'center';
+  target.parentElement!.style.color = 'white';
+  target.parentElement!.style.fontSize = '24px';
+  target.parentElement!.style.fontWeight = 'bold';
+};
 </script>
 
 <style scoped>
@@ -130,18 +143,19 @@ const filteredArtists = computed(() => {
   background: rgba(0, 0, 0, 0.5);
 }
 
-.vup-avatar-placeholder {
+.vup-avatar-wrapper {
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: linear-gradient(45deg, #409EFF, #a0cfff);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 24px;
-  font-weight: bold;
+  overflow: hidden;
   flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.vup-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .vup-info {

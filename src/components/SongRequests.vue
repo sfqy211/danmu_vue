@@ -59,10 +59,6 @@
           <div class="label">点歌人数</div>
           <div class="value">{{ uniqueUsers }}</div>
         </div>
-        <div class="stats-card">
-          <div class="label">热门歌曲</div>
-          <div class="value text-truncate" :title="topSong">{{ topSong || '-' }}</div>
-        </div>
       </div>
 
       <el-table 
@@ -261,25 +257,6 @@ const uniqueUsers = computed(() => {
   // 这里暂时只显示当前页的，或者如果需要总数，后端需要提供
   const users = new Set(requests.value.map(r => r.uid));
   return users.size;
-});
-
-const topSong = computed(() => {
-  // 同样，只能统计当前页的热门歌曲
-  if (requests.value.length === 0) return '';
-  const counts: Record<string, number> = {};
-  requests.value.forEach(r => {
-    counts[r.song_name] = (counts[r.song_name] || 0) + 1;
-  });
-  
-  let max = 0;
-  let top = '';
-  Object.entries(counts).forEach(([name, count]) => {
-    if (count > max) {
-      max = count;
-      top = name;
-    }
-  });
-  return top;
 });
 
 const loadStreamers = async () => {

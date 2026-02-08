@@ -15,12 +15,17 @@
       <el-carousel-item v-for="streamer in featuredStreamers" :key="streamer.uid">
         <div class="carousel-slide">
           <!-- 背景层：模糊处理 -->
-          <div class="slide-background" :style="{ backgroundImage: `url(${streamer.imageUrl})` }"></div>
+          <div class="slide-background" :style="{ backgroundImage: `url(${streamer.coverUrl || streamer.imageUrl})` }"></div>
           
           <!-- 内容层：清晰展示 -->
           <div class="slide-content">
             <div class="image-card">
-              <img :src="streamer.imageUrl" :alt="streamer.name" class="streamer-avatar" />
+              <img 
+                :src="streamer.coverUrl || streamer.imageUrl" 
+                :alt="streamer.name" 
+                class="streamer-avatar" 
+                @error="handleImageError($event, streamer.imageUrl)"
+              />
             </div>
             
             <div class="info-container">
@@ -56,7 +61,12 @@
     </el-carousel>
 
     <!-- 自定义右侧垂直导航栏 -->
-    <div class="right-nav-bar">
+    <div 
+      class="right-nav-bar"
+      :class="{ visible: isNavVisible }"
+      @mouseenter="isNavVisible = true"
+      @mouseleave="isNavVisible = false"
+    >
       <div 
         v-for="(streamer, index) in featuredStreamers" 
         :key="streamer.uid"
@@ -83,6 +93,11 @@
           </div>
         </el-tooltip>
       </div>
+
+      <!-- 提示箭头 -->
+      <div class="nav-hint" v-show="!isNavVisible">
+        <el-icon><ArrowLeft /></el-icon>
+      </div>
     </div>
   </div>
 </template>
@@ -91,13 +106,14 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { VUP_LIST } from '../constants/vups';
-import { ChatDotRound, Headset, Grid } from '@element-plus/icons-vue';
+import { ChatDotRound, Headset, Grid, ArrowLeft } from '@element-plus/icons-vue';
 import VupList from '../components/VupList.vue';
 
 const router = useRouter();
 const carouselRef = ref<any>(null);
 const activeIndex = ref(0);
 const isScrolling = ref(false);
+const isNavVisible = ref(false);
 
 // 只取前三个主播作为推荐展示
 const featuredStreamers = computed(() => {
@@ -125,6 +141,9 @@ const handleSlideChange = (index: number) => {
 
 // 鼠标滚轮切换逻辑
 const handleWheel = (e: WheelEvent) => {
+  // 只有当导航栏可见时，才允许滚轮切换主页
+  if (!isNavVisible.value) return;
+
   if (isScrolling.value) return;
   
   // 阈值判断，防止轻微滑动误触
@@ -142,6 +161,13 @@ const handleWheel = (e: WheelEvent) => {
   setTimeout(() => {
     isScrolling.value = false;
   }, 500);
+};
+
+const handleImageError = (e: Event, fallbackUrl: string) => {
+  const img = e.target as HTMLImageElement;
+  if (img.src !== window.location.origin + fallbackUrl) {
+    img.src = fallbackUrl;
+  }
 };
 </script>
 
@@ -268,7 +294,7 @@ const handleWheel = (e: WheelEvent) => {
 
 .right-nav-bar {
   position: absolute;
-  right: 30px;
+  right: -60px; /* 默认隐藏在屏幕右侧 */
   top: 50%;
   transform: translateY(-50%);
   z-index: 10;
@@ -277,8 +303,29 @@ const handleWheel = (e: WheelEvent) => {
   gap: 20px;
   background-color: rgba(0, 0, 0, 0.3);
   padding: 15px 10px;
-  border-radius: 30px;
+  border-radius: 30px 0 0 30px; /* 左边圆角 */
   backdrop-filter: blur(10px);
+  transition: right 0.3s ease, opacity 0.3s ease;
+  opacity: 0.3; /* 默认半透明，提示这里有东西 */
+}
+
+/* 增加一个隐形的触发区域，防止鼠标太难对准 */
+.right-nav-bar::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 0;
+  width: 100px; /* 扩大触发区域 */
+  height: 100%;
+  z-index: -1;
+}
+
+.right-nav-bar.visible,
+.right-nav-bar:hover {
+  right: 0; /* 显示 */
+  opacity: 1;
+  border-radius: 30px; /* 恢复全圆角 */
+  padding-right: 20px; /* 增加右边距，看起来居中 */
 }
 
 .nav-item {
@@ -325,6 +372,23 @@ const handleWheel = (e: WheelEvent) => {
 .more-icon {
   color: white;
   font-size: 20px;
+}
+
+.nav-hint {
+  position: absolute;
+  left: -25px; /* 放在导航栏左侧 */
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 20px;
+  animation: pulse 2s infinite;
+  pointer-events: none; /* 防止遮挡触发区域 */
+}
+
+@keyframes pulse {
+  0% { transform: translateY(-50%) translateX(0); opacity: 0.6; }
+  50% { transform: translateY(-50%) translateX(-5px); opacity: 1; }
+  100% { transform: translateY(-50%) translateX(0); opacity: 0.6; }
 }
 
 .vup-list-slide {

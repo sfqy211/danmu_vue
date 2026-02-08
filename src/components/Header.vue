@@ -259,7 +259,17 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
-            <el-collapse-item title="v1.2 - 2026-02-03 (最新更新)" name="1.2">
+            <el-collapse-item title="v1.3 - 2026-02-09 (最新更新)" name="1.3">
+              <ul class="changelog-list">
+                <li><strong>全新沉浸式主页</strong>：重构主页 UI，采用全屏动态模糊背景 + 专辑封面风格，视觉效果大幅提升。</li>
+                <li><strong>交互逻辑重构</strong>：主页轮播图支持垂直滚动切换，新增自动隐藏的右侧悬浮导航栏，操作更加自然流畅。</li>
+                <li><strong>自动化头像更新</strong>：后端新增每日自动获取主播头像功能，并支持防风控与本地缓存，前端图片加载更加稳定。</li>
+                <li><strong>主页图片定制</strong>：主页封面图与头像分离，支持通过 <code>/vup-cover</code> 目录单独配置高清封面，并提供自动降级机制。</li>
+                <li><strong>性能优化</strong>：点歌历史列表改为后端分页，支持海量数据秒级加载，彻底解决卡顿问题。</li>
+                <li><strong>体验修复</strong>：修复了侧边栏回放列表加载、点歌历史数据残留等多个逻辑问题，移除了未完成的AI分析入口。</li>
+              </ul>
+            </el-collapse-item>
+            <el-collapse-item title="v1.2 - 2026-02-03" name="1.2">
               <ul class="changelog-list">
                 <li><strong>组件重构与复用</strong>：抽象并统一了统计逻辑，封装为通用的数据统计组件，提升代码可维护性。</li>
                 <li><strong>营收统计深度优化</strong>：新增营收统计功能，支持按金额筛选和用户排行，并修复了数据丢失与计算精度问题。</li>
