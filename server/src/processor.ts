@@ -13,8 +13,8 @@ const db = new sqlite3.Database(dbPath);
 console.log(`Database path: ${dbPath}`);
 
 // 将 db.run/get/all 包装为 Promise
-const dbRun = (sql: string, params: any[] = []) => new Promise<void>((resolve, reject) => {
-  db.run(sql, params, (err) => err ? reject(err) : resolve());
+const dbRun = (sql: string, params: any[] = []) => new Promise<any>((resolve, reject) => {
+  db.run(sql, params, function (err) { err ? reject(err) : resolve(this); });
 });
 
 export const dbGet = (sql: string, params: any[] = []) => new Promise<any>((resolve, reject) => {
@@ -39,6 +39,20 @@ export async function initDb() {
       summary_json TEXT,
       gift_summary_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS song_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      room_id TEXT,
+      user_name TEXT,
+      uid TEXT,
+      song_name TEXT,
+      singer TEXT,
+      created_at INTEGER,
+      FOREIGN KEY(session_id) REFERENCES sessions(id)
     )
   `);
   
@@ -171,19 +185,48 @@ export async function processDanmakuFile(filePath: string) {
       recordStartTimestamp: startMatch ? parseInt(startMatch[1]) : Date.now()
     };
 
+    const songRequests: {
+      user_name: string;
+      uid: string;
+      song_name: string;
+      singer: string;
+      created_at: number;
+    }[] = [];
+
     // 提取弹幕 <d p="...">内容</d>
     const danmakuRegex = /<d p="([^"]+)" user="([^"]+)" uid="([^"]+)" timestamp="([^"]+)"[^>]*>(.*?)<\/d>/g;
     let match;
     while ((match = danmakuRegex.exec(content)) !== null) {
+      const text = match[5];
+      const timestamp = parseInt(match[4]);
+      const senderName = match[2];
+      const senderUid = match[3];
+
       messages.push({
         type: 'comment',
-        text: match[5],
-        timestamp: parseInt(match[4]),
+        text: text,
+        timestamp: timestamp,
         sender: {
-          name: match[2],
-          uid: match[3]
+          name: senderName,
+          uid: senderUid
         }
       });
+
+      // 识别点歌
+      const trimmedText = text.trim();
+      if (trimmedText.startsWith('点歌')) {
+        // 截取"点歌"之后的所有内容作为歌名，去除首尾空格
+        const songName = trimmedText.substring(2).trim();
+        if (songName) {
+           songRequests.push({
+             user_name: senderName,
+             uid: senderUid,
+             song_name: songName,
+             singer: '', // 暂时留空，不做自动识别
+             created_at: timestamp
+           });
+        }
+      }
     }
 
     // 提取礼物 <gift ...>
@@ -372,6 +415,25 @@ export async function processDanmakuFile(filePath: string) {
     );
     
     if (existing) {
+      // 检查是否有点歌记录，如果没有且当前文件有点歌记录，则补充插入
+      const songRequestCount = await dbGet('SELECT COUNT(*) as count FROM song_requests WHERE session_id = ?', [existing.id]);
+      if (songRequestCount.count === 0 && songRequests.length > 0) {
+        console.log(`补充插入 ${songRequests.length} 条点歌记录 (Session ID: ${existing.id})...`);
+        const stmt = db.prepare('INSERT INTO song_requests (session_id, room_id, user_name, uid, song_name, singer, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+
+        const runStmt = (req: any) => new Promise<void>((resolve, reject) => {
+          stmt.run(existing.id, meta.room_id || '', req.user_name, req.uid, req.song_name, req.singer, req.created_at, (err: Error | null) => err ? reject(err) : resolve());
+        });
+
+        for (const req of songRequests) {
+          await runStmt(req);
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          stmt.finalize((err: Error | null) => err ? reject(err) : resolve());
+        });
+      }
+
       // 如果路径变了（例如从根目录移动到了子目录），更新数据库
       if (existing.file_path !== relativeFilePath) {
          await dbRun('UPDATE sessions SET file_path = ? WHERE id = ?', [relativeFilePath, existing.id]);
@@ -385,7 +447,7 @@ export async function processDanmakuFile(filePath: string) {
     // 存入数据库
     const endTime = messages.length > 0 ? messages[messages.length - 1].timestamp : Date.now();
     
-    await dbRun(
+    const result = await dbRun(
       `INSERT INTO sessions (room_id, title, user_name, start_time, end_time, file_path, summary_json, gift_summary_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -399,6 +461,26 @@ export async function processDanmakuFile(filePath: string) {
         JSON.stringify(giftAnalysis)
       ]
     );
+
+    const sessionId = result.lastID;
+
+    // 插入点歌记录
+    if (songRequests.length > 0 && sessionId) {
+      console.log(`正在插入 ${songRequests.length} 条点歌记录...`);
+      const stmt = db.prepare('INSERT INTO song_requests (session_id, room_id, user_name, uid, song_name, singer, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+
+      const runStmt = (req: any) => new Promise<void>((resolve, reject) => {
+        stmt.run(sessionId, meta.room_id || '', req.user_name, req.uid, req.song_name, req.singer, req.created_at, (err: Error | null) => err ? reject(err) : resolve());
+      });
+
+      for (const req of songRequests) {
+        await runStmt(req);
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        stmt.finalize((err: Error | null) => err ? reject(err) : resolve());
+      });
+    }
 
     console.log(`分析完成并存入数据库: ${meta.title}`);
     return analysis;
@@ -439,11 +521,40 @@ export async function getSessions(filters: { userName?: string; startTime?: numb
 
 /**
  * 获取所有唯一主播列表
+ * 优先获取非空的 room_id
  */
 export async function getStreamers() {
   await ensureDbInit();
-  const rows = await dbAll('SELECT DISTINCT user_name FROM sessions WHERE user_name IS NOT NULL AND user_name != "" ORDER BY user_name ASC');
-  return rows.map(row => row.user_name);
+  // 使用 GROUP BY 确保每个主播只返回一条记录
+  // MAX(room_id) 是为了在有多个 room_id 记录时（例如空和非空），优先取有值的（字符串比较中非空通常大于空，或者至少能取到一个值）
+  const rows = await dbAll('SELECT user_name, MAX(room_id) as room_id FROM sessions WHERE user_name IS NOT NULL AND user_name != "" GROUP BY user_name ORDER BY user_name ASC');
+  return rows;
+}
+
+/**
+ * 获取特定直播的点歌记录
+ */
+export async function getSongRequests(sessionId: number) {
+  await ensureDbInit();
+  return dbAll(
+    'SELECT id, user_name, uid, song_name, singer, created_at FROM song_requests WHERE session_id = ? ORDER BY created_at ASC',
+    [sessionId]
+  );
+}
+
+/**
+ * 获取特定主播的所有点歌记录
+ */
+export async function getSongRequestsByRoomId(roomId: string) {
+  await ensureDbInit();
+  return dbAll(
+    `SELECT sr.id, sr.user_name, sr.uid, sr.song_name, sr.singer, sr.created_at, s.title as session_title, s.start_time as session_start_time
+     FROM song_requests sr
+     LEFT JOIN sessions s ON sr.session_id = s.id
+     WHERE sr.room_id = ?
+     ORDER BY sr.created_at DESC`,
+    [roomId]
+  );
 }
 
 /**

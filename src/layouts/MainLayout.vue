@@ -1,44 +1,55 @@
 <template>
   <div class="main-content">
-    <Sidebar class="sidebar" />
+    <Sidebar v-if="showSidebar" class="sidebar" />
     <div 
-      v-if="!store.isSidebarCollapsed" 
+      v-if="showSidebar && !store.isSidebarCollapsed" 
       class="sidebar-overlay mobile-only" 
       @click="store.isSidebarCollapsed = true"
     ></div>
     <div class="content-area">
-      <Header class="app-header" />
+      <Header v-if="showHeader" class="app-header" />
       <div class="zoom-container">
         <div class="zoom-wrapper" :style="zoomStyle">
-          <DanmakuList class="danmaku-list-container" />
+          <router-view v-slot="{ Component }">
+            <keep-alive>
+              <component :is="Component" />
+            </keep-alive>
+          </router-view>
         </div>
       </div>
     </div>
-    
-    <el-dialog
-      v-model="store.isVupListVisible"
-      title="VUP列表"
-      fullscreen
-      destroy-on-close
-      append-to-body
-      class="vup-list-dialog"
-    >
-      <VupList />
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import Sidebar from '../components/Sidebar.vue';
 import Header from '../components/Header.vue';
-import DanmakuList from '../components/DanmakuList.vue';
-import VupList from '../components/VupList.vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
 
 const store = useDanmakuStore();
+const route = useRoute();
+
+const showSidebar = computed(() => {
+  // 在主播专属页（包含子路由）显示 Sidebar，但在点歌历史页隐藏
+  return route.path.startsWith('/vup/') && route.name !== 'streamer-songs';
+});
+
+const showHeader = computed(() => {
+  // 在主页隐藏 Header
+  return route.name !== 'home';
+});
 
 const zoomStyle = computed(() => {
+  // 仅在弹幕列表页应用缩放
+  if (route.name !== 'streamer-danmaku') {
+    return {
+      width: '100%',
+      height: '100%'
+    };
+  }
+  
   const scale = store.zoomLevel / 100;
   return {
     // 使用 transform 替代 zoom 以获得更好的兼容性和更稳定的渲染效果
@@ -104,14 +115,5 @@ const zoomStyle = computed(() => {
   .mobile-only {
     display: block;
   }
-}
-</style>
-
-<style>
-.vup-list-dialog .el-dialog__body {
-  padding: 0 !important;
-  height: calc(100vh - 54px); /* 减去头部高度 */
-  overflow: hidden;
-  background-color: var(--bg-primary);
 }
 </style>

@@ -342,7 +342,7 @@ const useVirtualScroll = (listRef: any, scrollerRef: any) => {
     scrollTop.value = target.scrollTop;
     
     // Load more trigger (only if scrolling near bottom)
-    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 100) {
+    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 50) {
       store.loadMore();
     }
   };

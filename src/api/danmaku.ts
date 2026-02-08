@@ -35,8 +35,13 @@ export const getFiles = async () => {
   return res.data;
 };
 
+export interface StreamerInfo {
+  user_name: string;
+  room_id?: string;
+}
+
 export const getStreamers = async () => {
-  const res = await api.get<string[]>('/streamers');
+  const res = await api.get<StreamerInfo[]>('/streamers');
   return res.data;
 };
 
@@ -45,7 +50,7 @@ export const getSessions = async (params: { userName?: string; startTime?: numbe
   return res.data;
 };
 
-export const getSessionDanmaku = async (sessionId: number, page: number = 1, pageSize: number = 1000) => {
+export const getSessionDanmaku = async (sessionId: number, page: number = 1, pageSize: number = 100) => {
   const res = await api.get<{
     messages: {
       time: number;
@@ -115,5 +120,39 @@ export interface AnalysisResult {
 
 export const analyzeSession = async (sessionId: number): Promise<AnalysisResult> => {
   const res = await api.post<AnalysisResult>('/analyze', { id: sessionId });
+  return res.data;
+};
+
+export interface SongRequest {
+  id: number;
+  user_name: string;
+  uid: string;
+  song_name: string;
+  singer: string;
+  created_at: number;
+  session_title?: string;
+  session_start_time?: number;
+}
+
+export interface SongRequestsResponse {
+  list: SongRequest[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const getSongRequests = async (params: { id?: number; roomId?: string; page?: number; pageSize?: number; search?: string }): Promise<SongRequestsResponse> => {
+  const res = await api.get<SongRequestsResponse | SongRequest[]>('/song-requests', { params });
+  
+  // 兼容处理：如果后端返回的是数组（旧接口），则手动封装为分页结构
+  if (Array.isArray(res.data)) {
+    return {
+      list: res.data,
+      total: res.data.length,
+      page: 1,
+      pageSize: res.data.length
+    };
+  }
+  
   return res.data;
 };

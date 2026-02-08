@@ -26,6 +26,13 @@
     /* 滚动条颜色 */
     --scrollbar-thumb: rgba(0, 0, 0, 0.2);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+
+    /* VUP List specific */
+    --home-bg: linear-gradient(to bottom right, #F9FAFC, #FFFFFF);
+    --home-card-bg: #FFFFFF;
+    --home-text-primary: #1C1C1E;
+    --home-text-secondary: #424245;
+    --home-border: #E8E8ED;
 }
 
 /* 深色模式变量 */
@@ -52,6 +59,13 @@ html.dark {
     /* 滚动条颜色 - 深色模式 */
     --scrollbar-thumb: rgba(255, 255, 255, 0.3);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.45);
+
+    /* VUP List specific - Dark Mode */
+    --home-bg: linear-gradient(to bottom right, #1c1c1e, #000000);
+    --home-card-bg: #2c2c2e;
+    --home-text-primary: #FFFFFF;
+    --home-text-secondary: #AEAeb2;
+    --home-border: #38383a;
 }
 
 * {

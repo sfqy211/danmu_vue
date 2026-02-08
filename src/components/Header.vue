@@ -2,30 +2,50 @@
   <div class="header-container">
     <div class="left-panel">
       <el-button 
+        v-if="showSidebarToggle"
         class="menu-btn mobile-only" 
         :icon="Expand" 
         circle 
         @click="store.toggleSidebar" 
         title="打开列表"
       />
-      <div v-if="store.currentSession" class="session-info">
-        <h2 class="session-title">{{ store.currentSession.title || '未命名直播' }}</h2>
-        <a 
-          v-if="store.currentSession.room_id"
-          :href="`https://live.bilibili.com/${store.currentSession.room_id}`" 
-          target="_blank" 
-          class="room-link"
-          title="点击跳转至直播间"
-        >
-          <el-icon><Position /></el-icon>
-          <span>{{ store.currentSession.user_name }} 的直播间</span>
-        </a>
-      </div>
-      <h2 v-else>请选择直播回放</h2>
+      
+      <!-- 首页显示返回按钮(如果不在首页) -->
+      <el-button 
+        v-if="isStreamerPage"
+        class="back-btn" 
+        :icon="ArrowLeft" 
+        circle 
+        @click="router.push('/')" 
+        title="返回首页"
+      />
+
+      <h2 v-if="!isDanmakuPage" class="static-title">{{ pageTitle }}</h2>
+      
+      <template v-else>
+        <div v-if="store.currentSession" class="session-info">
+          <span class="streamer-name">{{ store.currentSession.user_name }}</span>
+          <span class="divider">/</span>
+          <span class="session-date">{{ formatDate(store.currentSession.start_time) }}</span>
+          <span class="session-title" :title="store.currentSession.title">{{ store.currentSession.title }}</span>
+        </div>
+        <h2 v-else class="static-title">{{ currentStreamerName || '请选择回放' }}</h2>
+      </template>
     </div>
     
     <div class="right-panel">
-      <el-button class="settings-btn" :icon="Setting" circle @click="drawerVisible = true" title="设置与工具" />
+      <div id="header-dynamic-actions" class="dynamic-actions"></div>
+      <div class="header-search-container">
+        <el-input
+          v-if="isDanmakuPage"
+          v-model="store.searchText"
+          placeholder="搜索弹幕/用户..."
+          :prefix-icon="Search"
+          clearable
+          class="header-search-input"
+        />
+      </div>
+      <el-button v-if="!isHome" class="settings-btn" :icon="Setting" circle @click="drawerVisible = true" title="设置与工具" />
     </div>
 
     <!-- Settings Drawer -->
@@ -39,7 +59,7 @@
     >
       <div class="drawer-content">
         <!-- Search & Filter -->
-        <div class="drawer-section">
+        <div class="drawer-section mobile-drawer-search">
           <div class="section-title">搜索与筛选</div>
           <el-input
             v-model="store.searchText"
@@ -50,15 +70,22 @@
           />
         </div>
 
-        <el-divider />
+        <el-divider class="mobile-drawer-search" />
 
         <!-- Navigation -->
         <div class="drawer-section">
           <div class="section-title">导航</div>
-          <div class="drawer-item clickable" @click="handleVupListClick">
+          <div class="drawer-item clickable" @click="goHome">
             <div class="item-left">
-              <el-icon><List /></el-icon>
-              <span>VUP列表</span>
+              <el-icon><ChatDotRound /></el-icon>
+              <span>弹幕列表</span>
+            </div>
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+          <div class="drawer-item clickable" @click="openSongRequests">
+            <div class="item-left">
+              <el-icon><Headset /></el-icon>
+              <span>点歌历史</span>
             </div>
             <el-icon><ArrowRight /></el-icon>
           </div>
@@ -67,7 +94,7 @@
         <el-divider />
 
         <!-- Data & Analysis -->
-        <div class="drawer-section">
+        <div class="drawer-section" v-if="isDanmakuPage">
           <div class="section-title">数据与分析</div>
           <div class="drawer-item clickable" @click="openStats">
             <div class="item-left">
@@ -99,23 +126,7 @@
           </div>
         </div>
 
-        <el-divider />
-
-        <!-- System Monitor -->
-        <div class="drawer-section">
-          <div class="section-title">系统监控</div>
-          <div class="drawer-item">
-            <div class="item-left">
-              <el-icon><Monitor /></el-icon>
-              <span>后端服务状态</span>
-            </div>
-            <el-icon class="status-icon" :class="pm2Status">
-              <component :is="pm2Status === 'error' ? WarningFilled : CircleCheckFilled" />
-            </el-icon>
-          </div>
-        </div>
-
-        <el-divider />
+        <el-divider v-if="isDanmakuPage" />
 
         <!-- Interface Settings -->
         <div class="drawer-section">
@@ -140,8 +151,8 @@
         </div>
         
         <el-divider />
-        
-        <!-- About -->
+
+        <!-- About & System -->
         <div class="drawer-section">
           <div class="drawer-item clickable" @click="aboutDialogVisible = true">
             <div class="item-left">
@@ -149,6 +160,15 @@
               <span>关于本工具</span>
             </div>
             <el-icon><ArrowRight /></el-icon>
+          </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><Monitor /></el-icon>
+              <span>后端服务状态</span>
+            </div>
+            <el-icon class="status-icon" :class="pm2Status">
+              <component :is="pm2Status === 'error' ? WarningFilled : CircleCheckFilled" />
+            </el-icon>
           </div>
         </div>
       </div>
@@ -280,8 +300,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref , onMounted, onUnmounted, watch } from 'vue';
+import { ref , onMounted, onUnmounted, watch, computed } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
+import { VUP_LIST } from '../constants/vups';
 import { ElMessage } from 'element-plus';
 import { 
   Search, 
@@ -289,17 +311,18 @@ import {
   DataAnalysis, 
   InfoFilled, 
   ArrowRight, 
+  ArrowLeft,
   MagicStick,
   Expand,
   Moon, 
   ZoomIn,
   Histogram,
-  Position,
   Monitor,
   CircleCheckFilled,
   WarningFilled,
   Wallet,
-  List
+  Headset,
+  ChatDotRound
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';
@@ -307,6 +330,8 @@ import TimelineAnalysis from './TimelineAnalysis.vue';
 import AiAnalysis from './AiAnalysis.vue';
 
 const store = useDanmakuStore();
+const router = useRouter();
+const route = useRoute();
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
@@ -316,6 +341,34 @@ const drawerVisible = ref(false);
 const isDarkMode = ref(false);
 const isMobile = ref(window.innerWidth <= 768);
 const pm2Status = ref<'success' | 'error' | 'loading'>('loading');
+
+const isHome = computed(() => route.name === 'home'); // 首页是 VupList
+const isStreamerPage = computed(() => route.path.startsWith('/vup/')); // 主播页
+const isDanmakuPage = computed(() => route.name === 'streamer-danmaku'); // 弹幕列表页
+const showSidebarToggle = computed(() => {
+  return route.path.startsWith('/vup/') && route.name !== 'streamer-songs';
+});
+
+const currentStreamerName = computed(() => {
+  if (route.params.uid) {
+    const vup = VUP_LIST.find(v => v.uid === route.params.uid);
+    return vup ? vup.name : '';
+  }
+  return '';
+});
+
+const pageTitle = computed(() => {
+  if (route.name === 'home') return '主页'; // 首页标题
+  if (route.name === 'vup-list') return 'VUP 列表';
+  if (route.name === 'streamer-songs') return '点歌历史';
+  return '';
+});
+
+const formatDate = (timestamp: number) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return `${date.getMonth() + 1}-${date.getDate()}`;
+};
 
 const checkPm2Status = async () => {
   pm2Status.value = 'loading';
@@ -341,8 +394,15 @@ const handleResize = () => {
   isMobile.value = window.innerWidth <= 768;
 };
 
-const handleVupListClick = () => {
-  store.toggleVupList();
+const goHome = () => {
+  const currentUid = route.params.uid;
+  if (currentUid) {
+    // 如果在主播页，"弹幕列表"应该跳转到该主播的弹幕列表页
+    router.push({ name: 'streamer-danmaku', params: { uid: currentUid } });
+  } else {
+    // 只有在没有 UID 的情况下才回首页（理论上在 Header 显示时不会发生，除非在非 vup 路由）
+    router.push({ name: 'home' });
+  }
   drawerVisible.value = false;
 };
 
@@ -376,6 +436,14 @@ const openAiAnalysis = () => {
     return;
   }
   aiAnalysisDialogVisible.value = true;
+};
+
+const openSongRequests = () => {
+  const currentUid = route.params.uid;
+  if (currentUid) {
+    router.push({ name: 'streamer-songs', params: { uid: currentUid } });
+  }
+  drawerVisible.value = false;
 };
 
 const toggleTheme = (val: boolean) => {
@@ -427,11 +495,28 @@ onUnmounted(() => {
 }
 .session-info {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 4px;
+  font-size: 14px;
+}
+.streamer-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.divider {
+  color: var(--text-tertiary);
+}
+.session-date {
+  color: var(--text-secondary);
 }
 .session-title {
   color: var(--text-primary);
+  font-weight: 500;
+}
+.static-title {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 .room-link {
   display: flex;
@@ -455,9 +540,32 @@ onUnmounted(() => {
   align-items: center;
   gap: 15px;
 }
+.dynamic-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
 
 .drawer-search-input {
   margin-bottom: 10px;
+}
+
+.header-search-container {
+  display: flex;
+  align-items: center;
+}
+
+.header-search-input {
+  width: 220px;
+  transition: width 0.3s;
+}
+
+.header-search-input:focus-within {
+  width: 280px;
+}
+
+.mobile-drawer-search {
+  display: none;
 }
 
 .mobile-only {
@@ -465,6 +573,12 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .header-search-input {
+    display: none;
+  }
+  .mobile-drawer-search {
+    display: block;
+  }
   .mobile-only {
     display: inline-flex;
   }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
-import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged } from './processor.js';
+import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId } from './processor.js';
 import pm2 from 'pm2';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -131,6 +131,51 @@ app.post('/api/analyze', async (req, res) => {
   } catch (error) {
     console.error('API Error /api/analyze:', error);
     res.status(500).json({ error: 'AI 分析服务暂不可用' });
+  }
+});
+
+// 获取点歌记录
+app.get('/api/song-requests', async (req, res) => {
+  try {
+    const roomId = req.query.roomId as string;
+    const id = parseInt(req.query.id as string, 10);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const pageSize = parseInt(req.query.pageSize as string, 10) || 20;
+    const search = (req.query.search as string || '').toLowerCase();
+    
+    let requests: any[] = [];
+    if (roomId) {
+      requests = await getSongRequestsByRoomId(roomId);
+    } else if (!isNaN(id)) {
+      requests = await getSongRequests(id);
+    } else {
+      return res.status(400).json({ error: '无效的 ID 或 Room ID' });
+    }
+
+    // 1. 过滤 (Search)
+    if (search) {
+      requests = requests.filter(r => 
+        (r.song_name && r.song_name.toLowerCase().includes(search)) || 
+        (r.user_name && r.user_name.toLowerCase().includes(search)) ||
+        (r.singer && r.singer.toLowerCase().includes(search))
+      );
+    }
+
+    // 2. 分页 (Pagination)
+    const total = requests.length;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const list = requests.slice(start, end);
+    
+    res.json({
+      list,
+      total,
+      page,
+      pageSize
+    });
+  } catch (error) {
+    console.error('API Error /api/song-requests:', error);
+    res.status(500).json({ error: '获取点歌记录失败' });
   }
 });
 
