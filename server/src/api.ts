@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
-import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId } from './processor.js';
+import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb } from './processor.js';
 import { startAvatarScheduler } from './avatar_manager.js';
 import pm2 from 'pm2';
 
@@ -17,6 +17,13 @@ const port = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+try {
+  await initDb();
+  console.log('数据库初始化完成');
+} catch (e) {
+  console.error('数据库初始化失败:', e);
+}
 
 // 托管前端静态文件
 // 优先使用 Vue 构建后的 dist 目录，如果不存在则回退到 public

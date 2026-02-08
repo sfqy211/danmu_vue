@@ -31,21 +31,17 @@
             <div class="info-container">
               <h1 class="streamer-name">{{ streamer.name }}</h1>
               <div class="action-buttons">
-                <el-tooltip content="弹幕列表" placement="bottom" effect="light">
                   <div class="action-item" @click="navigateTo(streamer.uid, 'danmaku')">
                     <el-button circle size="large" class="icon-btn">
                       <el-icon><ChatDotRound /></el-icon>
                     </el-button>
                   </div>
-                </el-tooltip>
                 
-                <el-tooltip content="点歌历史" placement="bottom" effect="light">
                   <div class="action-item" @click="navigateTo(streamer.uid, 'songs')">
                     <el-button circle size="large" class="icon-btn">
                       <el-icon><Headset /></el-icon>
                     </el-button>
                   </div>
-                </el-tooltip>
               </div>
             </div>
           </div>
@@ -74,11 +70,9 @@
         :class="{ active: activeIndex === index }"
         @click="setActiveItem(index)"
       >
-        <el-tooltip :content="streamer.name" placement="left" effect="light">
-          <div class="nav-avatar-wrapper">
+        <div class="nav-avatar-wrapper">
             <img :src="streamer.imageUrl" class="nav-avatar" />
           </div>
-        </el-tooltip>
       </div>
       
       <!-- 更多列表按钮 -->
@@ -87,11 +81,9 @@
         :class="{ active: activeIndex === featuredStreamers.length }"
         @click="setActiveItem(featuredStreamers.length)"
       >
-        <el-tooltip content="全部 VUP" placement="left" effect="light">
-          <div class="nav-avatar-wrapper more-icon">
-            <el-icon><Grid /></el-icon>
-          </div>
-        </el-tooltip>
+        <div class="nav-avatar-wrapper more-icon">
+          <el-icon><Grid /></el-icon>
+        </div>
       </div>
 
       <!-- 提示箭头 -->

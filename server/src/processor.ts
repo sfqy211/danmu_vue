@@ -7,8 +7,11 @@ import 'dotenv/config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 数据库初始化
 const dbPath = process.env.DB_PATH || path.resolve(__dirname, '../data/danmaku_data.db');
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 const db = new sqlite3.Database(dbPath);
 console.log(`Database path: ${dbPath}`);
 
@@ -27,39 +30,45 @@ const dbAll = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, 
 
 // 初始化表结构
 export async function initDb() {
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      room_id TEXT,
-      title TEXT,
-      user_name TEXT,
-      start_time INTEGER,
-      end_time INTEGER,
-      file_path TEXT,
-      summary_json TEXT,
-      gift_summary_json TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS song_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER,
-      room_id TEXT,
-      user_name TEXT,
-      uid TEXT,
-      song_name TEXT,
-      singer TEXT,
-      created_at INTEGER,
-      FOREIGN KEY(session_id) REFERENCES sessions(id)
-    )
-  `);
-  
-  // 检查是否存在 gift_summary_json 列，如果不存在则添加
   try {
-    await dbRun('ALTER TABLE sessions ADD COLUMN gift_summary_json TEXT');
-  } catch (e) {}
+    console.log('Initializing database tables...');
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id TEXT,
+        title TEXT,
+        user_name TEXT,
+        start_time INTEGER,
+        end_time INTEGER,
+        file_path TEXT,
+        summary_json TEXT,
+        gift_summary_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS song_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER,
+        room_id TEXT,
+        user_name TEXT,
+        uid TEXT,
+        song_name TEXT,
+        singer TEXT,
+        created_at INTEGER,
+        FOREIGN KEY(session_id) REFERENCES sessions(id)
+      )
+    `);
+    
+    try {
+      await dbRun('ALTER TABLE sessions ADD COLUMN gift_summary_json TEXT');
+    } catch (e) {}
+    console.log('Database tables are ready');
+  } catch (e) {
+    console.error('Database initialization failed:', e);
+    throw e;
+  }
 }
 
 // 导出初始化函数，确保在使用前调用
