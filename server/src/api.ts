@@ -27,6 +27,15 @@ console.log(`Serving static files from: ${staticPath}`);
 
 app.use(express.static(staticPath));
 
+// 专门托管 VUP 头像/封面目录，确保即使 dist 目录被清空，头像也能持久化访问（前提是 public 挂载了 volume）
+// 映射路径: /api/avatars -> server/../../public/vup-bg
+const avatarPath = path.resolve(__dirname, '../../public/vup-bg');
+if (!fs.existsSync(avatarPath)) {
+  fs.mkdirSync(avatarPath, { recursive: true });
+}
+app.use('/api/avatars', express.static(avatarPath));
+app.use('/api/covers', express.static(path.resolve(__dirname, '../../public/vup-cover')));
+
 // 获取所有录制列表 (支持筛选)
 app.get('/api/sessions', async (req, res) => {
   try {
