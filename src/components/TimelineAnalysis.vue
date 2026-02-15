@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as echarts from 'echarts';
 import { useDanmakuStore } from '../stores/danmakuStore';
 

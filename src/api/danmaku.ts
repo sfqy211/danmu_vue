@@ -1,7 +1,17 @@
 import axios from 'axios';
 
+const normalizeApiBase = (baseUrl: string) => {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  if (trimmed.endsWith('/api')) {
+    return trimmed;
+  }
+  return `${trimmed}/api`;
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api'
+  baseURL: import.meta.env.VITE_API_BASE_URL
+    ? normalizeApiBase(import.meta.env.VITE_API_BASE_URL)
+    : '/api'
 });
 
 export interface FileInfo {

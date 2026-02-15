@@ -126,7 +126,7 @@ const syncStreamerName = async () => {
 const isStreamerMode = computed(() => !!route.params.uid);
 
 // 监听路由参数 UID 变化
-watch(() => route.params.uid, async (newUid) => {
+watch(() => route.params.uid, async () => {
   await syncStreamerName();
 }, { immediate: true });
 

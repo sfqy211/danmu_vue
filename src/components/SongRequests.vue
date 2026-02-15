@@ -223,14 +223,6 @@ watch(() => store.currentSession, (newSession) => {
   }
 });
 
-const filteredRequests = computed(() => {
-  // 后端分页模式下，requests 已经是过滤后的当前页数据
-  return requests.value; 
-});
-
-// 移除 paginatedRequests，因为现在 requests 就是分页后的数据
-// const paginatedRequests = computed(() => { ... });
-
 // 搜索条件变化时重置页码并重新请求
 const handleSearch = () => {
   currentPage.value = 1;
