@@ -30,8 +30,9 @@ const dbAll = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, 
 
 // 初始化表结构
 export async function initDb() {
+  console.log('Initializing database tables...');
+  
   try {
-    console.log('Initializing database tables...');
     await dbRun(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +47,13 @@ export async function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    console.log('Table "sessions" check/create passed.');
+  } catch (e) {
+    console.error('Failed to init table "sessions":', e);
+    throw e;
+  }
 
+  try {
     await dbRun(`
       CREATE TABLE IF NOT EXISTS song_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,15 +67,20 @@ export async function initDb() {
         FOREIGN KEY(session_id) REFERENCES sessions(id)
       )
     `);
-    
-    try {
-      await dbRun('ALTER TABLE sessions ADD COLUMN gift_summary_json TEXT');
-    } catch (e) {}
-    console.log('Database tables are ready');
+    console.log('Table "song_requests" check/create passed.');
   } catch (e) {
-    console.error('Database initialization failed:', e);
-    throw e;
+    console.error('Failed to init table "song_requests":', e);
+    // 这里不 throw，以免影响主服务启动，但会记录严重错误
   }
+  
+  // 检查是否存在 gift_summary_json 列，如果不存在则添加
+  try {
+    await dbRun('ALTER TABLE sessions ADD COLUMN gift_summary_json TEXT');
+  } catch (e) {
+    // 列已存在或其他非关键错误，忽略
+  }
+  
+  console.log('Database initialization sequence completed.');
 }
 
 // 导出初始化函数，确保在使用前调用

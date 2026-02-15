@@ -274,3 +274,35 @@ app.listen(Number(port), '0.0.0.0', () => {
   // 启动头像自动更新服务
   startAvatarScheduler();
 });
+
+// 管理接口：手动初始化数据库
+app.post('/api/admin/init-db', async (req, res) => {
+  try {
+    await initDb();
+    res.json({ message: '数据库初始化成功' });
+  } catch (error: any) {
+    console.error('手动初始化数据库失败:', error);
+    res.status(500).json({ error: error.message || '数据库初始化失败' });
+  }
+});
+
+// 管理接口：手动触发全量扫描
+app.post('/api/admin/scan', async (req, res) => {
+  try {
+    const danmakuDir = process.env.DANMAKU_DIR 
+      ? path.resolve(process.env.DANMAKU_DIR)
+      : path.resolve(__dirname, '../data/danmaku');
+    
+    console.log(`收到手动扫描请求: ${danmakuDir}`);
+    // 异步执行扫描，不阻塞响应
+    scanDirectory(danmakuDir).then(count => {
+      console.log(`手动扫描完成，新增 ${count} 个文件`);
+    }).catch(err => {
+      console.error('手动扫描失败:', err);
+    });
+
+    res.json({ message: '扫描任务已在后台启动' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || '扫描启动失败' });
+  }
+});
