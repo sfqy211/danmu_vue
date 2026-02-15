@@ -157,8 +157,20 @@ const handleWheel = (e: WheelEvent) => {
 
 const handleImageError = (e: Event, fallbackUrl: string) => {
   const img = e.target as HTMLImageElement;
-  if (img.src !== window.location.origin + fallbackUrl) {
+  
+  // 防止死循环：如果已经重试过一次，或者 fallbackUrl 就是当前 src，就停止
+  if (img.dataset.retried === 'true') {
+    return;
+  }
+  
+  // 标记已重试
+  img.dataset.retried = 'true';
+  
+  if (fallbackUrl && img.src !== fallbackUrl) {
     img.src = fallbackUrl;
+  } else {
+    // 如果 fallback 也失败，或者没有 fallback，显示默认图或隐藏
+    img.style.display = 'none';
   }
 };
 </script>
