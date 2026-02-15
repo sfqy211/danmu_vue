@@ -166,3 +166,20 @@ export const getSongRequests = async (params: { id?: number; roomId?: string; pa
   
   return res.data;
 };
+
+export interface Pm2Process {
+  name: string;
+  status: string;
+  id: number;
+}
+
+export interface Pm2StatusResponse {
+  status: 'success' | 'error';
+  processes?: Pm2Process[];
+  error?: string;
+}
+
+export const getPm2Status = async (): Promise<Pm2StatusResponse> => {
+  const res = await api.get<Pm2StatusResponse>('/pm2-status');
+  return res.data;
+};

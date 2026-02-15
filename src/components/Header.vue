@@ -322,6 +322,7 @@
 import { ref , onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
+import { getPm2Status } from '../api/danmaku';
 import { VUP_LIST } from '../constants/vups';
 import { ElMessage } from 'element-plus';
 import { 
@@ -392,10 +393,7 @@ const formatDate = (timestamp: number) => {
 const checkPm2Status = async () => {
   pm2Status.value = 'loading';
   try {
-    // 假设我们在同一域名下，或者配置了代理
-    const res = await fetch('/api/pm2-status');
-    if (!res.ok) throw new Error('Network response was not ok');
-    const data = await res.json();
+    const data = await getPm2Status();
     pm2Status.value = data.status === 'success' ? 'success' : 'error';
   } catch (e) {
     console.error('Failed to check PM2 status:', e);
