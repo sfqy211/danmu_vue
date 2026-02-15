@@ -39,15 +39,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 1. Deploy Frontend using sudo
-            sudo rm -rf /opt/1panel/www/sites/43.143.121.223/index/*
-            sudo cp -r /home/ubuntu/danmu_temp/* /opt/1panel/www/sites/43.143.121.223/index/
-            sudo rm -rf /home/ubuntu/danmu_temp
-
-            # 2. Update Backend
+            # Update Backend
             cd /opt/1panel/apps/danmu-tools
             sudo git pull origin master
 
-            # 3. Restart Docker Containers
+            # Restart Docker Containers (backend only)
             sudo docker-compose up --build -d
             sudo docker image prune -f
