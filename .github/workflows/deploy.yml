@@ -20,7 +20,6 @@ jobs:
       - name: Install and Build Frontend
         run: |
           npm install
-          # 直接在命令前传参，确保 vite 进程能读到
           VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} npm run build
 
       - name: Upload to Tencent Cloud COS
