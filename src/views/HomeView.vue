@@ -293,8 +293,7 @@ const handleImageError = (e: Event, fallbackUrl: string) => {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* 移除旧的样式覆盖 */
-.slide-overlay { display: none; }
+
 
 .right-nav-bar {
   position: absolute;

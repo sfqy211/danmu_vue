@@ -175,7 +175,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>弹幕预览工具 Vue版 v1.2</p>
+          <p>BiliDanmu 弹幕时光机 v1.4</p>
         </div>
       </template>
     </el-drawer>
@@ -259,7 +259,16 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
-            <el-collapse-item title="v1.3 - 2026-02-09 (最新更新)" name="1.3">
+            <el-collapse-item title="v1.4 - 2026-02-15 (架构升级)" name="1.4">
+              <ul class="changelog-list">
+                <li><strong>极致性能架构</strong>：前端全面迁移至腾讯云 COS + CDN，彻底解决访问慢与图片加载失败问题，实现秒开体验。</li>
+                <li><strong>全站 HTTPS</strong>：前后端通信升级为 HTTPS，启用 API 加速域名，彻底消除混合内容报错，提升安全性。</li>
+                <li><strong>自动化部署 2.0</strong>：重构 CI/CD 流程，实现构建产物自动上传 COS 与后端服务无缝重启。</li>
+                <li><strong>稳定性修复</strong>：修复了主页图片加载失败可能导致的死循环请求 bug。</li>
+                <li><strong>代码优化</strong>：清理了未使用的静态资源与冗余样式代码，保持项目轻量化。</li>
+              </ul>
+            </el-collapse-item>
+            <el-collapse-item title="v1.3 - 2026-02-09" name="1.3">
               <ul class="changelog-list">
                 <li><strong>全新沉浸式主页</strong>：重构主页 UI，采用全屏动态模糊背景 + 专辑封面风格，视觉效果大幅提升。</li>
                 <li><strong>交互逻辑重构</strong>：主页轮播图支持垂直滚动切换，新增自动隐藏的右侧悬浮导航栏，操作更加自然流畅。</li>
