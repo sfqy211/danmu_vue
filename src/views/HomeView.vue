@@ -24,6 +24,7 @@
                 :src="streamer.coverUrl || streamer.imageUrl" 
                 :alt="streamer.name" 
                 class="streamer-avatar" 
+                @click="openLivestream(streamer.livestreamUrl)"
                 @error="handleImageError($event, streamer.imageUrl)"
               />
             </div>
@@ -117,6 +118,12 @@ const navigateTo = (uid: string, type: 'danmaku' | 'songs') => {
     router.push(`/vup/${uid}`);
   } else if (type === 'songs') {
     router.push(`/vup/${uid}/songs`);
+  }
+};
+
+const openLivestream = (url: string) => {
+  if (url) {
+    window.open(url, '_blank');
   }
 };
 
@@ -241,6 +248,7 @@ const handleImageError = (e: Event, fallbackUrl: string) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  cursor: pointer;
 }
 
 .info-container {
