@@ -18,14 +18,10 @@ jobs:
           node-version: 20
 
       - name: Install and Build Frontend
-        env:
-          # 显式传递环境变量，确保 Vite 能读取到
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
         run: |
           npm install
-          # 在构建命令前再次导出变量，双重保险
-          export VITE_API_BASE_URL=$VITE_API_BASE_URL
-          npm run build
+          # 直接在命令前传参，确保 vite 进程能读到
+          VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} npm run build
 
       - name: Upload to Tencent Cloud COS
         uses: zkqiang/tencent-cos-action@v0.1.0

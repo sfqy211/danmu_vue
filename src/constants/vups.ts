@@ -4,7 +4,8 @@ export const GROUPS = {
   FEIENDS: '桃几的好朋友们'
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// @ts-ignore
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || process.env.VITE_API_BASE_URL || '/api';
 
 export const VUP_LIST = [
     {
