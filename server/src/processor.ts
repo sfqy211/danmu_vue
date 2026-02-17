@@ -515,7 +515,7 @@ export async function processDanmakuFile(filePath: string) {
  */
 export async function getSessions(filters: { userName?: string; startTime?: number; endTime?: number } = {}) {
   await ensureDbInit();
-  let sql = 'SELECT id, room_id, title, user_name, start_time, end_time, summary_json, gift_summary_json FROM sessions';
+  let sql = 'SELECT id, room_id, title, user_name, start_time, end_time FROM sessions';
   const params: any[] = [];
   const whereClauses: string[] = [];
 
