@@ -22,7 +22,7 @@
             />
           </el-select>
           
-          <el-radio-group v-model="viewMode" size="small" @change="fetchRequests" v-if="selectedStreamer && store.currentSession && store.currentSession.user_name === selectedStreamer.user_name">
+          <el-radio-group v-model="viewMode" size="small" @change="handleViewModeChange">
             <el-radio-button value="current">本场</el-radio-button>
             <el-radio-button value="all">全部</el-radio-button>
           </el-radio-group>
@@ -43,6 +43,12 @@
 
     <div v-if="!selectedStreamer && !requests.length" class="empty-state">
       <el-empty description="请选择一位主播查看点歌记录" />
+    </div>
+
+    <div v-else-if="viewMode === 'current' && (!store.currentSession || (selectedStreamer && store.currentSession.user_name !== selectedStreamer.user_name))" class="empty-state">
+      <el-empty description="请在左侧直播回放中选择场次">
+          <el-button type="primary" @click="store.toggleSidebar">打开侧边栏选择</el-button>
+      </el-empty>
     </div>
     
     <div v-else-if="requests.length === 0 && !loading" class="empty-state">
@@ -165,9 +171,11 @@ const initStreamerData = async () => {
 
       if (streamer) {
         selectedStreamer.value = streamer;
-        viewMode.value = 'all'; 
+        // 如果当前有 session 且名字匹配，默认看本场，否则看全部
         if (store.currentSession && store.currentSession.user_name === streamer.user_name) {
           viewMode.value = 'current';
+        } else {
+          viewMode.value = 'all'; 
         }
         await fetchRequests();
       } else {
@@ -264,11 +272,27 @@ const handleStreamerChange = () => {
   fetchRequests();
 };
 
+const handleViewModeChange = () => {
+  if (viewMode.value === 'current' && (!store.currentSession || (selectedStreamer.value && store.currentSession.user_name !== selectedStreamer.value.user_name))) {
+    // 切换到本场但没有匹配的 session，不需要请求数据，直接显示 empty 状态
+    requests.value = [];
+    total.value = 0;
+  } else {
+    fetchRequests();
+  }
+};
+
 const fetchRequests = async () => {
   // 清空现有数据
   if (!selectedStreamer.value) {
     requests.value = [];
     return;
+  }
+  
+  if (viewMode.value === 'current' && (!store.currentSession || (selectedStreamer.value && store.currentSession.user_name !== selectedStreamer.value.user_name))) {
+      requests.value = [];
+      total.value = 0;
+      return;
   }
   
   loading.value = true;
@@ -291,10 +315,21 @@ const fetchRequests = async () => {
       if (selectedStreamer.value.room_id) {
         params.roomId = selectedStreamer.value.room_id;
       } else {
-        ElMessage.warning('无法获取该主播的历史记录（缺少房间号）');
-        requests.value = [];
-        total.value = 0;
-        return;
+        // 尝试通过名字获取
+        const vup = VUP_LIST.find(v => v.name === selectedStreamer.value?.user_name);
+        if (vup && vup.livestreamUrl) {
+           const match = vup.livestreamUrl.match(/\/(\d+)$/);
+           if (match) {
+             params.roomId = match[1];
+           }
+        }
+
+        if (!params.roomId) {
+            ElMessage.warning('无法获取该主播的历史记录（缺少房间号）');
+            requests.value = [];
+            total.value = 0;
+            return;
+        }
       }
     }
     

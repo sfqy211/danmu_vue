@@ -3,7 +3,9 @@
     @mousemove="onMouseMove" @mouseup="stopResize" @mouseleave="stopResize"
     @touchmove="onTouchMove" @touchend="stopResize" @touchcancel="stopResize">
     <div v-if="!currentSession && !loading" class="empty-state">
-      <el-empty description="暂无弹幕数据，请选择左侧直播回放" />
+      <el-empty description="暂无弹幕数据，请选择左侧直播回放">
+        <el-button type="primary" @click="store.toggleSidebar">打开侧边栏选择</el-button>
+      </el-empty>
     </div>
 
     <div v-else-if="!isDanmakuLoaded && !loading" class="load-placeholder">
