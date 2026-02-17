@@ -27,3 +27,4 @@ example/
 *.njsproj
 *.sln
 *.sw?
+*.pyc

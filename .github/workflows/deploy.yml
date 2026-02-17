@@ -17,6 +17,11 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
       - name: Install and Build Frontend
         run: |
           npm install
@@ -30,6 +35,16 @@ jobs:
           secret_key: ${{ secrets.TENCENT_SECRET_KEY }}
           bucket: ${{ secrets.COS_BUCKET }}
           region: ${{ secrets.COS_REGION }}
+
+      - name: Purge Tencent Cloud CDN Cache
+        env:
+          TENCENT_SECRET_ID: ${{ secrets.TENCENT_SECRET_ID }}
+          TENCENT_SECRET_KEY: ${{ secrets.TENCENT_SECRET_KEY }}
+          # Check if CDN_PATHS secret exists, otherwise use default domain
+          CDN_PATHS: ${{ secrets.CDN_PATHS || 'https://sfqyweb.xyz/' }}
+        run: |
+          pip install tencentcloud-sdk-python
+          python .github/scripts/purge_cdn.py
 
       - name: Deploy Backend and Restart Services
         uses: appleboy/ssh-action@master
