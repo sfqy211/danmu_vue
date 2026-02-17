@@ -128,6 +128,17 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     return list;
   });
 
+  const clearSession = () => {
+    currentSession.value = null;
+    sessionSummary.value = null;
+    danmakuList.value = [];
+    scList.value = [];
+    totalDanmaku.value = 0;
+    currentPage.value = 0;
+    totalPages.value = 0;
+    isDanmakuLoaded.value = false;
+  };
+
   return {
     currentSession,
     sessionSummary,
@@ -147,6 +158,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     setZoomLevel,
     toggleSidebar,
     loadSession,
+    clearSession,
     fetchDanmaku,
     loadMore,
     filteredDanmaku

@@ -118,6 +118,12 @@ const syncStreamerName = async () => {
   
   // 如果名字有变化或者当前未选中，则更新并获取回放
   if (selectedStreamer.value !== targetName || !sessions.value.length) {
+    // 切换主播时，清理之前的会话状态
+    if (store.currentSession && store.currentSession.user_name !== targetName) {
+      store.clearSession();
+      activeSessionId.value = '';
+    }
+    
     selectedStreamer.value = targetName;
     await fetchSessions();
   }
