@@ -37,85 +37,75 @@ npm run dev:all
 
 #### 方案 B：前后端分离开发
 - **启动前端**：`npm run dev`
-- **启动后端 API**：`npm run dev:server`
+  - 访问地址：`http://localhost:5173` (Vite 默认端口)
+- **启动后端 API**：`cd server && npm run dev`
+  - API 地址：`http://localhost:3001`
 
 #### 弹幕监控开启方式
-- `pm2 start ecosystem.config.cjs`
-### 生产环境部署 (1Panel)
+- 开发环境：后端启动时会自动开始监控录制（由 `server/src/api.ts` 启动 `recorder.ts` 或 `pm2`）。
+- 生产环境：使用 PM2 或 Docker 守护进程。
 
-建议使用 1Panel 面板进行管理，提供 Docker 一键部署与 PM2 手动部署两种方案。
+### 生产环境部署 (1Panel + 腾讯云 COS/CDN)
+
+本项目推荐采用 **前后端分离** 的部署架构：
+- **前端**：构建为静态资源，托管于对象存储（如腾讯云 COS）并通过 CDN 加速。
+- **后端**：使用 Docker 部署在服务器上（如通过 1Panel 面板），提供 API 和录制服务。
 
 ---
 
-### 方案一：Docker 部署 (推荐)
+### 1. 后端部署 (Docker + 1Panel)
 
-使用 Docker 部署可以一键完成前后端环境搭建，无需在宿主机安装 Node.js。
+后端负责提供 API 接口和执行弹幕录制任务。
 
-1. **上传文件**：将项目所有文件上传到服务器目录（如 `/opt/1panel/apps/danmu-tools`）。
+1. **上传文件**：将项目根目录下的所有文件上传到服务器目录（如 `/opt/1panel/apps/danmu-tools`）。
 2. **创建 Compose 项目**：
    - 进入 1Panel 控制台 -> **容器** -> **编排 (Compose)**。
    - 点击 **创建**，项目名称填 `danmu-server`。
    - 在 **编辑编排文件** 中，填入项目根目录下的 `docker-compose.yml` 内容。
+     - **注意端口映射**：默认配置为 `5200:3001`，即宿主机的 `5200` 端口映射到容器的 `3001` 端口。
    - 点击 **确认**，1Panel 会自动构建镜像并启动容器。
-3. **查看日志**：
-   - 在 **容器** 列表中点击 `danmu-server` 容器的 **日志** 图标，查看录制状态。
-4. **访问说明**：
-   - 默认访问端口为 `5200`（可在 `docker-compose.yml` 中修改）。
-   - 该方案会自动编译前端代码并由后端服务统一托管，无需额外配置 Nginx 即可通过 `http://服务器IP:5200` 直接访问。
-   - 数据存储在宿主机的 `./server/data` 目录下。
+3. **验证后端**：
+   - 在服务器上执行 `curl http://127.0.0.1:5200/api/streamers`，应返回 JSON 数据。
+   - 确保服务器防火墙（如腾讯云安全组）已放行 `5200` 端口。
 
----
+### 2. 前端部署 (静态托管 + CDN)
 
-### 方案二：PM2 手动部署
+前端代码构建后为纯静态文件，无需 Node.js 环境运行。
 
-如果你希望直接在宿主机运行，可采用此方案。
+1. **修改前端配置**：
+   - 编辑 `.env.production` (如无则创建)，设置后端 API 地址：
+     ```ini
+     VITE_API_BASE_URL=https://api.sfqyweb.xyz
+     ```
+     *(请将 `https://api.sfqyweb.xyz` 替换为你的实际后端域名)*
 
-#### 1. 后端部署 (API & 录制监控)
+2. **本地构建**：
+   - 运行 `npm run build`。
+   - 构建产物将生成在 `dist` 目录下。
 
-1. **上传文件**：将以下文件上传到服务器目录（例如 `/opt/1panel/apps/danmu-tools`）：
-   - `server/` 文件夹 (包含源码和后端 `package.json`)
-   - `ecosystem.config.cjs` (PM2 配置文件)
-   - `package.json` (根目录配置文件)
-   - `tsconfig.json` (根目录配置文件)
-   - `.env` (配置 BILI_COOKIE)
+3. **上传至对象存储 (COS/OSS)**：
+   - 将 `dist` 目录下的所有文件上传至你的对象存储桶（如腾讯云 COS）。
+   - 开启静态网站托管功能。
 
-2. **创建 Node.js 项目**：
-   - 在 1Panel 中创建 Node.js 项目。
-   - **项目目录**：选择包含上述文件的根目录 `/opt/1panel/apps/danmu-tools`。
-   - **启动命令**：`npx pm2-runtime start ecosystem.config.cjs`
-   - **端口**：容器内 `3001`，暴露端口 `5200`。
+4. **配置 CDN 加速 (推荐)**：
+   - 为对象存储配置 CDN 加速域名（如 `sfqyweb.xyz`）。
+   - **关键配置**：由于前端是 SPA (单页应用)，需要在 CDN 或对象存储中配置 **404 错误页面重定向到 `index.html`**，以解决路由刷新 404 问题。
+   - **API 跨域**：后端已开启 CORS，前端可直接请求后端域名。
 
-3. **管理录制进程**：
-   - 进入容器终端，使用 `npx pm2 list` 查看录制状态。
-   - 使用 `npx pm2 logs` 查看实时录制日志。
+### 3. 后端域名配置 (CDN/Nginx 反代)
 
-### 2. 前端部署 (静态网页)
+为了让前端能安全地访问后端，建议为后端配置一个域名（如 `api.sfqyweb.xyz`）。
 
-1. **本地构建**：运行 `npm run build` 生成 `dist` 文件夹。
-2. **上传文件**：将 `dist` 内的所有内容上传到 1Panel 网站根目录（例如 `/www/sites/43.143.121.223/index`）。
-3. **创建静态网站**：在 1Panel 中创建一个静态网站（例如使用端口 `90`）。
+1. **CDN 回源配置**：
+   - 在腾讯云 CDN 控制台添加域名 `api.sfqyweb.xyz`。
+   - **源站配置**：
+     - 源站类型：自有源站
+     - 源站地址：你的服务器公网 IP
+     - **端口**：`5200` (对应 Docker 映射出的宿主机端口)
+     - 回源协议：HTTP
 
-### 3. Nginx 配置 (关键)
-
-为了确保页面刷新不出现 404，以及前端能正常访问后端 API，需修改 Nginx 配置文件：
-
-1. **配置伪静态 (解决刷新 404)**：
-   在 `server` 块中添加：
-   ```nginx
-   location / {
-       try_files $uri $uri/ /index.html;
-   }
-   ```
-
-2. **配置反向代理 (连接后端)**：
-   配置 `/api` 路径转发到后端的 `5200` 端口：
-   ```nginx
-   location /api {
-       proxy_pass http://127.0.0.1:5200;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-   }
-   ```
+2. **验证**：
+   - 访问 `https://api.sfqyweb.xyz/api/streamers`，应能正常获取数据。
 
 ---
 

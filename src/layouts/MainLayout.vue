@@ -32,8 +32,8 @@ const store = useDanmakuStore();
 const route = useRoute();
 
 const showSidebar = computed(() => {
-  // 在主播专属页（包含子路由）显示 Sidebar，但在点歌历史页隐藏
-  return route.path.startsWith('/vup/') && route.name !== 'streamer-songs';
+  // 在主播专属页（包含子路由）显示 Sidebar
+  return route.path.startsWith('/vup/');
 });
 
 const showHeader = computed(() => {

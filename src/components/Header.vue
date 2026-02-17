@@ -366,7 +366,7 @@ const isHome = computed(() => route.name === 'home'); // 首页是 VupList
 const isStreamerPage = computed(() => route.path.startsWith('/vup/')); // 主播页
 const isDanmakuPage = computed(() => route.name === 'streamer-danmaku'); // 弹幕列表页
 const showSidebarToggle = computed(() => {
-  return route.path.startsWith('/vup/') && route.name !== 'streamer-songs';
+  return route.path.startsWith('/vup/');
 });
 
 const currentStreamerName = computed(() => {
@@ -498,9 +498,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 15px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 .back-btn {
   margin-right: 5px;
+  flex-shrink: 0;
 }
 .left-panel h2 {
   font-size: 18px;
@@ -508,7 +512,8 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 400px;
+  flex: 1;
+  min-width: 0;
 }
 .session-info {
   display: flex;
@@ -516,24 +521,37 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 .streamer-name {
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 .divider {
   color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 .session-date {
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 .session-title {
   color: var(--text-primary);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .static-title {
   color: var(--text-primary);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .room-link {
   display: flex;
@@ -544,6 +562,7 @@ onUnmounted(() => {
   text-decoration: none;
   width: fit-content;
   transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 .room-link:hover {
   opacity: 0.8;
@@ -556,6 +575,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 15px;
+  flex-shrink: 0;
+  margin-left: 10px;
 }
 .dynamic-actions {
   display: flex;
@@ -599,9 +620,20 @@ onUnmounted(() => {
   .mobile-only {
     display: inline-flex;
   }
+  
+  .left-panel {
+    gap: 8px;
+  }
+
+  .streamer-name {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .session-title {
     font-size: 14px;
-    max-width: 150px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
