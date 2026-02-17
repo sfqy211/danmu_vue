@@ -37,21 +37,22 @@ async function generateAvatars() {
 
   for (const file of files) {
     const inputPath = path.join(BG_DIR, file);
-    const outputPath = path.join(AVATAR_DIR, file);
-    
+    const outputPath = path.join(AVATAR_DIR, file.replace(/\.[^.]+$/, '.webp'));
+
     try {
       // Check if output already exists (optional: skip if exists? No, let's overwrite to be safe)
-      
+
       const image = sharp(inputPath);
       const metadata = await image.metadata();
-      
+
       console.log(`Processing ${file} (${metadata.width}x${metadata.height})...`);
-      
+
       await image
-        .resize(200, 200, {
+        .resize(120, 120, {
           fit: 'cover',
           position: 'center' // Crop from center
         })
+        .webp({ quality: 60 })
         .toFile(outputPath);
         
       console.log(`  -> Saved to ${outputPath}`);

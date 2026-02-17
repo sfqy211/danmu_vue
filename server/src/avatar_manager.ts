@@ -77,13 +77,14 @@ const fetchAvatar = async (uid: string, name: string) => {
     console.log(`[Avatar] 已更新 ${name} 的原图 -> ${bgPath}`);
 
     // 生成缩略图到 vup-avatar
-    const avatarPath = path.join(AVATAR_DIR, `${uid}.png`);
+    const avatarPath = path.join(AVATAR_DIR, `${uid}.webp`);
     try {
         await sharp(buffer)
-            .resize(200, 200, {
+            .resize(120, 120, {
                 fit: 'cover',
                 position: 'center'
             })
+            .webp({ quality: 60 })
             .toFile(avatarPath);
         console.log(`[Avatar] 已生成 ${name} 的缩略图 -> ${avatarPath}`);
     } catch (sharpError: any) {

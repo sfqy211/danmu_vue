@@ -20,7 +20,7 @@ export const VUP_LIST = [
         // 注意路径变化：从 /api/avatars 改为 /vup-bg，直接访问静态文件
         imageUrl: `${IMG_BASE_URL}/vup-bg/1104048496.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1104048496.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`
     },
     {
         id: '2',
@@ -32,7 +32,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/4718716.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/4718716.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`
     },
     {
         id: '3',
@@ -44,7 +44,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/3493271057730096.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/3493271057730096.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`
     },
     {
         id: '4',
@@ -56,7 +56,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/17967817.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/17967817.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`
     },
     {
         id: '5',
@@ -68,7 +68,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/15641218.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/15641218.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`
     },
     {
         id: '6',
@@ -80,7 +80,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/1376650682.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1376650682.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`
     },
     {
         id: '7',
@@ -92,7 +92,7 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/7591465.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/7591465.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`
     },
     {
         id: '8',
@@ -125,7 +125,7 @@ export const VUP_LIST = [
         playlistUrl: 'http://kkcc.vsinger.ink',
         groups: [GROUPS.TYBK_SISTERS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/128667389.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`
     },
     {
         id: '11',
@@ -136,7 +136,7 @@ export const VUP_LIST = [
         playlistUrl: 'http://songlist.rynia.live',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/703018634.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`
     },
     {
         id: '12',
@@ -180,6 +180,6 @@ export const VUP_LIST = [
         playlistUrl: 'https://sumireji.com/',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/796556.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.png`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`
     },
 ];
