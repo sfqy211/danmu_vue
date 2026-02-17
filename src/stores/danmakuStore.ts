@@ -21,6 +21,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const showDanmaku = ref(true);
   const isSidebarCollapsed = ref(true);
   const zoomLevel = ref(100);
+  const timeDisplayMode = ref<'relative' | 'absolute'>('relative');
 
   // Actions
   const setZoomLevel = (val: number) => {
@@ -155,6 +156,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     showDanmaku,
     isSidebarCollapsed,
     zoomLevel,
+    timeDisplayMode,
     setZoomLevel,
     toggleSidebar,
     loadSession,

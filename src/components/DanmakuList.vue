@@ -65,7 +65,7 @@
                 </div>
               </el-popover>
               <span class="danmaku-text" :title="item.content" @click="toggleExpand(item)">{{ item.content }}</span>
-              <span class="danmaku-time">{{ item.timeStr }}</span>
+              <span class="danmaku-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(item.timestamp) : item.timeStr }}</span>
             </div>
           </div>
         </div>
@@ -129,7 +129,7 @@
                   </el-popover>
                 </div>
                 <div class="danmaku-text" :title="item.content" @click="toggleExpand(item)">{{ item.content }}</div>
-                <div class="danmaku-time">{{ item.timeStr }}</div>
+                <div class="danmaku-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(item.timestamp) : item.timeStr }}</div>
               </div>
             </div>
           </div>
@@ -163,6 +163,12 @@ const {
 const expandedItemKey = ref<string | null>(null);
 
 const getItemKey = (item: any) => `${item.timestamp}-${item.user}-${item.content}`;
+
+const formatAbsoluteTime = (timestamp: number) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString('zh-CN', { hour12: false });
+};
 
 const toggleExpand = (item: any) => {
   const key = getItemKey(item);

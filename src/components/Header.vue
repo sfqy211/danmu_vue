@@ -140,6 +140,17 @@
           </div>
           <div class="drawer-item">
             <div class="item-left">
+              <el-icon><Clock /></el-icon>
+              <span>显示实际时间</span>
+            </div>
+            <el-switch 
+              v-model="store.timeDisplayMode" 
+              active-value="absolute" 
+              inactive-value="relative"
+            />
+          </div>
+          <div class="drawer-item">
+            <div class="item-left">
               <el-icon><ZoomIn /></el-icon>
               <span>页面缩放</span>
             </div>
@@ -342,7 +353,8 @@ import {
   WarningFilled,
   Wallet,
   Headset,
-  ChatDotRound
+  ChatDotRound,
+  Clock
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';
