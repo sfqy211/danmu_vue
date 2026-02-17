@@ -72,7 +72,7 @@
         @click="setActiveItem(index)"
       >
         <div class="nav-avatar-wrapper">
-            <img :src="streamer.imageUrl" class="nav-avatar" />
+            <img :src="streamer.avatarUrl" class="nav-avatar" />
           </div>
       </div>
       

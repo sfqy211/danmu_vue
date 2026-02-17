@@ -1,13 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import axios from 'axios';
+import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 对应前端 public/vup-bg
-const AVATAR_DIR = path.resolve(__dirname, '../../public/vup-bg');
+const BG_DIR = path.resolve(__dirname, '../../public/vup-bg');
+// 对应前端 public/vup-avatar
+const AVATAR_DIR = path.resolve(__dirname, '../../public/vup-avatar');
 
 // VUP 列表 (需手动维护，或后续从数据库读取)
 const VUPS = [
@@ -29,6 +32,9 @@ const VUPS = [
 ];
 
 // 确保目录存在
+if (!fs.existsSync(BG_DIR)) {
+  fs.mkdirSync(BG_DIR, { recursive: true });
+}
 if (!fs.existsSync(AVATAR_DIR)) {
   fs.mkdirSync(AVATAR_DIR, { recursive: true });
 }
@@ -63,10 +69,26 @@ const fetchAvatar = async (uid: string, name: string) => {
 
     // 2. 下载图片
     const response = await axios.get(faceUrl, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(response.data);
     
-    const targetPath = path.join(AVATAR_DIR, `${uid}.png`);
-    fs.writeFileSync(targetPath, response.data);
-    console.log(`[Avatar] 已更新 ${name} 的头像 -> ${targetPath}`);
+    // 保存原图到 vup-bg
+    const bgPath = path.join(BG_DIR, `${uid}.png`);
+    fs.writeFileSync(bgPath, buffer);
+    console.log(`[Avatar] 已更新 ${name} 的原图 -> ${bgPath}`);
+
+    // 生成缩略图到 vup-avatar
+    const avatarPath = path.join(AVATAR_DIR, `${uid}.png`);
+    try {
+        await sharp(buffer)
+            .resize(200, 200, {
+                fit: 'cover',
+                position: 'center'
+            })
+            .toFile(avatarPath);
+        console.log(`[Avatar] 已生成 ${name} 的缩略图 -> ${avatarPath}`);
+    } catch (sharpError: any) {
+        console.error(`[Avatar] 生成缩略图失败 ${name}:`, sharpError.message);
+    }
 
   } catch (error: any) {
     console.error(`[Avatar] 获取失败 ${name}:`, error.message);

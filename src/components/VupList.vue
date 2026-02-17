@@ -18,7 +18,7 @@
       <div class="content-grid">
         <div v-for="artist in filteredArtists" :key="artist.id" class="vup-card">
           <div class="vup-avatar-wrapper">
-             <img :src="artist.imageUrl" :alt="artist.name" class="vup-avatar" @error="handleImageError" />
+             <img :src="artist.avatarUrl" :alt="artist.name" class="vup-avatar" @error="handleImageError" />
           </div>
           <div class="vup-info">
             <h3 class="vup-name">{{ artist.name }}</h3>
