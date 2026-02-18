@@ -46,6 +46,12 @@ app.use('/api/covers', express.static(path.resolve(__dirname, '../../public/vup-
 // 获取所有录制列表 (支持筛选)
 app.get('/api/sessions', async (req, res) => {
   try {
+    // 设置 Cache-Control 响应头，控制 CDN 和浏览器缓存
+    // public: 允许 CDN 和浏览器缓存
+    // max-age=60: 缓存 60 秒
+    // s-maxage=60: 专门告诉 CDN 缓存 60 秒 (有些 CDN 优先看这个)
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=60');
+    
     const filters = {
       userName: req.query.userName as string,
       startTime: req.query.startTime ? parseInt(req.query.startTime as string) : undefined,

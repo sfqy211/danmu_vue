@@ -56,7 +56,9 @@ export const getStreamers = async () => {
   return res.data;
 };
 
-export const getSessions = async (params: { userName?: string; startTime?: number; endTime?: number }) => {
+export const getSessions = async (
+  params: { userName?: string; startTime?: number; endTime?: number }
+) => {
   const res = await api.get<SessionInfo[]>('/sessions', { params });
   return res.data;
 };
