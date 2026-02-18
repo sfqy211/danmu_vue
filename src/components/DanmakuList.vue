@@ -162,7 +162,11 @@ const {
 // Expanded item state
 const expandedItemKey = ref<string | null>(null);
 
-const getItemKey = (item: any) => `${item.timestamp}-${item.user}-${item.content}`;
+const getItemKey = (item: any) => {
+  if (item.id) return item.id;
+  // Fallback for old data or if id is missing
+  return `${item.timestamp}-${item.user}-${item.content}`;
+};
 
 const formatAbsoluteTime = (timestamp: number) => {
   if (!timestamp) return '';

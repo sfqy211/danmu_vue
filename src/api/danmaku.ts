@@ -22,6 +22,7 @@ export interface FileInfo {
 }
 
 export interface Danmaku {
+  id: string; // 唯一 ID
   user: string;
   uid: string;
   content: string;
@@ -86,7 +87,9 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
       : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const danmaku: Danmaku[] = res.data.messages.map(msg => ({
+  const danmaku: Danmaku[] = res.data.messages.map((msg, index) => ({
+    // Generate unique ID on frontend: timestamp-uid-page-index
+    id: `${msg.timestamp}-${msg.uid}-${page}-${index}`,
     user: msg.sender,
     uid: msg.uid,
     content: msg.text,

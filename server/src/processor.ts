@@ -699,7 +699,13 @@ export async function getSessionDanmakuPaged(sessionId: number, page: number = 1
   const total = messages.length;
   const start = (page - 1) * pageSize;
   const end = start + pageSize;
-  const pagedMessages = messages.slice(start, end);
+  const pagedMessages = messages.slice(start, end).map((msg, index) => ({
+    ...msg,
+    // 生成一个唯一 ID，基于时间戳和全局索引
+    // 注意：这里使用 start + index 是为了保证分页后 id 的一致性，
+    // 即使翻页，第 N 条数据的 ID 永远是 N
+    id: `${msg.timestamp}-${msg.uid}-${start + index}`
+  }));
 
   return {
     total,
