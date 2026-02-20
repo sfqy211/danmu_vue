@@ -8,6 +8,13 @@
         @click="store.toggleSidebar"
       />
       <h3 v-show="!store.isSidebarCollapsed">直播回放列表</h3>
+      <el-button 
+        class="refresh-btn" 
+        :icon="Refresh" 
+        link 
+        v-show="!store.isSidebarCollapsed" 
+        @click="handleRefresh"
+      />
     </div>
     
     <Teleport to="#header-dynamic-actions" :disabled="isMobile" v-if="isMountedFlag">
@@ -63,7 +70,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { getStreamers, getSessions, type SessionInfo, type StreamerInfo } from '../api/danmaku';
 import { useDanmakuStore } from '../stores/danmakuStore';
-import { Fold, Expand } from '@element-plus/icons-vue';
+import { Fold, Expand, Refresh } from '@element-plus/icons-vue';
 import { VUP_LIST } from '../constants/vups';
 
 const store = useDanmakuStore();
@@ -149,6 +156,19 @@ const handleSelect = (session: SessionInfo) => {
   }
 };
 
+const handleRefresh = async () => {
+  try {
+    // 刷新主播列表
+    streamers.value = await getStreamers();
+    // 刷新当前选中主播的回放列表
+    if (selectedStreamer.value) {
+      await fetchSessions();
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
 onMounted(async () => {
   isMountedFlag.value = true;
   window.addEventListener('resize', handleResize);
@@ -220,6 +240,18 @@ onUnmounted(() => {
 
 .collapsed .collapse-btn {
   margin-left: 0;
+}
+
+.refresh-btn {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  padding: 8px;
+  margin-left: auto;
+  transition: color 0.2s;
+}
+
+.refresh-btn:hover {
+  color: var(--el-color-primary);
 }
 
 .collapsed-placeholder {
