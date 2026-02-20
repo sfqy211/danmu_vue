@@ -136,14 +136,7 @@ export const getSessionSummary = async (sessionId: number): Promise<SessionSumma
   return result;
 };
 
-export interface AnalysisResult {
-  analysis: string;
-}
 
-export const analyzeSession = async (sessionId: number): Promise<AnalysisResult> => {
-  const res = await api.post<AnalysisResult>('/analyze', { id: sessionId });
-  return res.data;
-};
 
 export interface SongRequest {
   id: number;

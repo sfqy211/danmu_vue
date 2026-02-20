@@ -117,13 +117,7 @@
             </div>
             <el-icon><ArrowRight /></el-icon>
           </div>
-          <div class="drawer-item clickable" @click="openAiAnalysis">
-            <div class="item-left">
-              <el-icon><MagicStick /></el-icon>
-              <span>弹幕AI分析</span>
-            </div>
-            <el-icon><ArrowRight /></el-icon>
-          </div>
+
         </div>
 
         <el-divider v-if="isDanmakuPage" />
@@ -230,18 +224,7 @@
       <TimelineAnalysis v-if="timelineDialogVisible" />
     </el-dialog>
 
-    <!-- AI Analysis Dialog -->
-    <el-dialog
-      v-model="aiAnalysisDialogVisible"
-      title="弹幕 AI 分析"
-      :width="isMobile ? '100%' : '70%'"
-      :fullscreen="isMobile"
-      destroy-on-close
-      align-center
-      append-to-body
-    >
-      <AiAnalysis v-if="aiAnalysisDialogVisible" />
-    </el-dialog>
+
 
     <!-- About Dialog -->
     <el-dialog
@@ -343,7 +326,6 @@ import {
   InfoFilled, 
   ArrowRight, 
   ArrowLeft,
-  MagicStick,
   Expand,
   Moon, 
   ZoomIn,
@@ -359,7 +341,6 @@ import {
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';
 import TimelineAnalysis from './TimelineAnalysis.vue';
-import AiAnalysis from './AiAnalysis.vue';
 
 const store = useDanmakuStore();
 const router = useRouter();
@@ -367,7 +348,6 @@ const route = useRoute();
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
-const aiAnalysisDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
@@ -459,13 +439,7 @@ const openTimeline = () => {
   timelineDialogVisible.value = true;
 };
 
-const openAiAnalysis = () => {
-  if (!store.currentSession) {
-    ElMessage.warning('请在左侧直播回放中选择主播与具体场次');
-    return;
-  }
-  aiAnalysisDialogVisible.value = true;
-};
+
 
 const openSongRequests = () => {
   const currentUid = route.params.uid;
