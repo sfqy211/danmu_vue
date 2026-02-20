@@ -204,7 +204,16 @@ function initFile() {
   if (!roomInfo) return;
   
   const date = new Date();
-  const dateStr = date.toISOString().replace(/T/, ' ').replace(/\..+/, '').replace(/:/g, '-');
+  // 使用中国标准时间 (UTC+8)
+  const offset = 28800000; // UTC+8 偏移量（8*60*60*1000）
+  const chinaDate = new Date(date.getTime() + offset);
+  const year = chinaDate.getUTCFullYear();
+  const month = String(chinaDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(chinaDate.getUTCDate()).padStart(2, '0');
+  const hours = String(chinaDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(chinaDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(chinaDate.getUTCSeconds()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day} ${hours}-${minutes}-${seconds}`;
   // Clean title for filename
   const safeTitle = roomInfo.title.replace(/[\\/:*?"<>|]/g, '_');
   const filenameBase = `${dateStr} ${safeTitle}`;

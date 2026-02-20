@@ -37,13 +37,21 @@ npm run dev:all
 
 #### 方案 B：前后端分离开发
 - **启动前端**：`npm run dev`
-  - 访问地址：`http://localhost:5173` (Vite 默认端口)
+  - 访问地址：`http://localhost:5200` (Vite 默认端口)
 - **启动后端 API**：`cd server && npm run dev`
   - API 地址：`http://localhost:3001`
 
 #### 弹幕监控开启方式
 - 开发环境：后端启动时会自动开始监控录制（由 `server/src/api.ts` 启动 `recorder.ts` 或 `pm2`）。
 - 生产环境：使用 PM2 或 Docker 守护进程。
+
+#### PM2相关命令
+- 启动所有进程：`pm2 start ecosystem.config.cjs`
+- 查看进程状态：`pm2 status`
+- 重启所有进程：`pm2 restart all`
+- 停止所有进程：`pm2 stop all`
+- 删除所有进程：`pm2 delete all`
+- 查看日志：`pm2 logs`
 
 ### 生产环境部署 (1Panel + 腾讯云 COS/CDN)
 

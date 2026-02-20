@@ -93,6 +93,7 @@ export interface DanmakuMessage {
   price?: number;
   name?: string;
   count?: number;
+  guardLevel?: number;
   sender: {
     uid: string;
     name: string;
@@ -119,11 +120,21 @@ export interface GiftAnalysisResult {
       totalPrice: number;
       giftPrice: number;
       scPrice: number;
+      guardPrice: number;
       uid: string;
     };
   };
   timeline: [number, number][]; // [timestamp, price]
   topGifts: { name: string; count: number; price: number }[];
+  guardStats: {
+    totalPrice: number;
+    count: number;
+    countByLevel: {
+      1: number; // 总督
+      2: number; // 提督
+      3: number; // 舰长
+    };
+  };
 }
 
 let isDbInitialized = false;
@@ -299,6 +310,29 @@ export async function processDanmakuFile(filePath: string) {
       });
     }
     
+    // 提取航海信息 <guard ...>
+    // 格式: <guard ts="..." guard_level="..." guard_name="..." num="..." price="..." user="..." uid="..." timestamp="..." />
+    const guardRegex = /<guard [^>]*ts="([^"]+)"[^>]*guard_level="([^"]+)"[^>]*guard_name="([^"]+)"[^>]*num="([^"]+)"[^>]*price="([^"]+)"[^>]*user="([^"]+)"[^>]*uid="([^"]+)"[^>]*timestamp="([^"]+)"/g;
+    while ((match = guardRegex.exec(content)) !== null) {
+      let price = (parseInt(match[5]) || 0) / 1000; // 价格同样除以 1000
+      const guardLevel = parseInt(match[2]) || 3;
+      const guardName = match[3];
+      const num = parseInt(match[4]) || 1;
+      
+      messages.push({
+        type: 'guard',
+        name: guardName,
+        guardLevel: guardLevel,
+        count: num,
+        price: price,
+        timestamp: parseInt(match[8]),
+        sender: {
+          name: match[6],
+          uid: match[7]
+        }
+      });
+    }
+    
     // 排序消息
     messages.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -313,7 +347,16 @@ export async function processDanmakuFile(filePath: string) {
       totalPrice: 0,
       userStats: {},
       timeline: [],
-      topGifts: []
+      topGifts: [],
+      guardStats: {
+        totalPrice: 0,
+        count: 0,
+        countByLevel: {
+          1: 0,
+          2: 0,
+          3: 0
+        }
+      }
     };
 
     const timelineMap = new Map<number, number>();
@@ -339,8 +382,8 @@ export async function processDanmakuFile(filePath: string) {
         analysis.userStats[userName].scCount++;
       }
 
-      // 2. 礼物/SC 统计 (Gift)
-      if (msg.type === 'give_gift' || msg.type === 'super_chat') {
+      // 2. 礼物/SC/航海 统计 (Gift)
+      if (msg.type === 'give_gift' || msg.type === 'super_chat' || msg.type === 'guard') {
         const price = msg.price || 0;
         giftAnalysis.totalPrice += price;
         
@@ -349,6 +392,7 @@ export async function processDanmakuFile(filePath: string) {
             totalPrice: 0,
             giftPrice: 0,
             scPrice: 0,
+            guardPrice: 0,
             uid: msg.sender.uid
           };
         }
@@ -366,9 +410,16 @@ export async function processDanmakuFile(filePath: string) {
           g.price += price;
         } else if (msg.type === 'super_chat') {
           giftAnalysis.userStats[userName].scPrice += price;
+        } else if (msg.type === 'guard') {
+          giftAnalysis.userStats[userName].guardPrice += price;
+          // 统计航海信息
+          giftAnalysis.guardStats.totalPrice += price;
+          giftAnalysis.guardStats.count += (msg.count || 1);
+          const guardLevel = msg.guardLevel || 3;
+          giftAnalysis.guardStats.countByLevel[guardLevel as 1|2|3] += (msg.count || 1);
         }
 
-        // 礼物时间轴
+        // 礼物/航海/SC 时间轴
         const ts = msg.timestamp;
         const bucketTime = Math.floor(ts / 60000) * 60000;
         giftTimelineMap.set(bucketTime, (giftTimelineMap.get(bucketTime) || 0) + price);
@@ -393,12 +444,16 @@ export async function processDanmakuFile(filePath: string) {
     // 格式化数据并应用舍入逻辑
     giftAnalysis.totalPrice = roundPrice(giftAnalysis.totalPrice);
     
+    // 格式化航海统计价格
+    giftAnalysis.guardStats.totalPrice = roundPrice(giftAnalysis.guardStats.totalPrice);
+    
     // 格式化用户统计
     Object.keys(giftAnalysis.userStats).forEach(user => {
       const stats = giftAnalysis.userStats[user];
       stats.totalPrice = roundPrice(stats.totalPrice);
       stats.giftPrice = roundPrice(stats.giftPrice);
       stats.scPrice = roundPrice(stats.scPrice);
+      stats.guardPrice = roundPrice(stats.guardPrice);
     });
 
     // 格式化时间轴
