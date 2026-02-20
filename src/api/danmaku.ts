@@ -63,6 +63,13 @@ export const getSessions = async (
   return res.data;
 };
 
+export const getSessionsTotal = async (
+  params: { userName?: string }
+) => {
+  const res = await api.get<{ total: number }>('/sessions/total', { params });
+  return res.data;
+};
+
 export const getSessionDanmaku = async (sessionId: number, page: number = 1, pageSize: number = 100) => {
   const res = await api.get<{
     messages: {

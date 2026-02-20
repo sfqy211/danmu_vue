@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import chokidar from 'chokidar';
-import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb } from './processor.js';
+import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb, getSessionsTotal } from './processor.js';
 import { startAvatarScheduler } from './avatar_manager.js';
 import pm2 from 'pm2';
 
@@ -62,6 +62,20 @@ app.get('/api/sessions', async (req, res) => {
   } catch (error) {
     console.error('API Error /api/sessions:', error);
     res.status(500).json({ error: '获取列表失败' });
+  }
+});
+
+// 获取会话总数 (支持筛选)
+app.get('/api/sessions/total', async (req, res) => {
+  try {
+    const filters = {
+      userName: req.query.userName as string
+    };
+    const total = await getSessionsTotal(filters);
+    res.json({ total });
+  } catch (error) {
+    console.error('API Error /api/sessions/total:', error);
+    res.status(500).json({ error: '获取总数失败' });
   }
 });
 

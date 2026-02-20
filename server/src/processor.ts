@@ -595,6 +595,25 @@ export async function getSessions(filters: { userName?: string; startTime?: numb
   return dbAll(sql, params);
 }
 
+export async function getSessionsTotal(filters: { userName?: string } = {}) {
+  await ensureDbInit();
+  let sql = 'SELECT COUNT(*) as count FROM sessions';
+  const params: any[] = [];
+  const whereClauses: string[] = [];
+
+  if (filters.userName) {
+    whereClauses.push('user_name = ?');
+    params.push(filters.userName);
+  }
+
+  if (whereClauses.length > 0) {
+    sql += ' WHERE ' + whereClauses.join(' AND ');
+  }
+
+  const result = await dbGet(sql, params);
+  return result.count;
+}
+
 /**
  * 获取所有唯一主播列表
  * 优先获取非空的 room_id

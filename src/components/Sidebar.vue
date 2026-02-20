@@ -8,6 +8,11 @@
         @click="store.toggleSidebar"
       />
       <h3 v-show="!store.isSidebarCollapsed">直播回放列表</h3>
+      <div class="session-count" v-show="!store.isSidebarCollapsed && selectedStreamer">
+        <span class="current">{{ sessions.length }}</span>
+        <span class="separator">/</span>
+        <span class="total">{{ totalSessions }}</span>
+      </div>
       <el-button 
         class="refresh-btn" 
         :icon="Refresh" 
@@ -23,7 +28,7 @@
           v-model="selectedStreamer" 
           placeholder="选择主播" 
           clearable 
-          @change="fetchSessions" 
+          @change="handleStreamerChange" 
           class="streamer-select"
           :size="isMobile ? 'default' : 'default'"
         >
@@ -36,6 +41,47 @@
         </el-select>
       </div>
     </Teleport>
+
+    <div class="filter-section" v-show="!store.isSidebarCollapsed && selectedStreamer">
+      <div class="filter-row">
+        <div class="filter-item-wrapper time-range-wrapper">
+          <el-select 
+            v-model="timeRange" 
+            placeholder="范围"
+            size="small"
+            @change="handleTimeRangeChange"
+            class="time-range-select"
+          >
+            <el-option label="最近7天" value="7d" />
+            <el-option label="最近30天" value="30d" />
+            <el-option label="最近180天" value="180d" />
+            <el-option label="最近365天" value="365d" />
+            <el-option-group label="按年份选择">
+              <el-option 
+                v-for="year in availableYears" 
+                :key="year" 
+                :label="`${year}年`" 
+                :value="`year-${year}`"
+              />
+            </el-option-group>
+          </el-select>
+        </div>
+        
+        <div class="filter-item-wrapper date-picker-wrapper">
+          <el-date-picker
+            v-model="customDate"
+            type="date"
+            placeholder="选择一个具体日期"
+            size="small"
+            @change="handleCustomDateChange"
+            class="date-picker"
+            :clearable="true"
+          />
+        </div>
+      </div>
+      
+
+    </div>
 
     <div class="session-list" v-show="!store.isSidebarCollapsed">
       <div v-if="!selectedStreamer" class="empty-list-tip">
@@ -68,7 +114,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getStreamers, getSessions, type SessionInfo, type StreamerInfo } from '../api/danmaku';
+import { getStreamers, getSessions, getSessionsTotal, type SessionInfo, type StreamerInfo } from '../api/danmaku';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { Fold, Expand, Refresh } from '@element-plus/icons-vue';
 import { VUP_LIST } from '../constants/vups';
@@ -82,6 +128,11 @@ const activeSessionId = ref('');
 const isMobile = ref(window.innerWidth <= 768);
 const isMountedFlag = ref(false);
 
+const timeRange = ref<string>('30d');
+const customDate = ref<Date | null>(null);
+const totalSessions = ref(0);
+const availableYears = ref<number[]>([]);
+
 const formatTime = (ts: number) => {
   const date = new Date(ts);
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
@@ -92,13 +143,70 @@ const fetchSessions = async () => {
     sessions.value = [];
     return;
   }
+  
+  const filters: any = {
+    userName: selectedStreamer.value
+  };
+  
+  if (timeRange.value) {
+    const now = Date.now();
+    
+    if (timeRange.value === '7d') {
+      filters.startTime = now - 7 * 24 * 60 * 60 * 1000;
+    } else if (timeRange.value === '30d') {
+      filters.startTime = now - 30 * 24 * 60 * 60 * 1000;
+    } else if (timeRange.value === '180d') {
+      filters.startTime = now - 180 * 24 * 60 * 60 * 1000;
+    } else if (timeRange.value === '365d') {
+      filters.startTime = now - 365 * 24 * 60 * 60 * 1000;
+    } else if (timeRange.value.startsWith('year-')) {
+      const year = parseInt(timeRange.value.split('-')[1]);
+      filters.startTime = new Date(year, 0, 1).getTime();
+      filters.endTime = new Date(year + 1, 0, 1).getTime();
+    }
+  } else if (customDate.value) {
+    const selectedDate = new Date(customDate.value);
+    const startOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0);
+    const endOfDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59, 999);
+    filters.startTime = startOfDay.getTime();
+    filters.endTime = endOfDay.getTime();
+  }
+  
   try {
-    sessions.value = await getSessions({
-      userName: selectedStreamer.value
-    });
+    sessions.value = await getSessions(filters);
   } catch (e) {
     console.error(e);
   }
+};
+
+const fetchTotalSessions = async () => {
+  if (!selectedStreamer.value) {
+    totalSessions.value = 0;
+    return;
+  }
+  
+  try {
+    const result = await getSessionsTotal({ userName: selectedStreamer.value });
+    totalSessions.value = result.total;
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+const handleStreamerChange = async () => {
+  timeRange.value = '30d'; // 默认选择最近7天
+  customDate.value = null;
+  await Promise.all([fetchSessions(), fetchTotalSessions(), updateAvailableYears()]);
+};
+
+const handleTimeRangeChange = async () => {
+  customDate.value = null;
+  await fetchSessions();
+};
+
+const handleCustomDateChange = async () => {
+  timeRange.value = '';
+  await fetchSessions();
 };
 
 const syncStreamerName = async () => {
@@ -108,10 +216,8 @@ const syncStreamerName = async () => {
   const vup = VUP_LIST.find(v => v.uid === uid);
   if (!vup) return;
   
-  // 默认使用 VUP_LIST 中的名字
   let targetName = vup.name;
   
-  // 尝试通过 room_id 匹配后端列表中的名字 (以防名字不一致)
   if (streamers.value.length > 0 && vup.livestreamUrl) {
     const match = vup.livestreamUrl.match(/\/(\d+)$/);
     if (match) {
@@ -123,22 +229,40 @@ const syncStreamerName = async () => {
     }
   }
   
-  // 如果名字有变化或者当前未选中，则更新并获取回放
   if (selectedStreamer.value !== targetName || !sessions.value.length) {
-    // 切换主播时，清理之前的会话状态
     if (store.currentSession && store.currentSession.user_name !== targetName) {
       store.clearSession();
       activeSessionId.value = '';
     }
     
     selectedStreamer.value = targetName;
-    await fetchSessions();
+    timeRange.value = '30d'; // 默认选择最近7天
+    customDate.value = null;
+    await Promise.all([fetchSessions(), fetchTotalSessions(), updateAvailableYears()]);
+  }
+};
+
+const updateAvailableYears = async () => {
+  if (!selectedStreamer.value) {
+    availableYears.value = [];
+    return;
+  }
+  
+  try {
+    const allSessions = await getSessions({ userName: selectedStreamer.value });
+    const years = new Set<number>();
+    allSessions.forEach(session => {
+      const year = new Date(session.start_time).getFullYear();
+      years.add(year);
+    });
+    availableYears.value = Array.from(years).sort((a, b) => b - a);
+  } catch (e) {
+    console.error(e);
   }
 };
 
 const isStreamerMode = computed(() => !!route.params.uid);
 
-// 监听路由参数 UID 变化
 watch(() => route.params.uid, async () => {
   await syncStreamerName();
 }, { immediate: true });
@@ -150,7 +274,6 @@ const handleResize = () => {
 const handleSelect = (session: SessionInfo) => {
   activeSessionId.value = session.id.toString();
   store.loadSession(session);
-  // Auto collapse sidebar on mobile or desktop when selection is made
   if (!store.isSidebarCollapsed) {
     store.isSidebarCollapsed = true;
   }
@@ -158,11 +281,9 @@ const handleSelect = (session: SessionInfo) => {
 
 const handleRefresh = async () => {
   try {
-    // 刷新主播列表
     streamers.value = await getStreamers();
-    // 刷新当前选中主播的回放列表
     if (selectedStreamer.value) {
-      await fetchSessions();
+      await Promise.all([fetchSessions(), fetchTotalSessions(), updateAvailableYears()]);
     }
   } catch (e) {
     console.error(e);
@@ -174,7 +295,6 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize);
   try {
     streamers.value = await getStreamers();
-    // 获取主播列表后，尝试再次同步名字 (以防 watch 执行时列表为空)
     await syncStreamerName();
   } catch (e) {
     console.error(e);
@@ -235,7 +355,7 @@ onUnmounted(() => {
   font-size: 1.2rem;
   color: var(--text-secondary);
   padding: 8px;
-  margin-left: -4px; /* Align icon slightly better with container padding */
+  margin-left: -4px;
 }
 
 .collapsed .collapse-btn {
@@ -252,6 +372,66 @@ onUnmounted(() => {
 
 .refresh-btn:hover {
   color: var(--el-color-primary);
+}
+
+.filter-section {
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.filter-item-wrapper {
+  min-width: 0;
+  display: flex;
+  box-sizing: border-box;
+}
+
+.time-range-wrapper {
+  flex: 0 0 30%;
+}
+
+.date-picker-wrapper {
+  flex: 0 0 70%;
+}
+
+/* 确保内部组件占满宽度 */
+.filter-item-wrapper :deep(.el-select),
+.filter-item-wrapper :deep(.el-date-editor) {
+  width: 100% !important;
+}
+
+.filter-item-wrapper :deep(.el-select__wrapper),
+.filter-item-wrapper :deep(.el-input__wrapper) {
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.session-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
+  margin: 0 8px;
+  flex: 1;
+  text-align: center;
+}
+
+.session-count .current {
+  color: var(--el-color-primary);
+  font-weight: 500;
+}
+
+.session-count .separator {
+  margin: 0 4px;
 }
 
 .collapsed-placeholder {
@@ -308,5 +488,56 @@ onUnmounted(() => {
 .empty-list-tip :deep(.el-empty__description p) {
   color: var(--text-tertiary);
   font-size: 0.85rem;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.session-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.session-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.session-item.active {
+  background-color: var(--bg-active);
+  border-left: 3px solid var(--el-color-primary);
+  margin: 4px 12px;
+  border-radius: 8px;
+  padding-left: 12px;
+}
+
+.session-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.user-name {
+  font-weight: 500;
+}
+
+.start-time {
+  /* 使用默认字体，与主播名字保持一致 */
 }
 </style>
