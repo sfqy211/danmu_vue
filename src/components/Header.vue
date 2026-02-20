@@ -180,7 +180,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>BiliDanmu 弹幕时光机 v1.4</p>
+          <p>BiliDanmu 弹幕时光机 v1.5</p>
         </div>
       </template>
     </el-drawer>
@@ -253,6 +253,19 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v1.5 - 2026-02-20 (功能增强与性能优化)" name="1.5">
+              <ul class="changelog-list">
+                <li><strong>侧边栏功能增强</strong>：增加会话总数统计和时间范围筛选功能，添加刷新按钮用于更新主播和回放列表。</li>
+                <li><strong>数据统计优化</strong>：为会话列表接口添加CDN缓存控制，添加航海信息统计功能并优化时间处理。</li>
+                <li><strong>弹幕体验提升</strong>：为弹幕列表项添加唯一ID以支持展开功能，添加弹幕时间显示模式切换功能。</li>
+                <li><strong>头像系统优化</strong>：添加头像缩略图生成功能，转换头像为webp格式以减小尺寸，为直播主头像添加点击跳转直播功能。</li>
+                <li><strong>点歌记录改进</strong>：优化空状态提示并改进房间号获取逻辑，移除点歌历史页侧边栏隐藏条件并优化标题栏布局。</li>
+                <li><strong>系统稳定性</strong>：切换主播时清理之前的会话状态，移除查询会话列表时不必要的字段，修复API基础URL处理并移除未使用的计算属性。</li>
+                <li><strong>代码清理</strong>：移除AI分析功能及相关代码，移除未使用的coverUrl字段并更新头像为webp格式。</li>
+                <li><strong>系统监控</strong>：添加 PM2 状态检查 API 接口。</li>
+                <li><strong>部署优化</strong>：添加CDN缓存刷新并更新.gitignore。</li>
+              </ul>
+            </el-collapse-item>
             <el-collapse-item title="v1.4 - 2026-02-15 (架构升级)" name="1.4">
               <ul class="changelog-list">
                 <li><strong>极致性能架构</strong>：前端全面迁移至腾讯云 COS + CDN，彻底解决访问慢与图片加载失败问题，实现秒开体验。</li>
