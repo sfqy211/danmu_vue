@@ -26,6 +26,7 @@ if (fs.existsSync(envPathLocal)) {
 import chokidar from 'chokidar';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb, getSessionsTotal } from './processor.js';
 import { startAvatarScheduler } from './avatar_manager.js';
+import { startCoverScheduler } from './cover_manager.js';
 import pm2 from 'pm2';
 import adminRouter from './routes/admin.js';
 import { getRooms } from './processor.js';
@@ -328,6 +329,8 @@ app.listen(Number(port), '0.0.0.0', () => {
   
   // 启动头像自动更新服务
   startAvatarScheduler();
+  // 启动封面自动更新调度器
+  startCoverScheduler();
 });
 
 // 管理接口：手动初始化数据库
