@@ -370,7 +370,7 @@ async function start() {
       const authPacket = makePacket(OP_USER_AUTHENTICATION, {
         uid: COOKIE_UID || 0, 
         roomid: roomInfo!.room_id,
-        protover: 2,
+        protover: 3,
         platform: 'web',
         type: 2,
         key: token
@@ -379,7 +379,7 @@ async function start() {
       authTimeout = setTimeout(() => {
         log('Authentication timeout. Reconnecting...');
         ws?.close();
-      }, 8000);
+      }, 15000);
     });
 
     ws.on('message', (data: Buffer) => {
@@ -409,9 +409,12 @@ async function start() {
     ws.on('close', (code, reason) => {
       const reasonText = reason?.toString() || '';
       const duration = Date.now() - lastConnectAt;
-      log(`Connection Closed (${code}) ${reasonText} after ${duration}ms. Reconnecting in 5s...`);
+      const isQuickFail = duration < 5000;
+      const retryDelay = isQuickFail ? 15000 : 5000; // 如果是秒断，等待更长时间再重连
+
+      log(`Connection Closed (${code}) ${reasonText} after ${duration}ms. Reconnecting in ${retryDelay/1000}s...`);
       cleanup();
-      setTimeout(start, 5000);
+      setTimeout(start, retryDelay);
     });
 
     ws.on('error', (err) => {

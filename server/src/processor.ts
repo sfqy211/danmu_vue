@@ -72,6 +72,24 @@ export async function initDb() {
     console.error('Failed to init table "song_requests":', e);
     // 这里不 throw，以免影响主服务启动，但会记录严重错误
   }
+
+  try {
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER UNIQUE,
+        uid TEXT,
+        name TEXT,
+        is_active INTEGER DEFAULT 1,
+        auto_record INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Table "rooms" check/create passed.');
+  } catch (e) {
+    console.error('Failed to init table "rooms":', e);
+    throw e;
+  }
   
   // 检查是否存在 gift_summary_json 列，如果不存在则添加
   try {
@@ -651,6 +669,49 @@ export async function getSongRequestsByRoomId(roomId: string) {
     [roomId]
   );
 }
+
+/**
+ * 直播间管理相关函数
+ */
+export async function getRooms() {
+  await ensureDbInit();
+  return dbAll('SELECT * FROM rooms ORDER BY created_at DESC');
+}
+
+export async function getRoomById(id: number) {
+  await ensureDbInit();
+  return dbGet('SELECT * FROM rooms WHERE id = ?', [id]);
+}
+
+export async function addRoom(room: { roomId: number; uid?: string; name: string }) {
+  await ensureDbInit();
+  return dbRun(
+    'INSERT INTO rooms (room_id, uid, name, is_active, auto_record) VALUES (?, ?, ?, 1, 1)',
+    [room.roomId, room.uid || '', room.name]
+  );
+}
+
+export async function updateRoom(id: number, room: { name?: string; uid?: string; isActive?: number; autoRecord?: number }) {
+  await ensureDbInit();
+  const sets: string[] = [];
+  const params: any[] = [];
+  
+  if (room.name !== undefined) { sets.push('name = ?'); params.push(room.name); }
+  if (room.uid !== undefined) { sets.push('uid = ?'); params.push(room.uid); }
+  if (room.isActive !== undefined) { sets.push('is_active = ?'); params.push(room.isActive); }
+  if (room.autoRecord !== undefined) { sets.push('auto_record = ?'); params.push(room.autoRecord); }
+  
+  if (sets.length === 0) return;
+  
+  params.push(id);
+  return dbRun(`UPDATE rooms SET ${sets.join(', ')} WHERE id = ?`, params);
+}
+
+export async function deleteRoom(id: number) {
+  await ensureDbInit();
+  return dbRun('DELETE FROM rooms WHERE id = ?', [id]);
+}
+
 
 /**
  * 分页获取特定直播的弹幕内容

@@ -4,10 +4,16 @@ import DanmakuList from '../components/DanmakuList.vue'
 import HomeView from '../views/HomeView.vue'
 import VupList from '../components/VupList.vue'
 import SongRequests from '../components/SongRequests.vue'
+import AdminView from '../views/AdminView.vue'
 
 const router = createRouter({
   history: createWebHashHistory(import.meta.env.BASE_URL),
   routes: [
+    {
+      path: '/admin',
+      name: 'admin',
+      component: AdminView
+    },
     {
       path: '/',
       component: MainLayout,

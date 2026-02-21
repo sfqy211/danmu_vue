@@ -1,16 +1,35 @@
 import express from 'express';
 import cors from 'cors';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 尝试加载根目录的 .env 文件
+// 优先级：
+// 1. server/.env (如果存在)
+// 2. ../.env (项目根目录)
+const envPathLocal = path.resolve(__dirname, '../.env');
+const envPathRoot = path.resolve(__dirname, '../../.env');
+
+if (fs.existsSync(envPathLocal)) {
+  dotenv.config({ path: envPathLocal });
+} else if (fs.existsSync(envPathRoot)) {
+  dotenv.config({ path: envPathRoot });
+} else {
+  dotenv.config(); // 默认行为
+}
+
 import chokidar from 'chokidar';
 import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb, getSessionsTotal } from './processor.js';
 import { startAvatarScheduler } from './avatar_manager.js';
 import pm2 from 'pm2';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import adminRouter from './routes/admin.js';
+import { getRooms } from './processor.js';
+import { startRecorder } from './pm2_manager.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -18,11 +37,27 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// 挂载管理后台 API
+app.use('/api/admin', adminRouter);
+
 try {
   await initDb();
   console.log('数据库初始化完成');
+  
+  // 启动所有激活的直播间录制进程
+  const rooms = await getRooms();
+  for (const room of rooms) {
+    if (room.is_active) {
+      console.log(`Starting recorder for ${room.name} (${room.room_id})...`);
+      try {
+        await startRecorder(room.room_id, room.name);
+      } catch (e) {
+        console.error(`Failed to start recorder for ${room.name}:`, e);
+      }
+    }
+  }
 } catch (e) {
-  console.error('数据库初始化失败:', e);
+  console.error('初始化失败:', e);
 }
 
 // 托管前端静态文件
