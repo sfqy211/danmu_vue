@@ -12,6 +12,7 @@ services:
       - ./server/data:/app/server/data
     environment:
       - PORT=3001
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
       - TENCENT_SECRET_ID=${TENCENT_SECRET_ID}
       - TENCENT_SECRET_KEY=${TENCENT_SECRET_KEY}
       - COS_BUCKET=${COS_BUCKET}
