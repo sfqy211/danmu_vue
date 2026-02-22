@@ -56,8 +56,32 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             # Update Backend
-            cd /opt/1panel/apps/danmu-tools
-            sudo git pull origin master
+            TARGET_DIR="/opt/1panel/apps/danmu-tools"
+            
+            # Create directory if not exists
+            if [ ! -d "$TARGET_DIR" ]; then
+              sudo mkdir -p "$TARGET_DIR"
+              sudo chown -R $(whoami) "$TARGET_DIR"
+            fi
+            
+            cd "$TARGET_DIR"
+            
+            # Check if it is a git repository
+            if [ ! -d ".git" ]; then
+              echo "Directory is not a git repository. Initializing..."
+              git init
+              git remote add origin https://github.com/${{ github.repository }}.git
+              git fetch origin
+              # Reset to match remote, but be careful not to delete untracked files like .env or data
+              git reset --hard origin/master
+              git branch --set-upstream-to=origin/master master
+            else
+              echo "Directory is a git repository. Pulling latest changes..."
+              # Ensure remote is correct (optional but safe)
+              git remote set-url origin https://github.com/${{ github.repository }}.git
+              git fetch origin
+              git reset --hard origin/master
+            fi
 
             # Restart Docker Containers (backend only)
             sudo docker-compose up --build -d
