@@ -62,7 +62,7 @@ router.post('/rooms', async (req, res) => {
 
   try {
     // 1. 存入数据库
-    await addRoom({ roomId, name, uid });
+    await addRoom({ room_id: roomId, name, uid });
     
     // 2. 启动 PM2 进程
     await startRecorder(roomId, name);

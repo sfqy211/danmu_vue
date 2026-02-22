@@ -21,7 +21,7 @@ const dbRun = (sql: string, params: any[] = []) => new Promise<any>((resolve, re
   db.run(sql, params, function (err) { err ? reject(err) : resolve(this); });
 });
 
-async function migrate() {
+export async function migrate() {
   console.log(`Migrating rooms to database: ${dbPath}`);
   
   // 确保表存在
@@ -51,7 +51,13 @@ async function migrate() {
   }
 
   console.log(`Migration completed. Processed ${count} rooms.`);
-  db.close();
+  // Do not close db here if called from another module, but since this script creates its own connection...
+  // Ideally, we should close it if this is a standalone run.
+  // If imported, we might want to keep it open or let the caller handle it.
+  // But this script creates `const db = ...` at module level.
+  // Let's modify to close only if standalone.
 }
 
-migrate().catch(console.error);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  migrate().then(() => db.close()).catch(console.error);
+}

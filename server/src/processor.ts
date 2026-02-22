@@ -683,13 +683,13 @@ export async function getRoomById(id: number) {
   return dbGet('SELECT * FROM rooms WHERE id = ?', [id]);
 }
 
-export async function addRoom(room: { roomId: number; uid?: string; name: string }) {
-  await ensureDbInit();
-  return dbRun(
-    'INSERT INTO rooms (room_id, uid, name, is_active, auto_record) VALUES (?, ?, ?, 1, 1)',
-    [room.roomId, room.uid || '', room.name]
+export const addRoom = (room: { room_id: number, name: string, uid?: string }) => new Promise<void>((resolve, reject) => {
+  db.run(
+    `INSERT OR IGNORE INTO rooms (room_id, name, uid, is_active, auto_record) VALUES (?, ?, ?, 1, 1)`,
+    [room.room_id, room.name, room.uid],
+    (err) => err ? reject(err) : resolve()
   );
-}
+});
 
 export async function updateRoom(id: number, room: { name?: string; uid?: string; isActive?: number; autoRecord?: number }) {
   await ensureDbInit();

@@ -24,13 +24,13 @@ if (fs.existsSync(envPathLocal)) {
 }
 
 import chokidar from 'chokidar';
-import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb, getSessionsTotal } from './processor.js';
+import { getSessions, dbGet, getStreamers, processDanmakuFile, scanDirectory, getSessionDanmakuPaged, getSongRequests, getSongRequestsByRoomId, initDb, getSessionsTotal, addRoom, getRooms } from './processor.js';
 import { startAvatarScheduler } from './avatar_manager.js';
 import { startCoverScheduler } from './cover_manager.js';
 import pm2 from 'pm2';
 import adminRouter from './routes/admin.js';
-import { getRooms } from './processor.js';
-import { startRecorder } from './pm2_manager.js';
+import { startRecorder, getProcessStatus } from './pm2_manager.js';
+import { migrate } from './migrate_rooms.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -41,11 +41,60 @@ app.use(express.json());
 // 挂载管理后台 API
 app.use('/api/admin', adminRouter);
 
+// Sync PM2 processes with Database
+async function syncPm2WithDb() {
+  try {
+    const processes = await getProcessStatus();
+    const dbRooms = await getRooms();
+    
+    for (const proc of processes) {
+      if (proc.name && proc.name.startsWith('danmu-')) {
+        const nameOrId = proc.name.replace('danmu-', '');
+        // Check if exists in DB (match name or room_id)
+        const exists = dbRooms.find(r => r.name === nameOrId || r.room_id.toString() === nameOrId);
+        
+        if (!exists) {
+           // Try to extract roomId from args to restore it
+           const args = (proc.pm2_env as any)?.args; 
+           let roomId = 0;
+           let argsArray: string[] = [];
+           
+           if (Array.isArray(args)) {
+             argsArray = args as string[];
+           } else if (typeof args === 'string') {
+             argsArray = args.split(' ');
+           }
+           
+           const idx = argsArray.indexOf('--room');
+           if (idx !== -1 && argsArray[idx+1]) {
+             roomId = parseInt(argsArray[idx+1]);
+           }
+           
+           if (roomId) {
+             console.log(`Found orphan process: ${proc.name} (Room: ${roomId}). Syncing to DB...`);
+             await addRoom({ room_id: roomId, name: nameOrId });
+           } else {
+             console.warn(`Found orphan process: ${proc.name} but could not determine roomId. Skipping sync.`);
+           }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error syncing PM2 with DB:', e);
+  }
+}
+
 try {
   await initDb();
   console.log('数据库初始化完成');
   
-  // 启动所有激活的直播间录制进程
+  // 1. 运行迁移脚本 (填充默认房间)
+  await migrate();
+  
+  // 2. 同步 PM2 进程状态到数据库 (发现未托管的进程)
+  await syncPm2WithDb();
+
+  // 3. 启动所有激活的直播间录制进程
   const rooms = await getRooms();
   for (const room of rooms) {
     if (room.is_active) {
