@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
+import { adminApi } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Refresh, SwitchButton, Plus, VideoPlay, Delete } from '@element-plus/icons-vue';
 
@@ -50,7 +50,7 @@ const checkAuth = async () => {
 const fetchRooms = async () => {
   loading.value = true;
   try {
-    const res = await axios.get('/api/admin/rooms', {
+    const res = await adminApi.get('/admin/rooms', {
       headers: { Authorization: token.value }
     });
     rooms.value = res.data;
@@ -66,7 +66,7 @@ const addRoom = async () => {
   if (!newRoom.value.roomId || !newRoom.value.name) return;
   adding.value = true;
   try {
-    await axios.post('/api/admin/rooms', {
+    await adminApi.post('/admin/rooms', {
       roomId: parseInt(newRoom.value.roomId),
       name: newRoom.value.name,
       uid: newRoom.value.uid
@@ -91,7 +91,7 @@ const deleteRoom = async (id: number, name: string) => {
       type: 'warning'
     });
     
-    await axios.delete(`/api/admin/rooms/${id}`, {
+    await adminApi.delete(`/admin/rooms/${id}`, {
       headers: { Authorization: token.value }
     });
     ElMessage.success('删除成功');
@@ -105,7 +105,7 @@ const deleteRoom = async (id: number, name: string) => {
 
 const restartRoom = async (id: number) => {
   try {
-    await axios.post(`/api/admin/rooms/${id}/restart`, {}, {
+    await adminApi.post(`/admin/rooms/${id}/restart`, {}, {
       headers: { Authorization: token.value }
     });
     ElMessage.success('重启指令已发送');

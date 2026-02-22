@@ -8,10 +8,18 @@ const normalizeApiBase = (baseUrl: string) => {
   return `${trimmed}/api`;
 };
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL
     ? normalizeApiBase(import.meta.env.VITE_API_BASE_URL)
     : '/api'
+});
+
+export const adminApi = axios.create({
+  baseURL: import.meta.env.VITE_ADMIN_API_BASE_URL
+    ? normalizeApiBase(import.meta.env.VITE_ADMIN_API_BASE_URL)
+    : (import.meta.env.VITE_API_BASE_URL 
+        ? normalizeApiBase(import.meta.env.VITE_API_BASE_URL) 
+        : '/api')
 });
 
 export interface FileInfo {
