@@ -14,12 +14,32 @@ export const api = axios.create({
     : '/api'
 });
 
+const resolveAdminApiBase = () => {
+  if (import.meta.env.VITE_ADMIN_API_BASE_URL) {
+    return normalizeApiBase(import.meta.env.VITE_ADMIN_API_BASE_URL);
+  }
+
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return normalizeApiBase(import.meta.env.VITE_API_BASE_URL);
+  }
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    if (hostname.startsWith('admin.')) {
+      return normalizeApiBase(`${protocol}//${hostname}`);
+    }
+    const parts = hostname.split('.').filter(Boolean);
+    if (parts.length >= 2) {
+      const root = parts.slice(-2).join('.');
+      return normalizeApiBase(`${protocol}//admin.${root}`);
+    }
+  }
+
+  return '/api';
+};
+
 export const adminApi = axios.create({
-  baseURL: import.meta.env.VITE_ADMIN_API_BASE_URL
-    ? normalizeApiBase(import.meta.env.VITE_ADMIN_API_BASE_URL)
-    : (import.meta.env.VITE_API_BASE_URL 
-        ? normalizeApiBase(import.meta.env.VITE_API_BASE_URL) 
-        : '/api')
+  baseURL: resolveAdminApiBase()
 });
 
 export interface FileInfo {

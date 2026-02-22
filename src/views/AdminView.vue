@@ -30,6 +30,28 @@ const newRoom = ref({
 });
 const adding = ref(false);
 
+const getAuthConfig = () => {
+  const value = token.value.trim();
+  if (!value) return {};
+
+  const baseUrl = adminApi.defaults.baseURL || '/api';
+  let isCrossOrigin = false;
+  if (typeof window !== 'undefined') {
+    try {
+      const url = new URL(baseUrl, window.location.origin);
+      isCrossOrigin = url.origin !== window.location.origin;
+    } catch {
+      isCrossOrigin = false;
+    }
+  }
+
+  if (isCrossOrigin) {
+    return { params: { token: value } };
+  }
+
+  return { headers: { Authorization: value }, params: { token: value } };
+};
+
 const checkAuth = async () => {
   if (!token.value) return;
   try {
@@ -50,9 +72,7 @@ const checkAuth = async () => {
 const fetchRooms = async () => {
   loading.value = true;
   try {
-    const res = await adminApi.get('/admin/rooms', {
-      headers: { Authorization: token.value }
-    });
+    const res = await adminApi.get('/admin/rooms', getAuthConfig());
     rooms.value = res.data;
     error.value = '';
   } catch (e: any) {
@@ -70,9 +90,7 @@ const addRoom = async () => {
       roomId: parseInt(newRoom.value.roomId),
       name: newRoom.value.name,
       uid: newRoom.value.uid
-    }, {
-      headers: { Authorization: token.value }
-    });
+    }, getAuthConfig());
     newRoom.value = { roomId: '', name: '', uid: '' };
     ElMessage.success('添加成功');
     await fetchRooms();
@@ -91,9 +109,7 @@ const deleteRoom = async (id: number, name: string) => {
       type: 'warning'
     });
     
-    await adminApi.delete(`/admin/rooms/${id}`, {
-      headers: { Authorization: token.value }
-    });
+    await adminApi.delete(`/admin/rooms/${id}`, getAuthConfig());
     ElMessage.success('删除成功');
     await fetchRooms();
   } catch (e: any) {
@@ -105,9 +121,7 @@ const deleteRoom = async (id: number, name: string) => {
 
 const restartRoom = async (id: number) => {
   try {
-    await adminApi.post(`/admin/rooms/${id}/restart`, {}, {
-      headers: { Authorization: token.value }
-    });
+    await adminApi.post(`/admin/rooms/${id}/restart`, {}, getAuthConfig());
     ElMessage.success('重启指令已发送');
     // 延迟刷新以等待进程重启
     setTimeout(fetchRooms, 2000);
