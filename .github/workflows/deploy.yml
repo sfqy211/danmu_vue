@@ -26,11 +26,13 @@ jobs:
         run: |
           npm install
           VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} VITE_ADMIN_API_BASE_URL=${{ secrets.VITE_ADMIN_API_BASE_URL }} npm run build
+          # Remove dynamic assets from dist to prevent overwriting backend-managed files
+          rm -rf dist/vup-cover dist/vup-bg dist/vup-avatar
 
       - name: Upload to Tencent Cloud COS
         uses: zkqiang/tencent-cos-action@v0.1.0
         with:
-          args: delete -r -f / && upload -r ./dist/ /
+          args: upload -r ./dist/ /
           secret_id: ${{ secrets.TENCENT_SECRET_ID }}
           secret_key: ${{ secrets.TENCENT_SECRET_KEY }}
           bucket: ${{ secrets.COS_BUCKET }}

@@ -7,6 +7,11 @@ const router = express.Router();
 
 // 简单的 Token 验证中间件
 const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // 允许 OPTIONS 请求通过
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
   const token = req.headers['authorization'] || req.query.token;
   const adminToken = process.env.ADMIN_TOKEN;
   

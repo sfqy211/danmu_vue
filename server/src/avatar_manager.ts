@@ -3,6 +3,7 @@ import path from 'node:path';
 import axios from 'axios';
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
+import { uploadToCos } from './cos_uploader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,8 +88,14 @@ const fetchAvatar = async (uid: string, name: string) => {
             .webp({ quality: 60 })
             .toFile(avatarPath);
         console.log(`[Avatar] 已生成 ${name} 的缩略图 -> ${avatarPath}`);
+        
+        // 上传到 COS (缩略图)
+        await uploadToCos(avatarPath, `vup-avatar/${uid}.webp`);
+        // 上传到 COS (原图)
+        await uploadToCos(bgPath, `vup-bg/${uid}.png`);
+        
     } catch (sharpError: any) {
-        console.error(`[Avatar] 生成缩略图失败 ${name}:`, sharpError.message);
+        console.error(`[Avatar] 生成/上传失败 ${name}:`, sharpError.message);
     }
 
   } catch (error: any) {

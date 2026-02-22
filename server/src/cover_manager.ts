@@ -4,6 +4,7 @@ import axios from 'axios';
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 import { getRooms } from './processor.js';
+import { uploadToCos } from './cos_uploader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,6 +100,14 @@ const fetchCover = async (room: any) => {
     // 复制到 public/vup-cover
     fs.copyFileSync(serverPath, publicPath);
     console.log(`[Cover] 已同步到前端目录: ${publicPath}`);
+
+    // 上传到 COS
+    try {
+      await uploadToCos(serverPath, `vup-cover/${filename}`);
+      console.log(`[Cover] 已上传到 COS: vup-cover/${filename}`);
+    } catch (cosError: any) {
+      console.error(`[Cover] COS 上传失败 ${filename}:`, cosError.message);
+    }
 
   } catch (error: any) {
     console.error(`[Cover] 获取失败 ${name}:`, error.message);
