@@ -370,9 +370,14 @@ watcher.on('change', handleFile);
 
 
 // SPA Fallback: 将所有非 API 请求重定向到 index.html
+const indexPath = path.join(staticPath, 'index.html');
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api/')) {
-    res.sendFile(path.join(staticPath, 'index.html'));
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ error: 'Backend server is running. Frontend static files are not found.' });
+    }
   }
 });
 
