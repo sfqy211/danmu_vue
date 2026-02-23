@@ -168,6 +168,98 @@ public class BilibiliService
         return (null, null, 0, null, null);
     }
 
+    public async Task<(int LiveStatus, long? LiveStartTime)> GetRoomLiveStatusAsync(long roomId)
+    {
+        try
+        {
+            var initReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
+            initReq.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var initRes = await _httpClient.SendAsync(initReq);
+            initRes.EnsureSuccessStatusCode();
+
+            var initJson = await initRes.Content.ReadAsStringAsync();
+            using var initDoc = JsonDocument.Parse(initJson);
+            var initRoot = initDoc.RootElement;
+
+            if (!initRoot.TryGetProperty("data", out var initData))
+            {
+                return (0, null);
+            }
+
+            var liveStatus = initData.TryGetProperty("live_status", out var ls) ? ls.GetInt32() : 0;
+            var realRoomId = initData.TryGetProperty("room_id", out var rid) ? rid.GetInt64() : roomId;
+            long? initLiveTime = null;
+            if (initData.TryGetProperty("live_time", out var lt))
+            {
+                if (lt.ValueKind == JsonValueKind.Number)
+                {
+                    initLiveTime = lt.GetInt64();
+                }
+                else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed))
+                {
+                    initLiveTime = parsed;
+                }
+            }
+
+            if (liveStatus != 1)
+            {
+                return (liveStatus, null);
+            }
+
+            if (initLiveTime.HasValue && initLiveTime.Value > 0)
+            {
+                return (liveStatus, initLiveTime.Value * 1000);
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={realRoomId}");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("code", out var code) && code.GetInt32() != 0)
+            {
+                return (liveStatus, null);
+            }
+
+            if (root.TryGetProperty("data", out var data))
+            {
+                long? liveStartTime = null;
+                if (data.TryGetProperty("live_start_time", out var lst))
+                {
+                    if (lst.ValueKind == JsonValueKind.Number)
+                    {
+                        liveStartTime = lst.GetInt64();
+                    }
+                    else if (lst.ValueKind == JsonValueKind.String && long.TryParse(lst.GetString(), out var parsed))
+                    {
+                        liveStartTime = parsed;
+                    }
+                }
+                if (liveStartTime == 0) liveStartTime = null;
+                if (liveStartTime.HasValue && liveStartTime.Value < 1_000_000_000_000)
+                {
+                    liveStartTime = liveStartTime.Value * 1000;
+                }
+                return (liveStatus, liveStartTime);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to get live status for Room {roomId}");
+        }
+        return (0, null);
+    }
+
     public async Task<byte[]?> DownloadImageAsync(string url)
     {
         try
@@ -181,18 +273,20 @@ public class BilibiliService
         }
     }
 
-    public async Task<(string Token, string Host)> GetDanmakuConfAsync(long roomId)
+    public async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId)
     {
+        var realRoomId = await GetRealRoomIdAsync(roomId);
+        if (realRoomId <= 0) realRoomId = roomId;
         // Try new API first
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={roomId}&type=0");
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={realRoomId}&type=0");
             var cookie = GetCookie();
             if (!string.IsNullOrEmpty(cookie))
             {
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
-            request.Headers.Add("Referer", $"https://live.bilibili.com/{roomId}");
+            request.Headers.Add("Referer", $"https://live.bilibili.com/{realRoomId}");
             request.Headers.Add("Origin", "https://live.bilibili.com");
             
             var response = await _httpClient.SendAsync(request);
@@ -210,29 +304,29 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf for {roomId}: token len={token?.Length}, host={host}");
-                return (token ?? "", $"wss://{host}:{port}/sub");
+                _logger.LogInformation($"Got danmaku conf for {realRoomId}: token len={token?.Length}, host={host}");
+                return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
             }
             else 
             {
-                _logger.LogWarning($"GetDanmakuConf failed for {roomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("message").GetString()}");
+                _logger.LogWarning($"GetDanmakuConf failed for {realRoomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("message").GetString()}");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get danmaku conf (new API) for {roomId}");
+            _logger.LogError(ex, $"Failed to get danmaku conf (new API) for {realRoomId}");
         }
 
         // Fallback to old API
         try 
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={roomId}&platform=pc&player=web");
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={realRoomId}&platform=pc&player=web");
             var cookie = GetCookie();
             if (!string.IsNullOrEmpty(cookie))
             {
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
-            request.Headers.Add("Referer", $"https://live.bilibili.com/{roomId}");
+            request.Headers.Add("Referer", $"https://live.bilibili.com/{realRoomId}");
             request.Headers.Add("Origin", "https://live.bilibili.com");
 
             var response = await _httpClient.SendAsync(request);
@@ -250,21 +344,44 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf (old API) for {roomId}: token len={token?.Length}, host={host}");
-                return (token ?? "", $"wss://{host}:{port}/sub");
+                _logger.LogInformation($"Got danmaku conf (old API) for {realRoomId}: token len={token?.Length}, host={host}");
+                return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
             }
              else 
             {
-                _logger.LogWarning($"GetDanmakuConf (old API) failed for {roomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("msg").GetString()}");
+                _logger.LogWarning($"GetDanmakuConf (old API) failed for {realRoomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("msg").GetString()}");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get danmaku conf (old API) for {roomId}");
+            _logger.LogError(ex, $"Failed to get danmaku conf (old API) for {realRoomId}");
         }
         
-        _logger.LogWarning($"Using fallback for {roomId}");
+        _logger.LogWarning($"Using fallback for {realRoomId}");
         // Fallback
-        return ("", "wss://broadcastlv.chat.bilibili.com/sub");
+        return ("", "wss://broadcastlv.chat.bilibili.com/sub", realRoomId);
+    }
+
+    private async Task<long> GetRealRoomIdAsync(long roomId)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("data", out var data) && data.TryGetProperty("room_id", out var rid))
+            {
+                return rid.GetInt64();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to resolve real room id for {roomId}");
+        }
+        return roomId;
     }
 }

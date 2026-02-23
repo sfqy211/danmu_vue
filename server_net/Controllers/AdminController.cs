@@ -16,11 +16,13 @@ public class AdminController : ControllerBase
     private readonly DanmuContext _db;
     private readonly ProcessManager _pm;
     private readonly ILogger<AdminController> _logger;
+    private readonly BilibiliService _bilibili;
 
-    public AdminController(DanmuContext db, ProcessManager pm, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
+        _bilibili = bilibili;
         _logger = logger;
     }
 
@@ -30,10 +32,11 @@ public class AdminController : ControllerBase
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
 
-        var result = rooms.Select(room =>
+        var tasks = rooms.Select(async room =>
         {
             var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
             var proc = processes.FirstOrDefault(p => p.Name == procName);
+            var (liveStatus, liveStartTime) = await _bilibili.GetRoomLiveStatusAsync(room.RoomId);
 
             return new
             {
@@ -45,10 +48,13 @@ public class AdminController : ControllerBase
                 auto_record = room.AutoRecord,
                 process_status = proc?.Status ?? "stopped",
                 process_uptime = proc?.Uptime ?? "0s",
+                live_status = liveStatus,
+                live_start_time = liveStartTime,
                 pid = proc?.Pid
             };
         });
 
+        var result = await Task.WhenAll(tasks);
         return Ok(result);
     }
 

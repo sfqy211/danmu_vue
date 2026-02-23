@@ -11,8 +11,10 @@ interface Room {
   name: string;
   uid: string;
   is_active: number;
-  process_status: string; // 'online' | 'stopped' | 'errored'
+  process_status: string;
   process_uptime: number | string;
+  live_status: number;
+  live_start_time: number | null;
   pid: number | null;
 }
 
@@ -132,7 +134,7 @@ const restartRoom = async (id: number) => {
 
 const formatUptime = (val: number | string) => {
   if (!val) return '-';
-  if (typeof val === 'string') return val; // If already string (like "1m"), return as is
+  if (typeof val === 'string') return val;
   
   const ms = val;
   const seconds = Math.floor((Date.now() - ms) / 1000);
@@ -141,6 +143,35 @@ const formatUptime = (val: number | string) => {
   if (minutes < 60) return `${minutes}分`;
   const hours = Math.floor(minutes / 60);
   return `${hours}小时`;
+};
+
+const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
+  if (liveStatus !== 1 || !liveStartTime) return '未开播';
+  const startMs = liveStartTime < 1_000_000_000_000 ? liveStartTime * 1000 : liveStartTime;
+  const diffSeconds = Math.floor((Date.now() - startMs) / 1000);
+  if (diffSeconds < 0) return '未开播';
+  const seconds = diffSeconds % 60;
+  const totalMinutes = Math.floor(diffSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}天${hours}小时${minutes}分${seconds}秒`;
+  if (totalHours > 0) return `${totalHours}小时${minutes}分${seconds}秒`;
+  if (totalMinutes > 0) return `${totalMinutes}分${seconds}秒`;
+  return `${seconds}秒`;
+};
+
+const getMonitorStatusLabel = (status: string) => {
+  if (status === 'stopped') return '已停止';
+  if (status === 'errored') return '异常';
+  return '正常';
+};
+
+const getMonitorStatusType = (status: string) => {
+  if (status === 'stopped') return 'info';
+  if (status === 'errored') return 'danger';
+  return 'success';
 };
 
 const logout = () => {
@@ -213,22 +244,26 @@ onMounted(() => {
       <!-- Rooms List -->
       <el-card class="list-card">
         <el-table :data="rooms" style="width: 100%" v-loading="loading">
-          <el-table-column prop="id" label="ID" width="60" />
           <el-table-column prop="name" label="主播" />
           <el-table-column prop="room_id" label="房间号" />
           <el-table-column label="状态" width="100">
             <template #default="scope">
               <el-tag 
-                :type="scope.row.process_status === 'online' ? 'success' : (scope.row.process_status === 'stopped' ? 'info' : 'danger')"
+                :type="getMonitorStatusType(scope.row.process_status)"
                 effect="dark"
               >
-                {{ scope.row.process_status }}
+                {{ getMonitorStatusLabel(scope.row.process_status) }}
               </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="运行时长">
             <template #default="scope">
               {{ formatUptime(scope.row.process_uptime) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="开播时长">
+            <template #default="scope">
+              {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
             </template>
           </el-table-column>
           <el-table-column prop="pid" label="PID" width="80" />

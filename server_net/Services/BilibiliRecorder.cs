@@ -26,10 +26,11 @@ public class BilibiliRecorder : IDisposable
     private string? _currentFilePath;
     private string _title = "未知直播";
     private string _userName = "未知主播";
+    private long _realRoomId;
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
-    public string Uptime => Status == "online" ? $"{(int)(DateTime.Now - StartTime).TotalMinutes}m" : "0s";
+    public string Uptime => Status != "stopped" ? $"{(int)(DateTime.Now - StartTime).TotalMinutes}m" : "0s";
     public int Pid => _receiveTask?.Id ?? 0;
 
     public BilibiliRecorder(long roomId, string? name, ILogger logger)
@@ -43,16 +44,17 @@ public class BilibiliRecorder : IDisposable
                        ?? Path.GetFullPath(Path.Combine(root, "../data/danmaku"));
     }
 
-    public async Task StartAsync(string token, string host, BilibiliService bilibiliService)
+    public async Task StartAsync(string token, string host, BilibiliService bilibiliService, long realRoomId)
     {
         if (Status == "online") return;
 
         _bilibiliService = bilibiliService;
+        _realRoomId = realRoomId > 0 ? realRoomId : _roomId;
 
         // Fetch Room Info for Title
         try 
         {
-             var (title, userName, liveStatus, _, _) = await bilibiliService.GetRoomInfoAsync(_roomId);
+             var (title, userName, liveStatus, _, _) = await bilibiliService.GetRoomInfoAsync(_realRoomId);
              if (!string.IsNullOrEmpty(title)) _title = title;
              if (!string.IsNullOrEmpty(userName)) _userName = userName;
              _logger.LogInformation($"Room Info: {_title} (@{_userName})");
@@ -122,7 +124,7 @@ public class BilibiliRecorder : IDisposable
             if (_bilibiliService == null) return;
             try
             {
-                var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_roomId);
+                var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
                 if (liveStatus == 1)
                 {
                     return;
@@ -190,7 +192,7 @@ public class BilibiliRecorder : IDisposable
         var authBody = JsonSerializer.Serialize(new
         {
             uid = uid,
-            roomid = _roomId,
+            roomid = _realRoomId > 0 ? _realRoomId : _roomId,
             protover = 2, // 2 = Zlib
             platform = "web",
             type = 2,
