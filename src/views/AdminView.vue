@@ -12,7 +12,7 @@ interface Room {
   uid: string;
   is_active: number;
   process_status: string; // 'online' | 'stopped' | 'errored'
-  process_uptime: number;
+  process_uptime: number | string;
   pid: number | null;
 }
 
@@ -130,8 +130,11 @@ const restartRoom = async (id: number) => {
   }
 };
 
-const formatUptime = (ms: number) => {
-  if (!ms) return '-';
+const formatUptime = (val: number | string) => {
+  if (!val) return '-';
+  if (typeof val === 'string') return val; // If already string (like "1m"), return as is
+  
+  const ms = val;
   const seconds = Math.floor((Date.now() - ms) / 1000);
   if (seconds < 60) return `${seconds}秒`;
   const minutes = Math.floor(seconds / 60);

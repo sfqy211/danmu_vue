@@ -28,3 +28,6 @@ example/
 *.sln
 *.sw?
 *.pyc
+*.cache
+bin
+obj

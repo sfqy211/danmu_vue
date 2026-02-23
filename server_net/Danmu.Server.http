@@ -1,0 +1,6 @@
+@Danmu.Server_HostAddress = http://localhost:5077
+
+GET {{Danmu.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

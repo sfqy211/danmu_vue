@@ -63,6 +63,9 @@ npm run dev:all
 
 ### 1. 后端部署 (Docker + 1Panel)
 
+cd d:\AHEU\code\webpage\danmu_vue\server_net
+dotnet run --urls "http://0.0.0.0:3001"
+
 后端负责提供 API 接口和执行弹幕录制任务。
 
 1. **上传文件**：将项目根目录下的所有文件上传到服务器目录（如 `/opt/1panel/apps/danmu-tools`）。
