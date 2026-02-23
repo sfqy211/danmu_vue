@@ -16,7 +16,7 @@ public class DanmakuProcessor : BackgroundService
         _logger = logger;
         _service = service;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
-                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../data/danmaku"));
+                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

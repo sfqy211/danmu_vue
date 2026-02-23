@@ -17,7 +17,7 @@ public class DanmakuService
         _scopeFactory = scopeFactory;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
-                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../data/danmaku"));
+                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
     }
 
     private DanmuContext GetDb(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<DanmuContext>();

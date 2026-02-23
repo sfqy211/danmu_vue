@@ -104,23 +104,31 @@ if (Directory.Exists(staticPath))
     });
 }
 
-// Serve Avatars
-var avatarPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../public/vup-bg"));
+var dataRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data"));
+var bgPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-bg"));
+var avatarPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-avatar"));
+var coverPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-cover"));
+
+if (!Directory.Exists(bgPath)) Directory.CreateDirectory(bgPath);
 if (!Directory.Exists(avatarPath)) Directory.CreateDirectory(avatarPath);
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(avatarPath),
-    RequestPath = "/api/avatars"
-});
-
-var coverPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../public/vup-cover"));
 if (!Directory.Exists(coverPath)) Directory.CreateDirectory(coverPath);
 
 app.UseStaticFiles(new StaticFileOptions
 {
+    FileProvider = new PhysicalFileProvider(bgPath),
+    RequestPath = "/vup-bg"
+});
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(avatarPath),
+    RequestPath = "/vup-avatar"
+});
+
+app.UseStaticFiles(new StaticFileOptions
+{
     FileProvider = new PhysicalFileProvider(coverPath),
-    RequestPath = "/api/covers"
+    RequestPath = "/vup-cover"
 });
 
 

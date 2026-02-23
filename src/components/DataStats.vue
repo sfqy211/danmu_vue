@@ -123,18 +123,29 @@ const formatValue = (val: number) => {
   return val.toString();
 };
 
-const maxValue = computed(() => props.data.length > 0 ? props.data[0].value : 0);
+const numericValues = computed(() =>
+  props.data
+    .map(item => (Number.isFinite(item.value) ? item.value : Number(item.value)))
+    .filter((val) => Number.isFinite(val))
+);
+
+const maxValue = computed(() => (numericValues.value.length > 0 ? Math.max(...numericValues.value) : 0));
 
 const filteredData = computed(() => {
   if (viewMode.value === 'list') {
-    return props.data.filter(item => item.value >= minValue.value);
+    return props.data
+      .map(item => ({
+        ...item,
+        value: Number.isFinite(item.value) ? item.value : Number(item.value)
+      }))
+      .filter(item => Number.isFinite(item.value) && item.value >= minValue.value);
   } else {
     return props.data.slice(0, topN.value);
   }
 });
 
 const maxSliderValue = computed(() => {
-  return props.data.length > 0 ? Math.ceil(props.data[0].value) : 100;
+  return numericValues.value.length > 0 ? Math.ceil(Math.max(...numericValues.value)) : 100;
 });
 
 const minTopN = computed(() => props.type === 'danmaku' ? 5 : 1);

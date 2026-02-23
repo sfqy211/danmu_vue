@@ -354,12 +354,16 @@ const fetchRequests = async () => {
 };
 
 const formatDate = (timestamp: number) => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '-';
   const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleDateString('zh-CN');
 };
 
 const formatTime = (timestamp: number) => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '-';
   const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleTimeString('zh-CN', { hour12: false });
 };
 

@@ -134,7 +134,9 @@ const totalSessions = ref(0);
 const availableYears = ref<number[]>([]);
 
 const formatTime = (ts: number) => {
+  if (!Number.isFinite(ts) || ts <= 0) return '-';
   const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '-';
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
@@ -200,12 +202,18 @@ const handleStreamerChange = async () => {
 };
 
 const handleTimeRangeChange = async () => {
-  customDate.value = null;
+  if (!timeRange.value) return;
+  if (customDate.value !== null) {
+    customDate.value = null;
+  }
   await fetchSessions();
 };
 
 const handleCustomDateChange = async () => {
-  timeRange.value = '';
+  if (!customDate.value) return;
+  if (timeRange.value) {
+    timeRange.value = '';
+  }
   await fetchSessions();
 };
 
@@ -252,7 +260,9 @@ const updateAvailableYears = async () => {
     const allSessions = await getSessions({ userName: selectedStreamer.value });
     const years = new Set<number>();
     allSessions.forEach(session => {
+      if (!Number.isFinite(session.start_time) || session.start_time <= 0) return;
       const year = new Date(session.start_time).getFullYear();
+      if (!Number.isFinite(year)) return;
       years.add(year);
     });
     availableYears.value = Array.from(years).sort((a, b) => b - a);

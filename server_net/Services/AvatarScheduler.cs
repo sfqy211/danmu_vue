@@ -19,8 +19,8 @@ public class AvatarScheduler : BackgroundService
         _imageService = imageService;
 
         var root = Directory.GetCurrentDirectory();
-        _bgDir = Path.GetFullPath(Path.Combine(root, "../public/vup-bg"));
-        _avatarDir = Path.GetFullPath(Path.Combine(root, "../public/vup-avatar"));
+        _bgDir = Path.GetFullPath(Path.Combine(root, "../server/data/vup-bg"));
+        _avatarDir = Path.GetFullPath(Path.Combine(root, "../server/data/vup-avatar"));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

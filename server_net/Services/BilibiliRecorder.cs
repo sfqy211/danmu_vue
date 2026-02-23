@@ -41,7 +41,7 @@ public class BilibiliRecorder : IDisposable
         
         var root = Directory.GetCurrentDirectory();
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
-                       ?? Path.GetFullPath(Path.Combine(root, "../data/danmaku"));
+                       ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku"));
     }
 
     public async Task StartAsync(string token, string host, BilibiliService bilibiliService, long realRoomId)

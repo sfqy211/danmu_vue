@@ -10,8 +10,7 @@ public class CoverScheduler : BackgroundService
     private readonly BilibiliService _bilibiliService;
     private readonly ImageService _imageService;
     private readonly IServiceProvider _serviceProvider;
-    private readonly string _serverCoverDir;
-    private readonly string _publicCoverDir;
+    private readonly string _coverDir;
 
     public CoverScheduler(ILogger<CoverScheduler> logger, BilibiliService bilibiliService, ImageService imageService, IServiceProvider serviceProvider)
     {
@@ -21,14 +20,12 @@ public class CoverScheduler : BackgroundService
         _serviceProvider = serviceProvider;
 
         var root = Directory.GetCurrentDirectory();
-        _serverCoverDir = Path.GetFullPath(Path.Combine(root, "../server/data/cover"));
-        _publicCoverDir = Path.GetFullPath(Path.Combine(root, "../public/vup-cover"));
+        _coverDir = Path.GetFullPath(Path.Combine(root, "../server/data/vup-cover"));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!Directory.Exists(_serverCoverDir)) Directory.CreateDirectory(_serverCoverDir);
-        if (!Directory.Exists(_publicCoverDir)) Directory.CreateDirectory(_publicCoverDir);
+        if (!Directory.Exists(_coverDir)) Directory.CreateDirectory(_coverDir);
 
         _logger.LogInformation("CoverScheduler started.");
 
@@ -93,14 +90,10 @@ public class CoverScheduler : BackgroundService
                 var filenameBase = !string.IsNullOrEmpty(finalUid) ? finalUid : room.RoomId.ToString();
                 var filename = $"{filenameBase}.png";
 
-                var serverPath = Path.Combine(_serverCoverDir, filename);
-                var publicPath = Path.Combine(_publicCoverDir, filename);
+                var coverPath = Path.Combine(_coverDir, filename);
 
-                await _imageService.SavePngAsync(imageBytes, serverPath);
-                _logger.LogInformation($"[Cover] Saved cover for {room.Name} to {serverPath}");
-
-                // Copy to public
-                File.Copy(serverPath, publicPath, true);
+                await _imageService.SavePngAsync(imageBytes, coverPath);
+                _logger.LogInformation($"[Cover] Saved cover for {room.Name} to {coverPath}");
             }
             catch (Exception ex)
             {

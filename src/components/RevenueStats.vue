@@ -38,13 +38,38 @@ const sessionTime = computed(() => {
 });
 
 // 解析 gift_summary_json
+const normalizeGiftData = (raw: any) => {
+  if (!raw || typeof raw !== 'object') return null;
+  const rawUserStats = raw.userStats ?? raw.UserStats;
+  const userStats = rawUserStats
+    ? Object.entries(rawUserStats).reduce<Record<string, any>>((acc, [name, stats]) => {
+        const data = stats as any;
+        acc[name] = {
+          totalPrice: data.totalPrice ?? data.TotalPrice ?? 0,
+          giftPrice: data.giftPrice ?? data.GiftPrice ?? 0,
+          scPrice: data.scPrice ?? data.ScPrice ?? 0,
+          guardPrice: data.guardPrice ?? data.GuardPrice ?? 0,
+          uid: data.uid ?? data.Uid ?? ''
+        };
+        return acc;
+      }, {})
+    : undefined;
+
+  return {
+    ...raw,
+    totalPrice: raw.totalPrice ?? raw.TotalPrice ?? 0,
+    userStats
+  };
+};
+
 const giftData = computed(() => {
   if (!store.sessionSummary || !store.sessionSummary.gift_summary_json) {
     return null;
   }
   try {
     const raw = store.sessionSummary.gift_summary_json;
-    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return normalizeGiftData(parsed);
   } catch (e) {
     console.error('Failed to parse gift_summary_json', e);
     return null;
