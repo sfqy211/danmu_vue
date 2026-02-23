@@ -13,12 +13,45 @@ public class BilibiliService
         _logger = logger;
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com");
-        
-        var cookie = Environment.GetEnvironmentVariable("BILI_COOKIE");
-        if (!string.IsNullOrEmpty(cookie))
+    }
+
+    private static string? NormalizeCookie(string? cookie)
+    {
+        if (string.IsNullOrWhiteSpace(cookie)) return null;
+        var trimmed = cookie.Trim();
+        if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) || (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
         {
-            _httpClient.DefaultRequestHeaders.Add("Cookie", cookie);
+            trimmed = trimmed.Substring(1, trimmed.Length - 2);
         }
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string? LoadCookieFromEnvFile()
+    {
+        var root = Directory.GetCurrentDirectory();
+        var envPathLocal = Path.GetFullPath(Path.Combine(root, "../server/.env"));
+        var envPathRoot = Path.GetFullPath(Path.Combine(root, "../.env"));
+        var paths = new[] { envPathLocal, envPathRoot };
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path)) continue;
+            foreach (var line in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                var parts = line.Split('=', 2);
+                if (parts.Length != 2) continue;
+                if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
+                return NormalizeCookie(parts[1]);
+            }
+        }
+        return null;
+    }
+
+    private static string? GetCookie()
+    {
+        var fileCookie = LoadCookieFromEnvFile();
+        if (!string.IsNullOrEmpty(fileCookie)) return fileCookie;
+        return NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
     }
 
     public async Task<string?> GetAvatarUrlAsync(string uid)
@@ -26,7 +59,13 @@ public class BilibiliService
         try
         {
             var url = $"https://api.bilibili.com/x/web-interface/card?mid={uid}";
-            var response = await _httpClient.GetAsync(url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+            var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
@@ -59,10 +98,10 @@ public class BilibiliService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={roomId}");
-            var cookie = Environment.GetEnvironmentVariable("BILI_COOKIE");
+            var cookie = GetCookie();
             if (!string.IsNullOrEmpty(cookie))
             {
-                request.Headers.Add("Cookie", cookie);
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
             request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
@@ -98,7 +137,7 @@ public class BilibiliService
                 try 
                 {
                     var userReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room?roomid={roomId}");
-                    if (!string.IsNullOrEmpty(cookie)) userReq.Headers.Add("Cookie", cookie);
+                    if (!string.IsNullOrEmpty(cookie)) userReq.Headers.TryAddWithoutValidation("Cookie", cookie);
                     
                     var userRes = await _httpClient.SendAsync(userReq);
                     if (userRes.IsSuccessStatusCode)
@@ -148,6 +187,11 @@ public class BilibiliService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={roomId}&type=0");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
             request.Headers.Add("Referer", $"https://live.bilibili.com/{roomId}");
             request.Headers.Add("Origin", "https://live.bilibili.com");
             
@@ -183,6 +227,11 @@ public class BilibiliService
         try 
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={roomId}&platform=pc&player=web");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
             request.Headers.Add("Referer", $"https://live.bilibili.com/{roomId}");
             request.Headers.Add("Origin", "https://live.bilibili.com");
 

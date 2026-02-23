@@ -12,6 +12,7 @@ public class BilibiliRecorder : IDisposable
     private readonly long _roomId;
     private readonly string _name;
     private readonly ILogger _logger;
+    private BilibiliService? _bilibiliService;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
@@ -46,6 +47,8 @@ public class BilibiliRecorder : IDisposable
     {
         if (Status == "online") return;
 
+        _bilibiliService = bilibiliService;
+
         // Fetch Room Info for Title
         try 
         {
@@ -74,6 +77,7 @@ public class BilibiliRecorder : IDisposable
         {
             try
             {
+                await WaitForLiveAsync(token);
                 await ConnectAsync();
                 
                 // Start heartbeat
@@ -111,6 +115,30 @@ public class BilibiliRecorder : IDisposable
         Status = "stopped";
     }
 
+    private async Task WaitForLiveAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            if (_bilibiliService == null) return;
+            try
+            {
+                var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_roomId);
+                if (liveStatus == 1)
+                {
+                    return;
+                }
+                Status = "offline";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to check live status for {_roomId}");
+                Status = "offline";
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(60), token);
+        }
+    }
+
     public async Task StopAsync()
     {
         if (Status == "stopped") return;
@@ -141,7 +169,7 @@ public class BilibiliRecorder : IDisposable
         // Remove other headers to mimic recorder.ts (ws) behavior which doesn't set Cookie/Origin/Referer by default
         
         long uid = 0;
-        var cookie = Environment.GetEnvironmentVariable("BILI_COOKIE");
+        var cookie = GetCookie();
         if (!string.IsNullOrEmpty(cookie))
         {
             // _ws.Options.SetRequestHeader("Cookie", cookie); // Remove Cookie from WebSocket headers
@@ -161,7 +189,7 @@ public class BilibiliRecorder : IDisposable
         
         var authBody = JsonSerializer.Serialize(new
         {
-            uid = 0,
+            uid = uid,
             roomid = _roomId,
             protover = 2, // 2 = Zlib
             platform = "web",
@@ -192,6 +220,45 @@ public class BilibiliRecorder : IDisposable
         Array.Copy(body, 0, buffer, 16, body.Length);
 
         await _ws.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Binary, true, _cts!.Token);
+    }
+
+    private static string? NormalizeCookie(string? cookie)
+    {
+        if (string.IsNullOrWhiteSpace(cookie)) return null;
+        var trimmed = cookie.Trim();
+        if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) || (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
+        {
+            trimmed = trimmed.Substring(1, trimmed.Length - 2);
+        }
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string? LoadCookieFromEnvFile()
+    {
+        var root = Directory.GetCurrentDirectory();
+        var envPathLocal = Path.GetFullPath(Path.Combine(root, "../server/.env"));
+        var envPathRoot = Path.GetFullPath(Path.Combine(root, "../.env"));
+        var paths = new[] { envPathLocal, envPathRoot };
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path)) continue;
+            foreach (var line in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                var parts = line.Split('=', 2);
+                if (parts.Length != 2) continue;
+                if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
+                return NormalizeCookie(parts[1]);
+            }
+        }
+        return null;
+    }
+
+    private static string? GetCookie()
+    {
+        var fileCookie = LoadCookieFromEnvFile();
+        if (!string.IsNullOrEmpty(fileCookie)) return fileCookie;
+        return NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
     }
 
     private async Task HeartbeatLoopAsync(CancellationToken token)

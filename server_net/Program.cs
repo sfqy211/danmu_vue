@@ -32,8 +32,18 @@ else if (File.Exists(envPathRoot))
 {
     foreach (var line in File.ReadAllLines(envPathRoot))
     {
+        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
         var parts = line.Split('=', 2);
-        if (parts.Length == 2) Environment.SetEnvironmentVariable(parts[0].Trim(), parts[1].Trim());
+        if (parts.Length == 2)
+        {
+            var key = parts[0].Trim();
+            var val = parts[1].Trim();
+            if ((val.StartsWith("\"") && val.EndsWith("\"")) || (val.StartsWith("'") && val.EndsWith("'")))
+            {
+                val = val.Substring(1, val.Length - 2);
+            }
+            Environment.SetEnvironmentVariable(key, val);
+        }
     }
 }
 

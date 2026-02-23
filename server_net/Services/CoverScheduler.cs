@@ -32,8 +32,17 @@ public class CoverScheduler : BackgroundService
 
         _logger.LogInformation("CoverScheduler started.");
 
-        // Delay 15 seconds before first run
-        await Task.Delay(15000, stoppingToken);
+        // Calculate delay until next 04:00
+        var now = DateTime.Now;
+        var target = now.Date.AddHours(4); // Today 04:00
+        if (now > target)
+        {
+            target = target.AddDays(1); // Next day 04:00
+        }
+        var delay = target - now;
+
+        _logger.LogInformation($"Next cover update scheduled at {target} (in {delay.TotalHours:F1} hours)");
+        await Task.Delay(delay, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {

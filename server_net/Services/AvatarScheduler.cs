@@ -30,8 +30,17 @@ public class AvatarScheduler : BackgroundService
 
         _logger.LogInformation("AvatarScheduler started.");
 
-        // Delay 10 seconds before first run
-        await Task.Delay(10000, stoppingToken);
+        // Calculate delay until next 04:00
+        var now = DateTime.Now;
+        var target = now.Date.AddHours(4); // Today 04:00
+        if (now > target)
+        {
+            target = target.AddDays(1); // Next day 04:00
+        }
+        var delay = target - now;
+        
+        _logger.LogInformation($"Next avatar update scheduled at {target} (in {delay.TotalHours:F1} hours)");
+        await Task.Delay(delay, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
