@@ -35,11 +35,29 @@ import { migrate } from './migrate_rooms.js';
 const app = express();
 const port = process.env.PORT || 3001;
 
-app.use(cors({
-  origin: '*', // 允许所有来源，或者指定你的前端域名
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+// 手动 CORS 中间件，确保 headers 正确返回
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // 允许所有来源，但如果需要携带凭证，必须指定具体 origin
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  // 处理预检请求
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  
+  next();
+});
+
 app.use(express.json());
 
 // 挂载管理后台 API
