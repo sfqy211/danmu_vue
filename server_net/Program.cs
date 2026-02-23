@@ -61,7 +61,10 @@ builder.Services.AddDbContext<DanmuContext>(options =>
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<DanmakuService>();
 builder.Services.AddHostedService<DanmakuProcessor>();
-builder.Services.AddHttpClient<BilibiliService>();
+builder.Services.AddHttpClient<BilibiliService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddHostedService<AvatarScheduler>();
 builder.Services.AddHostedService<CoverScheduler>();

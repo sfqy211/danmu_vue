@@ -19,22 +19,7 @@ const resolveAdminApiBase = () => {
     return normalizeApiBase(import.meta.env.VITE_ADMIN_API_BASE_URL);
   }
 
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return normalizeApiBase(import.meta.env.VITE_API_BASE_URL);
-  }
-
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    if (hostname.startsWith('admin.')) {
-      return normalizeApiBase(`${protocol}//${hostname}`);
-    }
-    const parts = hostname.split('.').filter(Boolean);
-    if (parts.length >= 2) {
-      const root = parts.slice(-2).join('.');
-      return normalizeApiBase(`${protocol}//admin.${root}`);
-    }
-  }
-
+  // Fallback to relative path for all cases, which is safest for reverse proxies
   return '/api';
 };
 

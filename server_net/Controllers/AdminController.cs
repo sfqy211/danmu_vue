@@ -61,42 +61,44 @@ public class AdminController : ControllerBase
     [HttpPost("rooms")]
     public async Task<IActionResult> AddRoom([FromBody] RoomDto dto)
     {
-        if (dto.RoomId <= 0 || string.IsNullOrEmpty(dto.Name))
-        {
-            return BadRequest(new { error = "Missing roomId or name" });
-        }
-
-        var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == dto.RoomId);
-        if (existing != null)
-        {
-            return BadRequest(new { error = "Room already exists" });
-        }
-
-        var room = new Room
-        {
-            RoomId = dto.RoomId,
-            Name = dto.Name,
-            Uid = dto.Uid.ToString(),
-            IsActive = 1,
-            AutoRecord = 1,
-            CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
-        };
-
-        _db.Rooms.Add(room);
-        await _db.SaveChangesAsync();
-
-        // Start Process
+        _logger.LogInformation($"AddRoom called: {dto.RoomId}, {dto.Name}");
         try
         {
+            if (dto.RoomId <= 0 || string.IsNullOrEmpty(dto.Name))
+            {
+                return BadRequest(new { error = "Missing roomId or name" });
+            }
+
+            var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == dto.RoomId);
+            if (existing != null)
+            {
+                return BadRequest(new { error = "Room already exists" });
+            }
+
+            var room = new Room
+            {
+                RoomId = dto.RoomId,
+                Name = dto.Name,
+                Uid = dto.Uid,
+                IsActive = 1,
+                AutoRecord = 1,
+                CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            };
+
+            _db.Rooms.Add(room);
+            await _db.SaveChangesAsync();
+
+            // Start Process
             await _pm.StartRecorder(room.RoomId, room.Name);
+
+            return Ok(new { success = true });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start recorder");
-            return StatusCode(500, new { error = ex.Message });
+            _logger.LogError(ex, "Failed to add room or start recorder");
+            // Ensure we return a JSON response even on 500
+            return StatusCode(500, new { error = ex.Message, details = ex.ToString() });
         }
-
-        return Ok(new { success = true });
     }
 
     [HttpDelete("rooms/{id}")]
@@ -209,5 +211,5 @@ public class RoomDto
 {
     public long RoomId { get; set; }
     public required string Name { get; set; }
-    public long Uid { get; set; }
+    public string? Uid { get; set; }
 }

@@ -74,7 +74,7 @@ public class DanmakuProcessor : BackgroundService
     {
         try
         {
-            _logger.LogInformation($"Processing file: {filePath}");
+            _logger.LogDebug($"Processing file: {filePath}");
             await _service.ProcessFileAsync(filePath);
         }
         catch (Exception ex)
