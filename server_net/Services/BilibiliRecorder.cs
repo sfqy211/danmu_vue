@@ -23,6 +23,8 @@ public class BilibiliRecorder : IDisposable
     private string? _token;
     private string? _host;
     private string? _currentFilePath;
+    private string _title = "未知直播";
+    private string _userName = "未知主播";
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
@@ -40,9 +42,22 @@ public class BilibiliRecorder : IDisposable
                        ?? Path.GetFullPath(Path.Combine(root, "../data/danmaku"));
     }
 
-    public async Task StartAsync(string token, string host)
+    public async Task StartAsync(string token, string host, BilibiliService bilibiliService)
     {
         if (Status == "online") return;
+
+        // Fetch Room Info for Title
+        try 
+        {
+             var (title, userName, liveStatus, _, _) = await bilibiliService.GetRoomInfoAsync(_roomId);
+             if (!string.IsNullOrEmpty(title)) _title = title;
+             if (!string.IsNullOrEmpty(userName)) _userName = userName;
+             _logger.LogInformation($"Room Info: {_title} (@{_userName})");
+        }
+        catch (Exception ex)
+        {
+             _logger.LogError(ex, "Failed to get room info on start");
+        }
 
         _token = token;
         _host = host;
@@ -123,12 +138,23 @@ public class BilibiliRecorder : IDisposable
         
         // Add headers if needed
         _ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        // Remove other headers to mimic recorder.ts (ws) behavior which doesn't set Cookie/Origin/Referer by default
         
+        long uid = 0;
         var cookie = Environment.GetEnvironmentVariable("BILI_COOKIE");
         if (!string.IsNullOrEmpty(cookie))
         {
-            _ws.Options.SetRequestHeader("Cookie", cookie);
+            // _ws.Options.SetRequestHeader("Cookie", cookie); // Remove Cookie from WebSocket headers
+            
+            // Extract DedeUserID
+            var match = Regex.Match(cookie, @"DedeUserID=([^;]+)");
+            if (match.Success && long.TryParse(match.Groups[1].Value, out var parsedUid))
+            {
+                uid = parsedUid;
+            }
         }
+        
+        // _ws.Options.SetRequestHeader("Cookie", cookie); // Ensure removed
 
         var uri = new Uri(_host ?? "wss://broadcastlv.chat.bilibili.com/sub");
         await _ws.ConnectAsync(uri, _cts!.Token);
@@ -137,7 +163,7 @@ public class BilibiliRecorder : IDisposable
         {
             uid = 0,
             roomid = _roomId,
-            protover = 0, // 0 = JSON (No compression)
+            protover = 2, // 2 = Zlib
             platform = "web",
             type = 2,
             key = _token
@@ -373,15 +399,19 @@ public class BilibiliRecorder : IDisposable
             var roomDir = Path.Combine(_danmakuDir, _roomId.ToString());
             if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
             
-            // File name: startTimestamp.xml
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var filename = $"{timestamp}.xml";
+            // File name: yyyy-MM-dd HH-mm-ss Title.xml
+            var now = DateTime.Now;
+            var dateStr = now.ToString("yyyy-MM-dd HH-mm-ss");
+            var safeTitle = string.Join("_", _title.Split(Path.GetInvalidFileNameChars()));
+            var filename = $"{dateStr} {safeTitle}.xml";
+            
             _currentFilePath = Path.Combine(roomDir, filename);
             
             _fileStream = new FileStream(_currentFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
             
             // Header with metadata
-            var header = $"<xml>\n<room_id>{_roomId}</room_id>\n<room_title>{_name}</room_title>\n<user_name>{_name}</user_name>\n<video_start_time>{timestamp}</video_start_time>\n";
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var header = $"<xml>\n<room_id>{_roomId}</room_id>\n<room_title>{_title}</room_title>\n<user_name>{_userName}</user_name>\n<video_start_time>{timestamp}</video_start_time>\n";
             var bytes = Encoding.UTF8.GetBytes(header);
             _fileStream.Write(bytes, 0, bytes.Length);
             _fileStream.Flush();

@@ -54,12 +54,19 @@ public class BilibiliService
         return null;
     }
 
-    public async Task<(string? CoverUrl, string? Uid)> GetRoomInfoAsync(long roomId)
+    public async Task<(string? Title, string? UserName, int LiveStatus, string? CoverUrl, string? Uid)> GetRoomInfoAsync(long roomId)
     {
         try
         {
-            var url = $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={roomId}";
-            var response = await _httpClient.GetAsync(url);
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={roomId}");
+            var cookie = Environment.GetEnvironmentVariable("BILI_COOKIE");
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.Add("Cookie", cookie);
+            }
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+            var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
@@ -70,11 +77,14 @@ public class BilibiliService
             {
                 var msg = root.TryGetProperty("msg", out var m) ? m.GetString() : "Unknown error";
                 _logger.LogWarning($"Bilibili API Error for Room {roomId}: {msg}");
-                return (null, null);
+                return (null, null, 0, null, null);
             }
 
             if (root.TryGetProperty("data", out var data))
             {
+                var title = data.GetProperty("title").GetString();
+                var liveStatus = data.GetProperty("live_status").GetInt32();
+                
                 string? cover = null;
                 if (data.TryGetProperty("user_cover", out var uc) && uc.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(uc.GetString())) cover = uc.GetString();
                 else if (data.TryGetProperty("cover", out var c) && c.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(c.GetString())) cover = c.GetString();
@@ -83,14 +93,40 @@ public class BilibiliService
                 string? uid = null;
                 if (data.TryGetProperty("uid", out var u)) uid = u.ToString();
 
-                return (cover, uid);
+                // Get Anchor Info
+                string? userName = "Unknown";
+                try 
+                {
+                    var userReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room?roomid={roomId}");
+                    if (!string.IsNullOrEmpty(cookie)) userReq.Headers.Add("Cookie", cookie);
+                    
+                    var userRes = await _httpClient.SendAsync(userReq);
+                    if (userRes.IsSuccessStatusCode)
+                    {
+                        var userJson = await userRes.Content.ReadAsStringAsync();
+                        using var userDoc = JsonDocument.Parse(userJson);
+                        if (userDoc.RootElement.TryGetProperty("data", out var userData) && userData.ValueKind != JsonValueKind.Null)
+                        {
+                            if (userData.TryGetProperty("info", out var info) && info.TryGetProperty("uname", out var uname))
+                            {
+                                userName = uname.GetString();
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get anchor info");
+                }
+
+                return (title, userName, liveStatus, cover, uid);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Failed to get room info for Room {roomId}");
         }
-        return (null, null);
+        return (null, null, 0, null, null);
     }
 
     public async Task<byte[]?> DownloadImageAsync(string url)

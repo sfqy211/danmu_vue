@@ -76,7 +76,7 @@ public class ProcessManager
         {
             var bilibili = scope.ServiceProvider.GetRequiredService<BilibiliService>();
             var (token, host) = await bilibili.GetDanmakuConfAsync(roomId);
-            await recorder.StartAsync(token, host);
+            await recorder.StartAsync(token, host, bilibili);
         }
     }
 

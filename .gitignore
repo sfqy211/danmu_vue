@@ -31,3 +31,4 @@ example/
 *.cache
 bin
 obj
+data
