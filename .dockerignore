@@ -1,10 +1,11 @@
 node_modules
 dist
 server/node_modules
-server/*.db
-server/*.db-journal
 server/data/*.db
 server/data/*.db-journal
+server/data/danmaku
+server_net/bin
+server_net/obj
 .git
 .vscode
 .idea
