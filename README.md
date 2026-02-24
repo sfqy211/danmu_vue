@@ -28,6 +28,7 @@ npm install
 ```bash
 cd server_net
 dotnet run --urls "http://0.0.0.0:3001"
+docker-compose up -d --build
 ```
 
 后端默认地址：`http://localhost:3001`

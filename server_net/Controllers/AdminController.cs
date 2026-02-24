@@ -32,6 +32,20 @@ public class AdminController : ControllerBase
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
 
+        // 1. Resolve and update short IDs sequentially to avoid DbContext thread safety issues
+        foreach (var room in rooms)
+        {
+            var realRoomId = await _bilibili.GetRealRoomIdAsync(room.RoomId);
+            if (realRoomId > 0 && realRoomId != room.RoomId)
+            {
+                _logger.LogInformation($"Auto-updating short ID {room.RoomId} to real ID {realRoomId} for {room.Name}");
+                room.RoomId = realRoomId;
+                _db.Rooms.Update(room);
+            }
+        }
+        await _db.SaveChangesAsync();
+
+        // 2. Fetch live status in parallel
         var tasks = rooms.Select(async room =>
         {
             var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
@@ -69,15 +83,19 @@ public class AdminController : ControllerBase
                 return BadRequest(new { error = "Missing roomId or name" });
             }
 
-            var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == dto.RoomId);
+            // Resolve real room ID if it's a short ID
+            var realRoomId = await _bilibili.GetRealRoomIdAsync(dto.RoomId);
+            if (realRoomId <= 0) realRoomId = dto.RoomId;
+
+            var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == realRoomId);
             if (existing != null)
             {
-                return BadRequest(new { error = "Room already exists" });
+                return BadRequest(new { error = "Room already exists (Real ID: " + realRoomId + ")" });
             }
 
             var room = new Room
             {
-                RoomId = dto.RoomId,
+                RoomId = realRoomId,
                 Name = dto.Name,
                 Uid = dto.Uid,
                 IsActive = 1,
@@ -91,12 +109,11 @@ public class AdminController : ControllerBase
             // Start Process
             await _pm.StartRecorder(room.RoomId, room.Name);
 
-            return Ok(new { success = true });
+            return Ok(new { success = true, realRoomId = realRoomId });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add room or start recorder");
-            // Ensure we return a JSON response even on 500
             return StatusCode(500, new { error = ex.Message, details = ex.ToString() });
         }
     }

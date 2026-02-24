@@ -14,13 +14,15 @@ public class DanmakuController : ControllerBase
     private readonly DanmuContext _db;
     private readonly DanmakuService _service;
     private readonly ProcessManager _pm;
+    private readonly BilibiliService _bilibili;
     private readonly ILogger<DanmakuController> _logger;
 
-    public DanmakuController(DanmuContext db, DanmakuService service, ProcessManager pm, ILogger<DanmakuController> logger)
+    public DanmakuController(DanmuContext db, DanmakuService service, ProcessManager pm, BilibiliService bilibili, ILogger<DanmakuController> logger)
     {
         _db = db;
         _service = service;
         _pm = pm;
+        _bilibili = bilibili;
         _logger = logger;
     }
 
@@ -51,7 +53,21 @@ public class DanmakuController : ControllerBase
         var query = _db.Sessions.AsQueryable();
 
         if (!string.IsNullOrEmpty(userName)) query = query.Where(s => s.UserName == userName);
-        if (!string.IsNullOrEmpty(roomId)) query = query.Where(s => s.RoomId == roomId);
+        
+        if (!string.IsNullOrEmpty(roomId)) 
+        {
+            if (long.TryParse(roomId, out long rid))
+            {
+                var realRoomId = await _bilibili.GetRealRoomIdAsync(rid);
+                var realRoomIdStr = realRoomId.ToString();
+                query = query.Where(s => s.RoomId == roomId || s.RoomId == realRoomIdStr);
+            }
+            else
+            {
+                query = query.Where(s => s.RoomId == roomId);
+            }
+        }
+        
         if (startTime.HasValue) query = query.Where(s => s.StartTime >= startTime);
         if (endTime.HasValue) query = query.Where(s => s.EndTime <= endTime);
 
@@ -67,7 +83,20 @@ public class DanmakuController : ControllerBase
     {
         var query = _db.Sessions.AsQueryable();
         if (!string.IsNullOrEmpty(userName)) query = query.Where(s => s.UserName == userName);
-        if (!string.IsNullOrEmpty(roomId)) query = query.Where(s => s.RoomId == roomId);
+        
+        if (!string.IsNullOrEmpty(roomId)) 
+        {
+            if (long.TryParse(roomId, out long rid))
+            {
+                var realRoomId = await _bilibili.GetRealRoomIdAsync(rid);
+                var realRoomIdStr = realRoomId.ToString();
+                query = query.Where(s => s.RoomId == roomId || s.RoomId == realRoomIdStr);
+            }
+            else
+            {
+                query = query.Where(s => s.RoomId == roomId);
+            }
+        }
         
         var count = await query.CountAsync();
         return Ok(new { total = count });

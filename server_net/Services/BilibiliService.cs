@@ -362,7 +362,7 @@ public class BilibiliService
         return ("", "wss://broadcastlv.chat.bilibili.com/sub", realRoomId);
     }
 
-    private async Task<long> GetRealRoomIdAsync(long roomId)
+    public async Task<long> GetRealRoomIdAsync(long roomId)
     {
         try
         {

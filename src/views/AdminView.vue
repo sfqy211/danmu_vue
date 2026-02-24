@@ -127,7 +127,7 @@ const isRefreshing = computed(() => {
 // --- Methods: Auth & Layout ---
 
 const getAuthConfig = () => {
-  const value = token.value.trim();
+  const value = (token.value || '').trim();
   if (!value) return {};
 
   const baseUrl = adminApi.defaults.baseURL || '/api';
@@ -226,8 +226,8 @@ const fetchSessions = async () => {
         ...(getAuthConfig().params || {}),
         page: sessionPage.value,
         pageSize: sessionPageSize.value,
-        search: sessionSearch.value.trim() || undefined,
-        roomId: sessionFilterRoomId.value.trim() || undefined
+        search: (sessionSearch.value || '').trim() || undefined,
+        roomId: (sessionFilterRoomId.value || '').trim() || undefined
       }
     });
     const data = res.data;
@@ -250,9 +250,9 @@ const fetchSongRequests = async () => {
         ...(getAuthConfig().params || {}),
         page: songPage.value,
         pageSize: songPageSize.value,
-        search: songSearch.value.trim() || undefined,
-        userName: songFilterUserName.value.trim() || undefined,
-        roomId: songFilterRoomId.value.trim() || undefined
+        search: (songSearch.value || '').trim() || undefined,
+        userName: (songFilterUserName.value || '').trim() || undefined,
+        roomId: (songFilterRoomId.value || '').trim() || undefined
       }
     });
     const data = res.data;
