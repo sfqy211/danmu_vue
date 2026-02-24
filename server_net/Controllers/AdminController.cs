@@ -192,18 +192,213 @@ public class AdminController : ControllerBase
     [HttpPost("scan")]
     public IActionResult Scan()
     {
-        // This is a manual trigger. We don't have direct access to DanmakuProcessor instance here easily without DI.
-        // But DanmakuProcessor watches the directory.
-        // If we want to force scan, we can maybe trigger it via DanmakuService if it had a Scan method exposed,
-        // OR simply rely on the background service.
-        // The Node.js version calls scanDirectory().
-        
-        // Let's just say it's started. The background watcher handles it.
-        // If we really need to force it, we would need to inject DanmakuProcessor (which is a HostedService) or move Scan logic to a Singleton Service.
-        // DanmakuService has ProcessFileAsync but not ScanDirectory.
-        // Let's leave it as a stub or implemented via DanmakuService if we move Scan logic there.
-        // For now, let's just return success as the watcher is always active.
         return Ok(new { message = "扫描任务已在后台启动 (Watcher active)" });
+    }
+
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? search = "", [FromQuery] string? userName = null, [FromQuery] string? roomId = null)
+    {
+        var query = _db.Sessions.AsQueryable();
+
+        if (!string.IsNullOrEmpty(userName))
+        {
+            query = query.Where(s => s.UserName == userName);
+        }
+
+        if (!string.IsNullOrEmpty(roomId))
+        {
+            query = query.Where(s => s.RoomId == roomId);
+        }
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            var lower = search.ToLower();
+            query = query.Where(s =>
+                (s.Title != null && s.Title.ToLower().Contains(lower)) ||
+                (s.UserName != null && s.UserName.ToLower().Contains(lower)) ||
+                (s.RoomId != null && s.RoomId.ToLower().Contains(lower)));
+        }
+
+        var total = await query.CountAsync();
+
+        var list = await query
+            .OrderByDescending(s => s.StartTime)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new
+            {
+                s.Id,
+                s.RoomId,
+                s.Title,
+                s.UserName,
+                s.StartTime,
+                s.EndTime,
+                s.FilePath
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            list,
+            total,
+            page,
+            pageSize
+        });
+    }
+
+    [HttpPost("sessions")]
+    public async Task<IActionResult> AddSession([FromBody] SessionDto dto)
+    {
+        if (dto == null) return BadRequest(new { error = "Invalid payload" });
+
+        var session = new Session
+        {
+            RoomId = dto.RoomId,
+            Title = dto.Title,
+            UserName = dto.UserName,
+            StartTime = dto.StartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            EndTime = dto.EndTime,
+            FilePath = dto.FilePath,
+            SummaryJson = dto.SummaryJson,
+            GiftSummaryJson = dto.GiftSummaryJson,
+            CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+        };
+
+        _db.Sessions.Add(session);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { success = true, id = session.Id });
+    }
+
+    [HttpPut("sessions/{id}")]
+    public async Task<IActionResult> UpdateSession(int id, [FromBody] SessionDto dto)
+    {
+        var session = await _db.Sessions.FindAsync(id);
+        if (session == null) return NotFound(new { error = "Session not found" });
+
+        session.RoomId = dto.RoomId ?? session.RoomId;
+        session.Title = dto.Title ?? session.Title;
+        session.UserName = dto.UserName ?? session.UserName;
+        if (dto.StartTime.HasValue) session.StartTime = dto.StartTime;
+        if (dto.EndTime.HasValue) session.EndTime = dto.EndTime;
+        if (dto.FilePath != null) session.FilePath = dto.FilePath;
+        if (dto.SummaryJson != null) session.SummaryJson = dto.SummaryJson;
+        if (dto.GiftSummaryJson != null) session.GiftSummaryJson = dto.GiftSummaryJson;
+
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true });
+    }
+
+    [HttpDelete("sessions/{id}")]
+    public async Task<IActionResult> DeleteSession(int id)
+    {
+        var session = await _db.Sessions.FindAsync(id);
+        if (session == null) return NotFound(new { error = "Session not found" });
+
+        var requests = _db.SongRequests.Where(r => r.SessionId == id);
+        _db.SongRequests.RemoveRange(requests);
+        _db.Sessions.Remove(session);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { success = true });
+    }
+
+    [HttpGet("song-requests")]
+    public async Task<IActionResult> GetSongRequests([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? search = "", [FromQuery] int? sessionId = null, [FromQuery] string? roomId = null, [FromQuery] string? userName = null)
+    {
+        var query = _db.SongRequests.AsQueryable();
+
+        if (sessionId.HasValue) query = query.Where(r => r.SessionId == sessionId);
+        if (!string.IsNullOrEmpty(roomId)) query = query.Where(r => r.RoomId == roomId);
+        if (!string.IsNullOrEmpty(userName)) query = query.Where(r => r.UserName == userName);
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            var lower = search.ToLower();
+            query = query.Where(r =>
+                (r.SongName != null && r.SongName.ToLower().Contains(lower)) ||
+                (r.UserName != null && r.UserName.ToLower().Contains(lower)) ||
+                (r.Singer != null && r.Singer.ToLower().Contains(lower)));
+        }
+
+        var total = await query.CountAsync();
+
+        var list = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(r => new
+            {
+                r.Id,
+                r.SessionId,
+                r.RoomId,
+                r.UserName,
+                r.Uid,
+                r.SongName,
+                r.Singer,
+                r.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            list,
+            total,
+            page,
+            pageSize
+        });
+    }
+
+    [HttpPost("song-requests")]
+    public async Task<IActionResult> AddSongRequest([FromBody] SongRequestDto dto)
+    {
+        if (dto == null) return BadRequest(new { error = "Invalid payload" });
+
+        var request = new SongRequest
+        {
+            SessionId = dto.SessionId,
+            RoomId = dto.RoomId,
+            UserName = dto.UserName,
+            Uid = dto.Uid,
+            SongName = dto.SongName,
+            Singer = dto.Singer,
+            CreatedAt = dto.CreatedAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+
+        _db.SongRequests.Add(request);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { success = true, id = request.Id });
+    }
+
+    [HttpPut("song-requests/{id}")]
+    public async Task<IActionResult> UpdateSongRequest(int id, [FromBody] SongRequestDto dto)
+    {
+        var request = await _db.SongRequests.FindAsync(id);
+        if (request == null) return NotFound(new { error = "Song request not found" });
+
+        if (dto.SessionId.HasValue) request.SessionId = dto.SessionId;
+        if (dto.RoomId != null) request.RoomId = dto.RoomId;
+        if (dto.UserName != null) request.UserName = dto.UserName;
+        if (dto.Uid != null) request.Uid = dto.Uid;
+        if (dto.SongName != null) request.SongName = dto.SongName;
+        if (dto.Singer != null) request.Singer = dto.Singer;
+        if (dto.CreatedAt.HasValue) request.CreatedAt = dto.CreatedAt;
+
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true });
+    }
+
+    [HttpDelete("song-requests/{id}")]
+    public async Task<IActionResult> DeleteSongRequest(int id)
+    {
+        var request = await _db.SongRequests.FindAsync(id);
+        if (request == null) return NotFound(new { error = "Song request not found" });
+
+        _db.SongRequests.Remove(request);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { success = true });
     }
 }
 
@@ -212,4 +407,27 @@ public class RoomDto
     public long RoomId { get; set; }
     public required string Name { get; set; }
     public string? Uid { get; set; }
+}
+
+public class SessionDto
+{
+    public string? RoomId { get; set; }
+    public string? Title { get; set; }
+    public string? UserName { get; set; }
+    public long? StartTime { get; set; }
+    public long? EndTime { get; set; }
+    public string? FilePath { get; set; }
+    public string? SummaryJson { get; set; }
+    public string? GiftSummaryJson { get; set; }
+}
+
+public class SongRequestDto
+{
+    public int? SessionId { get; set; }
+    public string? RoomId { get; set; }
+    public string? UserName { get; set; }
+    public string? Uid { get; set; }
+    public string? SongName { get; set; }
+    public string? Singer { get; set; }
+    public long? CreatedAt { get; set; }
 }
