@@ -9,11 +9,14 @@ services:
       # 映射数据目录
       # 容器内路径为 /app/server/data
       - ./server/data:/app/server/data
+    env_file:
+      - .env
     environment:
       # .NET Core 监听端口配置 (Dockerfile 中已设置 ASPNETCORE_HTTP_PORTS=3001)
       - ASPNETCORE_ENVIRONMENT=Production
       
       # 应用配置
+      - BILI_COOKIE=${BILI_COOKIE}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
       - TENCENT_SECRET_ID=${TENCENT_SECRET_ID}
       - TENCENT_SECRET_KEY=${TENCENT_SECRET_KEY}

@@ -66,6 +66,12 @@ npm run dev
 npm run build
 ```
 
+## Docker 部署
+
+```bash
+docker-compose up -d --build
+```
+
 ## 项目结构
 
 ```

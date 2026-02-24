@@ -15,8 +15,18 @@ export const api = axios.create({
 });
 
 const resolveAdminApiBase = () => {
-  if (import.meta.env.VITE_ADMIN_API_BASE_URL) {
-    return normalizeApiBase(import.meta.env.VITE_ADMIN_API_BASE_URL);
+  const envBase = import.meta.env.VITE_ADMIN_API_BASE_URL;
+  if (envBase) {
+    try {
+      if (typeof window !== 'undefined') {
+        const resolved = new URL(envBase, window.location.origin);
+        return normalizeApiBase(resolved.toString());
+      }
+    } catch {
+      // ignore and fall back
+    }
+
+    return normalizeApiBase(envBase);
   }
 
   // Fallback to relative path for all cases, which is safest for reverse proxies
