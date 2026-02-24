@@ -202,7 +202,8 @@ public class AdminController : ControllerBase
 
         if (!string.IsNullOrEmpty(userName))
         {
-            query = query.Where(s => s.UserName == userName);
+            var lower = userName.ToLower();
+            query = query.Where(s => s.UserName != null && s.UserName.ToLower().Contains(lower));
         }
 
         if (!string.IsNullOrEmpty(roomId))
@@ -310,7 +311,11 @@ public class AdminController : ControllerBase
 
         if (sessionId.HasValue) query = query.Where(r => r.SessionId == sessionId);
         if (!string.IsNullOrEmpty(roomId)) query = query.Where(r => r.RoomId == roomId);
-        if (!string.IsNullOrEmpty(userName)) query = query.Where(r => r.UserName == userName);
+        if (!string.IsNullOrEmpty(userName)) 
+        {
+            var lower = userName.ToLower();
+            query = query.Where(r => r.UserName != null && r.UserName.ToLower().Contains(lower));
+        }
 
         if (!string.IsNullOrEmpty(search))
         {

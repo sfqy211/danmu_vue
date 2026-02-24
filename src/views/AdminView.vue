@@ -1,10 +1,13 @@
-
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import { adminApi } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, Fold, Expand } from '@element-plus/icons-vue';
+import { 
+  Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
+  VideoCamera, DataLine, Fold, Expand 
+} from '@element-plus/icons-vue';
 
+// --- Interfaces ---
 interface Room {
   id: number;
   room_id: number;
@@ -39,27 +42,27 @@ interface AdminSongRequest {
   createdAt?: number;
 }
 
+// --- State Management ---
+
+// Auth
 const token = ref(localStorage.getItem('admin_token') || '');
 const isAuthenticated = ref(false);
-const rooms = ref<Room[]>([]);
+
+// UI State
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'monitor' | 'database'>('monitor');
-const activeDatabaseTab = ref<'sessions' | 'songRequests'>('sessions');
+const activeSection = ref<'monitor' | 'sessions' | 'songRequests'>('monitor');
 const sidebarCollapsed = ref(false);
 
-// Form data
-const newRoom = ref({
-  roomId: '',
-  name: '',
-  uid: ''
-});
+// Monitor Data
+const rooms = ref<Room[]>([]);
+const newRoom = ref({ roomId: '', name: '', uid: '' });
 const adding = ref(false);
 
+// Sessions Data
 const sessions = ref<AdminSession[]>([]);
 const sessionLoading = ref(false);
 const sessionSearch = ref('');
-const sessionFilterUserName = ref('');
 const sessionFilterRoomId = ref('');
 const sessionPage = ref(1);
 const sessionPageSize = ref(20);
@@ -76,6 +79,7 @@ const sessionForm = ref({
   filePath: ''
 });
 
+// Song Requests Data
 const songRequests = ref<AdminSongRequest[]>([]);
 const songLoading = ref(false);
 const songSearch = ref('');
@@ -96,6 +100,31 @@ const songForm = ref({
   singer: '',
   createdAt: ''
 });
+
+// --- Computed Properties ---
+
+const breadcrumbs = computed(() => {
+  const items = [{ name: '首页', path: '/' }];
+  if (activeSection.value === 'monitor') {
+    items.push({ name: '监控录制管理', path: '' });
+  } else if (activeSection.value === 'sessions') {
+    items.push({ name: '数据库管理', path: '' });
+    items.push({ name: '直播回放', path: '' });
+  } else {
+    items.push({ name: '数据库管理', path: '' });
+    items.push({ name: '点歌记录', path: '' });
+  }
+  return items;
+});
+
+const isRefreshing = computed(() => {
+  if (activeSection.value === 'monitor') return loading.value;
+  if (activeSection.value === 'sessions') return sessionLoading.value;
+  if (activeSection.value === 'songRequests') return songLoading.value;
+  return false;
+});
+
+// --- Methods: Auth & Layout ---
 
 const getAuthConfig = () => {
   const value = token.value.trim();
@@ -122,11 +151,13 @@ const getAuthConfig = () => {
 const checkAuth = async () => {
   if (!token.value) return;
   try {
-    // Try to fetch rooms to verify token
     await fetchRooms();
     isAuthenticated.value = true;
     localStorage.setItem('admin_token', token.value);
-    await refreshDatabaseData();
+    // If initially on database page, load data
+    if (activeSection.value !== 'monitor') {
+      await refreshDatabaseData();
+    }
   } catch (e: any) {
     if (e.response && e.response.status === 401) {
       error.value = 'Token 无效';
@@ -137,29 +168,53 @@ const checkAuth = async () => {
   }
 };
 
-const normalizeSessionRow = (row: any): AdminSession => {
-  return {
-    id: row.id ?? row.Id ?? 0,
-    roomId: row.roomId ?? row.room_id ?? row.RoomId ?? '',
-    title: row.title ?? row.Title ?? '',
-    userName: row.userName ?? row.user_name ?? row.UserName ?? '',
-    startTime: row.startTime ?? row.start_time ?? row.StartTime,
-    endTime: row.endTime ?? row.end_time ?? row.EndTime,
-    filePath: row.filePath ?? row.file_path ?? row.FilePath
-  };
+const logout = () => {
+  token.value = '';
+  localStorage.removeItem('admin_token');
+  isAuthenticated.value = false;
+  rooms.value = [];
+  sessions.value = [];
+  songRequests.value = [];
 };
 
-const normalizeSongRequestRow = (row: any): AdminSongRequest => {
-  return {
-    id: row.id ?? row.Id ?? 0,
-    sessionId: row.sessionId ?? row.session_id ?? row.SessionId,
-    roomId: row.roomId ?? row.room_id ?? row.RoomId,
-    userName: row.userName ?? row.user_name ?? row.UserName,
-    uid: row.uid ?? row.Uid,
-    songName: row.songName ?? row.song_name ?? row.SongName,
-    singer: row.singer ?? row.Singer,
-    createdAt: row.createdAt ?? row.created_at ?? row.CreatedAt
-  };
+const handleMenuSelect = (index: string) => {
+  if (['monitor', 'sessions', 'songRequests'].includes(index)) {
+    activeSection.value = index as any;
+  }
+};
+
+const refreshCurrentSection = async () => {
+  if (activeSection.value === 'monitor') {
+    await fetchRooms();
+  } else {
+    await refreshDatabaseData();
+  }
+};
+
+// --- Methods: Data Fetching ---
+
+const refreshDatabaseData = async () => {
+  if (!isAuthenticated.value) return;
+  
+  if (activeSection.value === 'sessions') {
+    await fetchSessions();
+  } else if (activeSection.value === 'songRequests') {
+    await fetchSongRequests();
+  }
+};
+
+const fetchRooms = async () => {
+  loading.value = true;
+  try {
+    const res = await adminApi.get('/admin/rooms', getAuthConfig());
+    rooms.value = res.data;
+    error.value = '';
+  } catch (e: any) {
+    console.error('Fetch rooms failed:', e);
+    // Don't throw here to prevent blocking UI
+  } finally {
+    loading.value = false;
+  }
 };
 
 const fetchSessions = async () => {
@@ -172,13 +227,15 @@ const fetchSessions = async () => {
         page: sessionPage.value,
         pageSize: sessionPageSize.value,
         search: sessionSearch.value.trim() || undefined,
-        userName: sessionFilterUserName.value.trim() || undefined,
         roomId: sessionFilterRoomId.value.trim() || undefined
       }
     });
     const data = res.data;
     sessions.value = Array.isArray(data.list) ? data.list.map(normalizeSessionRow) : [];
     sessionTotal.value = data.total ?? sessions.value.length;
+  } catch (e: any) {
+    console.error('Fetch sessions failed:', e);
+    ElMessage.error('加载直播回放失败: ' + (e.response?.data?.error || e.message));
   } finally {
     sessionLoading.value = false;
   }
@@ -201,50 +258,38 @@ const fetchSongRequests = async () => {
     const data = res.data;
     songRequests.value = Array.isArray(data.list) ? data.list.map(normalizeSongRequestRow) : [];
     songTotal.value = data.total ?? songRequests.value.length;
+  } catch (e: any) {
+    console.error('Fetch song requests failed:', e);
+    ElMessage.error('加载点歌记录失败: ' + (e.response?.data?.error || e.message));
   } finally {
     songLoading.value = false;
   }
 };
 
-const refreshDatabaseData = async () => {
-  if (!isAuthenticated.value) return;
-  if (activeDatabaseTab.value === 'sessions') {
-    await fetchSessions();
-  } else {
-    await fetchSongRequests();
-  }
-};
+// --- Methods: Data Normalization ---
 
-const fetchRooms = async () => {
-  loading.value = true;
-  try {
-    const res = await adminApi.get('/admin/rooms', getAuthConfig());
-    rooms.value = res.data;
-    error.value = '';
-  } catch (e: any) {
-    throw e;
-  } finally {
-    loading.value = false;
-  }
-};
+const normalizeSessionRow = (row: any): AdminSession => ({
+  id: row.id ?? row.Id ?? 0,
+  roomId: row.roomId ?? row.room_id ?? row.RoomId ?? '',
+  title: row.title ?? row.Title ?? '',
+  userName: row.userName ?? row.user_name ?? row.UserName ?? '',
+  startTime: row.startTime ?? row.start_time ?? row.StartTime,
+  endTime: row.endTime ?? row.end_time ?? row.EndTime,
+  filePath: row.filePath ?? row.file_path ?? row.FilePath
+});
 
-const refreshCurrentSection = async () => {
-  if (activeSection.value === 'monitor') {
-    await fetchRooms();
-  } else {
-    await refreshDatabaseData();
-  }
-};
+const normalizeSongRequestRow = (row: any): AdminSongRequest => ({
+  id: row.id ?? row.Id ?? 0,
+  sessionId: row.sessionId ?? row.session_id ?? row.SessionId,
+  roomId: row.roomId ?? row.room_id ?? row.RoomId,
+  userName: row.userName ?? row.user_name ?? row.UserName,
+  uid: row.uid ?? row.Uid,
+  songName: row.songName ?? row.song_name ?? row.SongName,
+  singer: row.singer ?? row.Singer,
+  createdAt: row.createdAt ?? row.created_at ?? row.CreatedAt
+});
 
-const applySessionFilters = async () => {
-  sessionPage.value = 1;
-  await fetchSessions();
-};
-
-const applySongFilters = async () => {
-  songPage.value = 1;
-  await fetchSongRequests();
-};
+// --- Methods: Actions (Room) ---
 
 const addRoom = async () => {
   if (!newRoom.value.roomId || !newRoom.value.name) return;
@@ -287,53 +332,17 @@ const restartRoom = async (id: number) => {
   try {
     await adminApi.post(`/admin/rooms/${id}/restart`, {}, getAuthConfig());
     ElMessage.success('重启指令已发送');
-    // 延迟刷新以等待进程重启
     setTimeout(fetchRooms, 2000);
   } catch (e: any) {
     ElMessage.error('重启失败: ' + (e.response?.data?.error || e.message));
   }
 };
 
-const formatUptime = (val: number | string) => {
-  if (!val) return '-';
-  if (typeof val === 'string') return val;
-  
-  const ms = val;
-  const seconds = Math.floor((Date.now() - ms) / 1000);
-  if (seconds < 60) return `${seconds}秒`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}小时`;
-};
+// --- Methods: Actions (Sessions) ---
 
-const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
-  if (liveStatus !== 1 || !liveStartTime) return '未开播';
-  const startMs = liveStartTime < 1_000_000_000_000 ? liveStartTime * 1000 : liveStartTime;
-  const diffSeconds = Math.floor((Date.now() - startMs) / 1000);
-  if (diffSeconds < 0) return '未开播';
-  const seconds = diffSeconds % 60;
-  const totalMinutes = Math.floor(diffSeconds / 60);
-  const minutes = totalMinutes % 60;
-  const totalHours = Math.floor(totalMinutes / 60);
-  const hours = totalHours % 24;
-  const days = Math.floor(totalHours / 24);
-  if (days > 0) return `${days}天${hours}小时${minutes}分${seconds}秒`;
-  if (totalHours > 0) return `${totalHours}小时${minutes}分${seconds}秒`;
-  if (totalMinutes > 0) return `${totalMinutes}分${seconds}秒`;
-  return `${seconds}秒`;
-};
-
-const getMonitorStatusLabel = (status: string) => {
-  if (status === 'stopped') return '已停止';
-  if (status === 'errored') return '异常';
-  return '正常';
-};
-
-const getMonitorStatusType = (status: string) => {
-  if (status === 'stopped') return 'info';
-  if (status === 'errored') return 'danger';
-  return 'success';
+const applySessionFilters = async () => {
+  sessionPage.value = 1;
+  await fetchSessions();
 };
 
 const openCreateSession = () => {
@@ -404,6 +413,13 @@ const deleteSession = async (row: AdminSession) => {
       ElMessage.error('删除失败: ' + (e.response?.data?.error || e.message));
     }
   }
+};
+
+// --- Methods: Actions (Song Requests) ---
+
+const applySongFilters = async () => {
+  songPage.value = 1;
+  await fetchSongRequests();
 };
 
 const openCreateSong = () => {
@@ -479,6 +495,50 @@ const deleteSongRequest = async (row: AdminSongRequest) => {
   }
 };
 
+// --- Helpers ---
+
+const formatUptime = (val: number | string) => {
+  if (!val) return '-';
+  if (typeof val === 'string') return val;
+  
+  const ms = val;
+  const seconds = Math.floor((Date.now() - ms) / 1000);
+  if (seconds < 60) return `${seconds}秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}小时`;
+};
+
+const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
+  if (liveStatus !== 1 || !liveStartTime) return '未开播';
+  const startMs = liveStartTime < 1_000_000_000_000 ? liveStartTime * 1000 : liveStartTime;
+  const diffSeconds = Math.floor((Date.now() - startMs) / 1000);
+  if (diffSeconds < 0) return '未开播';
+  const seconds = diffSeconds % 60;
+  const totalMinutes = Math.floor(diffSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}天${hours}小时${minutes}分${seconds}秒`;
+  if (totalHours > 0) return `${totalHours}小时${minutes}分${seconds}秒`;
+  if (totalMinutes > 0) return `${totalMinutes}分${seconds}秒`;
+  return `${seconds}秒`;
+};
+
+const getMonitorStatusLabel = (status: string) => {
+  if (status === 'stopped') return '已停止';
+  if (status === 'errored') return '异常';
+  return '正常';
+};
+
+const getMonitorStatusType = (status: string) => {
+  if (status === 'stopped') return 'info';
+  if (status === 'errored') return 'danger';
+  return 'success';
+};
+
 const formatTimestamp = (value?: number) => {
   if (!value) return '-';
   const ts = value < 1_000_000_000_000 ? value * 1000 : value;
@@ -493,14 +553,7 @@ const formatTimestamp = (value?: number) => {
   }).replace(/\//g, '-');
 };
 
-const logout = () => {
-  token.value = '';
-  localStorage.removeItem('admin_token');
-  isAuthenticated.value = false;
-  rooms.value = [];
-  sessions.value = [];
-  songRequests.value = [];
-};
+// --- Lifecycle ---
 
 onMounted(() => {
   if (token.value) {
@@ -509,370 +562,479 @@ onMounted(() => {
 });
 
 watch(activeSection, async (val) => {
-  if (val === 'database') {
-    await refreshDatabaseData();
-  }
-});
-
-watch(activeDatabaseTab, async () => {
-  if (activeSection.value === 'database') {
+  if (val === 'sessions' || val === 'songRequests') {
     await refreshDatabaseData();
   }
 });
 </script>
 
 <template>
-  <div class="admin-container">
-    <div class="header">
-      <h1 class="page-title">录制管理后台</h1>
-      <div v-if="isAuthenticated" class="header-actions">
-        <el-button
-          :icon="Refresh"
-          @click="refreshCurrentSection"
-          :loading="activeSection === 'monitor' ? loading : (activeDatabaseTab === 'sessions' ? sessionLoading : songLoading)"
-        >
-          刷新状态
-        </el-button>
-        <el-button type="danger" plain :icon="SwitchButton" @click="logout">退出登录</el-button>
-      </div>
-    </div>
-
-    <!-- Login -->
-    <div v-if="!isAuthenticated" class="login-box-wrapper">
-      <el-card class="login-box">
-        <template #header>
-          <div class="card-header">
-            <span>管理员登录</span>
-          </div>
-        </template>
-        <div class="input-group">
+  <div class="admin-wrapper">
+    <!-- Login Screen -->
+    <div v-if="!isAuthenticated" class="login-page">
+      <div class="login-box">
+        <div class="login-header">
+          <h2>录制管理后台</h2>
+          <p>管理员登录</p>
+        </div>
+        <div class="login-form">
           <el-input 
             v-model="token" 
             type="password" 
             placeholder="请输入管理员 Token"
             show-password
+            size="large"
             @keyup.enter="checkAuth"
           />
-          <el-button type="primary" @click="checkAuth" :loading="loading" class="login-btn">
+          <el-button 
+            type="primary" 
+            size="large" 
+            @click="checkAuth" 
+            :loading="loading"
+            class="login-btn"
+          >
             进入后台
           </el-button>
         </div>
         <p v-if="error" class="error-text">{{ error }}</p>
-      </el-card>
+      </div>
     </div>
 
-    <!-- Dashboard -->
-    <div v-else class="dashboard">
-      <div class="admin-layout" :class="{ collapsed: sidebarCollapsed }">
-        <div class="admin-sidebar" :class="{ collapsed: sidebarCollapsed }">
-          <div class="sidebar-header">
-            <div class="sidebar-title" v-show="!sidebarCollapsed">功能</div>
-            <el-button
-              class="sidebar-toggle"
-              link
-              :icon="sidebarCollapsed ? Expand : Fold"
-              @click="sidebarCollapsed = !sidebarCollapsed"
-            />
-          </div>
-          <div
-            class="sidebar-item"
-            :class="{ active: activeSection === 'monitor' }"
-            @click="activeSection = 'monitor'"
-          >
-            <span v-show="!sidebarCollapsed">监控录制管理</span>
-            <span v-show="sidebarCollapsed">监控</span>
-          </div>
-          <div
-            class="sidebar-item"
-            :class="{ active: activeSection === 'database' }"
-            @click="activeSection = 'database'"
-          >
-            <span v-show="!sidebarCollapsed">数据库管理</span>
-            <span v-show="sidebarCollapsed">数据库</span>
+    <!-- Main Dashboard -->
+    <el-container v-else class="main-container">
+      <el-header class="top-header">
+        <div class="header-left">
+          <div class="logo-area">
+            <h1 class="system-title">录制管理后台</h1>
           </div>
         </div>
-
-        <div class="admin-content">
-          <div v-if="activeSection === 'monitor'" class="section-panel">
-            <el-card class="action-card">
-              <template #header>
-                <div class="card-header">
-                  <span>添加直播间</span>
-                </div>
+        <div class="header-right">
+          <el-button
+            :icon="Refresh"
+            @click="refreshCurrentSection"
+            :loading="isRefreshing"
+          >
+            刷新状态
+          </el-button>
+          <el-button 
+            type="danger" 
+            :icon="SwitchButton" 
+            @click="logout"
+          >
+            退出登录
+          </el-button>
+        </div>
+      </el-header>
+      
+      <el-container class="content-container">
+        <!-- Sidebar -->
+        <el-aside :width="sidebarCollapsed ? '64px' : '220px'" class="sidebar-container">
+          <div class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
+             <el-icon :size="20" class="toggle-icon">
+               <component :is="sidebarCollapsed ? Expand : Fold" />
+             </el-icon>
+          </div>
+          
+          <el-menu
+            :default-active="activeSection"
+            class="sidebar-menu"
+            :collapse="sidebarCollapsed"
+            @select="handleMenuSelect"
+            :collapse-transition="false"
+            unique-opened
+          >
+            <el-menu-item index="monitor">
+              <el-icon><VideoCamera /></el-icon>
+              <template #title>监控录制管理</template>
+            </el-menu-item>
+            
+            <el-sub-menu index="database">
+              <template #title>
+                <el-icon><DataLine /></el-icon>
+                <span>数据库管理</span>
               </template>
-              <div class="form-row">
-                <el-input v-model="newRoom.name" placeholder="主播名称 (如: 桃几OvO)" />
-                <el-input v-model="newRoom.roomId" placeholder="房间号 (如: 22642754)" type="number" />
-                <el-input v-model="newRoom.uid" placeholder="UID (可选, 用于头像)" />
-                <el-button type="primary" :icon="Plus" @click="addRoom" :loading="adding">
-                  添加并启动
-                </el-button>
-              </div>
-            </el-card>
+              <el-menu-item index="sessions">直播回放</el-menu-item>
+              <el-menu-item index="songRequests">点歌记录</el-menu-item>
+            </el-sub-menu>
+          </el-menu>
+        </el-aside>
 
-            <el-card class="list-card">
-              <el-table :data="rooms" style="width: 100%" v-loading="loading">
-                <el-table-column prop="name" label="主播" />
-                <el-table-column prop="room_id" label="房间号" />
-                <el-table-column label="状态" width="100">
-                  <template #default="scope">
-                    <el-tag 
-                      :type="getMonitorStatusType(scope.row.process_status)"
-                      effect="dark"
-                    >
-                      {{ getMonitorStatusLabel(scope.row.process_status) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="运行时长">
-                  <template #default="scope">
-                    {{ formatUptime(scope.row.process_uptime) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="开播时长">
-                  <template #default="scope">
-                    {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="pid" label="PID" width="80" />
-                <el-table-column label="操作" width="200" align="right">
-                  <template #default="scope">
-                    <el-button-group>
-                      <el-button type="primary" size="small" :icon="VideoPlay" @click="restartRoom(scope.row.id)">
-                        重启
-                      </el-button>
-                      <el-button type="danger" size="small" :icon="Delete" @click="deleteRoom(scope.row.id, scope.row.name)">
-                        删除
-                      </el-button>
-                    </el-button-group>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-card>
+        <!-- Main Content -->
+        <el-main class="main-content">
+          <div class="breadcrumb-bar">
+            <el-breadcrumb separator="/">
+              <el-breadcrumb-item v-for="(item, index) in breadcrumbs" :key="index">
+                {{ item.name }}
+              </el-breadcrumb-item>
+            </el-breadcrumb>
           </div>
 
-          <div v-else class="section-panel">
-            <div class="db-tabs">
-              <el-button
-                :type="activeDatabaseTab === 'sessions' ? 'primary' : 'default'"
-                @click="activeDatabaseTab = 'sessions'"
-              >
-                直播回放
-              </el-button>
-              <el-button
-                :type="activeDatabaseTab === 'songRequests' ? 'primary' : 'default'"
-                @click="activeDatabaseTab = 'songRequests'"
-              >
-                点歌记录
-              </el-button>
-            </div>
+          <div class="content-area">
+            <!-- Monitor Section -->
+            <template v-if="activeSection === 'monitor'">
+              <div class="search-section">
+                <div class="search-form">
+                  <el-input 
+                    v-model="newRoom.name" 
+                    placeholder="主播名称" 
+                    clearable
+                  />
+                  <el-input 
+                    v-model="newRoom.roomId" 
+                    placeholder="房间号" 
+                    type="number"
+                    clearable
+                  />
+                  <el-input 
+                    v-model="newRoom.uid" 
+                    placeholder="UID (可选)" 
+                    clearable
+                  />
+                  <el-button 
+                    type="primary" 
+                    :icon="Plus" 
+                    @click="addRoom" 
+                    :loading="adding"
+                  >
+                    添加并启动
+                  </el-button>
+                </div>
+              </div>
 
-            <el-card v-if="activeDatabaseTab === 'sessions'" class="list-card">
-              <div class="db-toolbar">
-                <div class="db-filters">
-                  <el-input
-                    v-model="sessionFilterUserName"
-                    placeholder="主播名称"
-                    clearable
-                    @keyup.enter="applySessionFilters"
-                  />
-                  <el-input
-                    v-model="sessionFilterRoomId"
-                    placeholder="房间号"
-                    clearable
-                    @keyup.enter="applySessionFilters"
-                  />
-                  <el-input
-                    v-model="sessionSearch"
+              <div class="table-section">
+                <el-table 
+                  :data="rooms" 
+                  style="width: 100%" 
+                  v-loading="loading"
+                  border
+                  stripe
+                >
+                  <el-table-column type="selection" width="55" align="center" />
+                  <el-table-column prop="name" label="主播" align="center" />
+                  <el-table-column prop="room_id" label="房间号" align="center" />
+                  <el-table-column label="状态" width="100" align="center">
+                    <template #default="scope">
+                      <el-tag 
+                        :type="getMonitorStatusType(scope.row.process_status)"
+                        effect="dark"
+                        size="small"
+                      >
+                        {{ getMonitorStatusLabel(scope.row.process_status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="运行时长" align="center">
+                    <template #default="scope">
+                      {{ formatUptime(scope.row.process_uptime) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="开播时长" align="center">
+                    <template #default="scope">
+                      {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="pid" label="PID" width="80" align="center" />
+                  <el-table-column label="操作" width="200" align="center">
+                    <template #default="scope">
+                      <div class="action-btns">
+                        <el-button 
+                          type="primary" 
+                          size="small" 
+                          :icon="VideoPlay" 
+                          @click="restartRoom(scope.row.id)"
+                        >
+                          重启
+                        </el-button>
+                        <el-button 
+                          type="danger" 
+                          size="small" 
+                          :icon="Delete" 
+                          @click="deleteRoom(scope.row.id, scope.row.name)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </template>
+
+            <!-- Sessions Section -->
+            <template v-else-if="activeSection === 'sessions'">
+              <div class="search-section">
+                <div class="search-form">
+                  <el-select 
+                    v-model="sessionFilterRoomId" 
+                    placeholder="选择主播/房间" 
+                    clearable 
+                    filterable
+                    @change="applySessionFilters"
+                  >
+                    <el-option
+                      v-for="room in rooms"
+                      :key="room.room_id"
+                      :label="room.name + ' (' + room.room_id + ')'"
+                      :value="String(room.room_id)"
+                    />
+                  </el-select>
+                  <el-input 
+                    v-model="sessionSearch" 
                     placeholder="搜索直播标题"
                     clearable
                     @keyup.enter="applySessionFilters"
                   />
-                </div>
-                <div class="db-actions">
-                  <el-button :icon="Refresh" @click="applySessionFilters" :loading="sessionLoading">刷新</el-button>
-                  <el-button type="primary" :icon="Plus" @click="openCreateSession">新增</el-button>
+                  <el-button 
+                    type="primary" 
+                    :icon="Plus" 
+                    @click="openCreateSession"
+                  >
+                    新增
+                  </el-button>
                 </div>
               </div>
-              <el-table :data="sessions" style="width: 100%" v-loading="sessionLoading">
-                <el-table-column prop="id" label="ID" width="80" />
-                <el-table-column prop="userName" label="主播" />
-                <el-table-column prop="roomId" label="房间号" />
-                <el-table-column prop="title" label="标题" />
-                <el-table-column label="开始时间">
-                  <template #default="scope">
-                    {{ formatTimestamp(scope.row.startTime) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="结束时间">
-                  <template #default="scope">
-                    {{ formatTimestamp(scope.row.endTime) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="160" align="right">
-                  <template #default="scope">
-                    <el-button-group>
-                      <el-button size="small" :icon="EditPen" @click="openEditSession(scope.row)">编辑</el-button>
-                      <el-button type="danger" size="small" :icon="Delete" @click="deleteSession(scope.row)">删除</el-button>
-                    </el-button-group>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div class="pagination-row">
-                <el-pagination
-                  :current-page="sessionPage"
-                  :page-size="sessionPageSize"
-                  :total="sessionTotal"
-                  layout="prev, pager, next, sizes, total"
-                  @size-change="(val: number) => { sessionPageSize = val; sessionPage = 1; fetchSessions(); }"
-                  @current-change="(val: number) => { sessionPage = val; fetchSessions(); }"
-                />
-              </div>
-            </el-card>
 
-            <el-card v-else class="list-card">
-              <div class="db-toolbar">
-                <div class="db-filters">
-                  <el-input
-                    v-model="songFilterUserName"
+              <div class="table-section">
+                <el-table 
+                  :data="sessions" 
+                  style="width: 100%" 
+                  v-loading="sessionLoading"
+                  border
+                  stripe
+                >
+                  <el-table-column type="selection" width="55" align="center" />
+                  <el-table-column prop="id" label="ID" width="80" align="center" />
+                  <el-table-column prop="userName" label="主播" align="center" />
+                  <el-table-column prop="roomId" label="房间号" align="center" />
+                  <el-table-column prop="title" label="标题" align="center" show-overflow-tooltip />
+                  <el-table-column label="开始时间" align="center" width="160">
+                    <template #default="scope">
+                      {{ formatTimestamp(scope.row.startTime) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="结束时间" align="center" width="160">
+                    <template #default="scope">
+                      {{ formatTimestamp(scope.row.endTime) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="180" align="center">
+                    <template #default="scope">
+                      <div class="action-btns">
+                        <el-button 
+                          size="small" 
+                          :icon="EditPen" 
+                          @click="openEditSession(scope.row)"
+                        >
+                          编辑
+                        </el-button>
+                        <el-button 
+                          type="danger" 
+                          size="small" 
+                          :icon="Delete" 
+                          @click="deleteSession(scope.row)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+
+                <div class="pagination-row">
+                  <el-pagination
+                    :current-page="sessionPage"
+                    :page-size="sessionPageSize"
+                    :total="sessionTotal"
+                    :page-sizes="[10, 20, 50, 100]"
+                    layout="prev, pager, next, sizes, total"
+                    @size-change="(val: number) => { sessionPageSize = val; sessionPage = 1; fetchSessions(); }"
+                    @current-change="(val: number) => { sessionPage = val; fetchSessions(); }"
+                  />
+                </div>
+              </div>
+            </template>
+
+            <!-- Song Requests Section -->
+            <template v-else>
+              <div class="search-section">
+                <div class="search-form">
+                  <el-select 
+                    v-model="songFilterRoomId" 
+                    placeholder="选择主播/房间" 
+                    clearable 
+                    filterable
+                    @change="applySongFilters"
+                  >
+                    <el-option
+                      v-for="room in rooms"
+                      :key="room.room_id"
+                      :label="room.name + ' (' + room.room_id + ')'"
+                      :value="String(room.room_id)"
+                    />
+                  </el-select>
+                  <el-input 
+                    v-model="songFilterUserName" 
                     placeholder="点歌用户"
                     clearable
                     @keyup.enter="applySongFilters"
                   />
-                  <el-input
-                    v-model="songFilterRoomId"
-                    placeholder="房间号"
-                    clearable
-                    @keyup.enter="applySongFilters"
-                  />
-                  <el-input
-                    v-model="songSearch"
+                  <el-input 
+                    v-model="songSearch" 
                     placeholder="搜索歌曲/歌手"
                     clearable
                     @keyup.enter="applySongFilters"
                   />
-                </div>
-                <div class="db-actions">
-                  <el-button :icon="Refresh" @click="applySongFilters" :loading="songLoading">刷新</el-button>
-                  <el-button type="primary" :icon="Plus" @click="openCreateSong">新增</el-button>
+                  <el-button 
+                    type="primary" 
+                    :icon="Plus" 
+                    @click="openCreateSong"
+                  >
+                    新增
+                  </el-button>
                 </div>
               </div>
-              <el-table :data="songRequests" style="width: 100%" v-loading="songLoading">
-                <el-table-column prop="id" label="ID" width="80" />
-                <el-table-column prop="userName" label="点歌用户" />
-                <el-table-column prop="songName" label="歌曲" />
-                <el-table-column prop="singer" label="歌手" />
-                <el-table-column prop="roomId" label="房间号" />
-                <el-table-column label="时间">
-                  <template #default="scope">
-                    {{ formatTimestamp(scope.row.createdAt) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="160" align="right">
-                  <template #default="scope">
-                    <el-button-group>
-                      <el-button size="small" :icon="EditPen" @click="openEditSong(scope.row)">编辑</el-button>
-                      <el-button type="danger" size="small" :icon="Delete" @click="deleteSongRequest(scope.row)">删除</el-button>
-                    </el-button-group>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div class="pagination-row">
-                <el-pagination
-                  :current-page="songPage"
-                  :page-size="songPageSize"
-                  :total="songTotal"
-                  layout="prev, pager, next, sizes, total"
-                  @size-change="(val: number) => { songPageSize = val; songPage = 1; fetchSongRequests(); }"
-                  @current-change="(val: number) => { songPage = val; fetchSongRequests(); }"
-                />
+
+              <div class="table-section">
+                <el-table 
+                  :data="songRequests" 
+                  style="width: 100%" 
+                  v-loading="songLoading"
+                  border
+                  stripe
+                >
+                  <el-table-column type="selection" width="55" align="center" />
+                  <el-table-column prop="id" label="ID" width="80" align="center" />
+                  <el-table-column prop="userName" label="点歌用户" align="center" />
+                  <el-table-column prop="songName" label="歌曲" align="center" show-overflow-tooltip />
+                  <el-table-column prop="singer" label="歌手" align="center" />
+                  <el-table-column prop="roomId" label="房间号" align="center" />
+                  <el-table-column label="时间" align="center" width="160">
+                    <template #default="scope">
+                      {{ formatTimestamp(scope.row.createdAt) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="180" align="center">
+                    <template #default="scope">
+                      <div class="action-btns">
+                        <el-button 
+                          size="small" 
+                          :icon="EditPen" 
+                          @click="openEditSong(scope.row)"
+                        >
+                          编辑
+                        </el-button>
+                        <el-button 
+                          type="danger" 
+                          size="small" 
+                          :icon="Delete" 
+                          @click="deleteSongRequest(scope.row)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+
+                <div class="pagination-row">
+                  <el-pagination
+                    :current-page="songPage"
+                    :page-size="songPageSize"
+                    :total="songTotal"
+                    :page-sizes="[10, 20, 50, 100]"
+                    layout="prev, pager, next, sizes, total"
+                    @size-change="(val: number) => { songPageSize = val; songPage = 1; fetchSongRequests(); }"
+                    @current-change="(val: number) => { songPage = val; fetchSongRequests(); }"
+                  />
+                </div>
               </div>
-            </el-card>
+            </template>
           </div>
-        </div>
+        </el-main>
+      </el-container>
+    </el-container>
+
+    <!-- Dialogs -->
+    <el-dialog v-model="sessionDialogVisible" :title="sessionFormMode === 'create' ? '新增直播回放' : '编辑直播回放'" width="520px">
+      <div class="dialog-form">
+        <el-input v-model="sessionForm.title" placeholder="直播标题" />
+        <el-input v-model="sessionForm.userName" placeholder="主播名称" />
+        <el-input v-model="sessionForm.roomId" placeholder="房间号" />
+        <el-input v-model="sessionForm.startTime" placeholder="开始时间戳 (毫秒)" type="number" />
+        <el-input v-model="sessionForm.endTime" placeholder="结束时间戳 (毫秒)" type="number" />
+        <el-input v-model="sessionForm.filePath" placeholder="文件路径 (可选)" />
       </div>
-    </div>
+      <template #footer>
+        <el-button @click="sessionDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveSession">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="songDialogVisible" :title="songFormMode === 'create' ? '新增点歌记录' : '编辑点歌记录'" width="520px">
+      <div class="dialog-form">
+        <el-input v-model="songForm.songName" placeholder="歌曲名称" />
+        <el-input v-model="songForm.singer" placeholder="歌手" />
+        <el-input v-model="songForm.userName" placeholder="点歌用户" />
+        <el-input v-model="songForm.uid" placeholder="UID" />
+        <el-input v-model="songForm.roomId" placeholder="房间号" />
+        <el-input v-model="songForm.sessionId" placeholder="场次 ID" type="number" />
+        <el-input v-model="songForm.createdAt" placeholder="时间戳 (毫秒)" type="number" />
+      </div>
+      <template #footer>
+        <el-button @click="songDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveSongRequest">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
-
-  <el-dialog v-model="sessionDialogVisible" :title="sessionFormMode === 'create' ? '新增直播回放' : '编辑直播回放'" width="520px">
-    <div class="dialog-form">
-      <el-input v-model="sessionForm.title" placeholder="直播标题" />
-      <el-input v-model="sessionForm.userName" placeholder="主播名称" />
-      <el-input v-model="sessionForm.roomId" placeholder="房间号" />
-      <el-input v-model="sessionForm.startTime" placeholder="开始时间戳 (毫秒)" type="number" />
-      <el-input v-model="sessionForm.endTime" placeholder="结束时间戳 (毫秒)" type="number" />
-      <el-input v-model="sessionForm.filePath" placeholder="文件路径 (可选)" />
-    </div>
-    <template #footer>
-      <el-button @click="sessionDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="saveSession">保存</el-button>
-    </template>
-  </el-dialog>
-
-  <el-dialog v-model="songDialogVisible" :title="songFormMode === 'create' ? '新增点歌记录' : '编辑点歌记录'" width="520px">
-    <div class="dialog-form">
-      <el-input v-model="songForm.songName" placeholder="歌曲名称" />
-      <el-input v-model="songForm.singer" placeholder="歌手" />
-      <el-input v-model="songForm.userName" placeholder="点歌用户" />
-      <el-input v-model="songForm.uid" placeholder="UID" />
-      <el-input v-model="songForm.roomId" placeholder="房间号" />
-      <el-input v-model="songForm.sessionId" placeholder="场次 ID" type="number" />
-      <el-input v-model="songForm.createdAt" placeholder="时间戳 (毫秒)" type="number" />
-    </div>
-    <template #footer>
-      <el-button @click="songDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="saveSongRequest">保存</el-button>
-    </template>
-  </el-dialog>
 </template>
 
 <style scoped>
-.admin-container {
-  display: flex;
-  flex-direction: column;
-  padding: 2rem;
-  background-color: var(--bg-primary);
-  min-height: 100vh;
+.admin-wrapper {
   height: 100vh;
-  color: var(--text-primary);
+  width: 100vw;
+  background: #f5f7fa;
+  overflow: hidden;
 }
 
-.header {
+/* Login Page Styles */
+.login-page {
+  height: 100%;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
-}
-
-.page-title {
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.login-box-wrapper {
-  display: flex;
   justify-content: center;
-  margin-top: 4rem;
+  background: #f5f5f5;
 }
 
 .login-box {
+  background: #fff;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   width: 100%;
   max-width: 400px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
 }
 
-.card-header {
-  font-weight: 600;
-  color: var(--text-primary);
+.login-header {
+  text-align: center;
+  margin-bottom: 30px;
 }
 
-.input-group {
+.login-header h2 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 24px;
+}
+
+.login-header p {
+  margin: 0;
+  color: #999;
+  font-size: 14px;
+}
+
+.login-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .login-btn {
@@ -880,150 +1042,137 @@ watch(activeDatabaseTab, async () => {
 }
 
 .error-text {
-  color: var(--danger);
+  color: #f56c6c;
   text-align: center;
-  margin-top: 1rem;
-  font-size: 0.9rem;
+  margin-top: 16px;
+  font-size: 14px;
 }
 
-.dashboard {
-  display: block;
-  flex: 1;
-  min-height: 0;
-}
-
-.action-card, .list-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-}
-
-.form-row {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-.admin-layout {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 1.5rem;
-  flex: 1;
-  min-height: 0;
-}
-
-.admin-layout.collapsed {
-  grid-template-columns: 84px 1fr;
-}
-
-.admin-sidebar {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem 1rem;
+/* Main Layout Styles */
+.main-container {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
 }
 
-.admin-sidebar.collapsed {
-  padding: 1rem 0.5rem;
-  align-items: center;
-}
-
-.sidebar-header {
+.top-header {
+  height: 60px;
+  background: #fff;
+  border-bottom: 1px solid #dcdfe6;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
+  padding: 0 20px;
+  flex-shrink: 0;
 }
 
-.admin-sidebar.collapsed .sidebar-header {
-  justify-content: center;
+.system-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  gap: 12px;
+}
+
+.content-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+/* Sidebar Styles */
+.sidebar-container {
+  background-color: #fff;
+  border-right: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s;
+  overflow: hidden;
 }
 
 .sidebar-toggle {
-  color: var(--text-secondary);
-}
-
-.sidebar-title {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  letter-spacing: 0.08em;
-}
-
-.sidebar-item {
-  padding: 0.85rem 1rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 500;
-  background-color: transparent;
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-  text-align: left;
-  width: 100%;
-}
-
-.admin-sidebar.collapsed .sidebar-item {
-  padding: 0.85rem 0.5rem;
-  text-align: center;
-}
-
-.sidebar-item:hover {
-  background-color: var(--bg-hover);
-}
-
-.sidebar-item.active {
-  background-color: var(--bg-secondary);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.admin-content {
+  height: 40px;
   display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  min-height: 0;
-  overflow: auto;
-}
-
-.section-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  min-height: 0;
-}
-
-.db-tabs {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.db-toolbar {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
+  justify-content: center;
+  cursor: pointer;
+  border-bottom: 1px solid #ebeef5;
+  color: #606266;
 }
 
-.db-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.5rem;
+.sidebar-toggle:hover {
+  background-color: #f5f7fa;
+  color: #409eff;
+}
+
+.sidebar-menu {
+  border-right: none;
+  overflow-y: auto;
   flex: 1;
-  min-width: 260px;
 }
 
-.db-actions {
+.sidebar-menu:not(.el-menu--collapse) {
+  width: 220px;
+}
+
+/* Main Content Styles */
+.main-content {
+  flex: 1;
+  padding: 0;
+  background-color: #f0f2f5;
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.breadcrumb-bar {
+  background: #fff;
+  padding: 12px 20px;
+  border-bottom: 1px solid #ebeef5;
+  flex-shrink: 0;
+}
+
+.content-area {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.search-section {
+  background: #fff;
+  padding: 18px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.search-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.search-form :deep(.el-input) {
+  width: 200px;
+}
+
+.table-section {
+  background: #fff;
+  padding: 18px;
+  border-radius: 4px;
+}
+
+.action-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 .pagination-row {
-  margin-top: 1rem;
+  margin-top: 20px;
   display: flex;
   justify-content: flex-end;
 }
@@ -1031,35 +1180,6 @@ watch(activeDatabaseTab, async () => {
 .dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-@media (max-width: 1024px) {
-  .admin-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-:deep(.el-card__header) {
-  border-bottom-color: var(--border);
-}
-
-:deep(.el-table) {
-  --el-table-bg-color: var(--bg-card);
-  --el-table-tr-bg-color: var(--bg-card);
-  --el-table-header-bg-color: var(--bg-secondary);
-  --el-table-text-color: var(--text-primary);
-  --el-table-header-text-color: var(--text-secondary);
-  --el-table-border-color: var(--border);
-}
-
-:deep(.el-input__wrapper) {
-  background-color: var(--bg-primary);
-}
-
-:deep(.el-button--primary) {
-  --el-button-bg-color: var(--accent);
-  --el-button-border-color: var(--accent);
-  --el-button-hover-bg-color: var(--accent-hover);
+  gap: 16px;
 }
 </style>

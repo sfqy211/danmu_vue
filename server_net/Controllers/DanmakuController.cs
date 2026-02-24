@@ -43,7 +43,7 @@ public class DanmakuController : ControllerBase
     }
 
     [HttpGet("sessions")]
-    public async Task<IActionResult> GetSessions([FromQuery] string? userName, [FromQuery] long? startTime, [FromQuery] long? endTime)
+    public async Task<IActionResult> GetSessions([FromQuery] string? userName, [FromQuery] string? roomId, [FromQuery] long? startTime, [FromQuery] long? endTime)
     {
         // Cache Control
         Response.Headers["Cache-Control"] = "public, max-age=60, s-maxage=60";
@@ -51,6 +51,7 @@ public class DanmakuController : ControllerBase
         var query = _db.Sessions.AsQueryable();
 
         if (!string.IsNullOrEmpty(userName)) query = query.Where(s => s.UserName == userName);
+        if (!string.IsNullOrEmpty(roomId)) query = query.Where(s => s.RoomId == roomId);
         if (startTime.HasValue) query = query.Where(s => s.StartTime >= startTime);
         if (endTime.HasValue) query = query.Where(s => s.EndTime <= endTime);
 
@@ -62,10 +63,11 @@ public class DanmakuController : ControllerBase
     }
 
     [HttpGet("sessions/total")]
-    public async Task<IActionResult> GetSessionsTotal([FromQuery] string? userName)
+    public async Task<IActionResult> GetSessionsTotal([FromQuery] string? userName, [FromQuery] string? roomId)
     {
         var query = _db.Sessions.AsQueryable();
         if (!string.IsNullOrEmpty(userName)) query = query.Where(s => s.UserName == userName);
+        if (!string.IsNullOrEmpty(roomId)) query = query.Where(s => s.RoomId == roomId);
         
         var count = await query.CountAsync();
         return Ok(new { total = count });
