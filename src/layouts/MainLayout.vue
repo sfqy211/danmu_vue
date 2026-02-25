@@ -37,8 +37,8 @@ const showSidebar = computed(() => {
 });
 
 const showHeader = computed(() => {
-  // 在主页隐藏 Header
-  return route.name !== 'home';
+  // 在主页和列表页隐藏 Header
+  return route.name !== 'home' && route.name !== 'vup-list';
 });
 
 const zoomStyle = computed(() => {

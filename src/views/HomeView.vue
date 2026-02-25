@@ -8,50 +8,7 @@
     <div class="bg-overlay"></div>
 
     <!-- ===== 顶部导航栏 ===== -->
-    <header class="top-nav" :class="{ 'menu-open': mobileMenuOpen }">
-      <div class="nav-inner">
-        <!-- Logo 区 -->
-        <div class="nav-logo" @click="activeIndex = 0">
-          <img src="/vite.svg" class="logo-avatar" />
-          <span class="logo-text">VUP 弹幕站</span>
-        </div>
-
-        <!-- 桌面端：用户切换 tab 列表 -->
-        <nav class="nav-tabs" ref="navTabsRef">
-          <button
-            v-for="(streamer, i) in VUP_LIST"
-            :key="streamer.uid"
-            class="nav-tab"
-            :class="{ active: activeIndex === i }"
-            @click="selectStreamer(i)"
-          >
-            <img :src="streamer.avatarUrl" :alt="streamer.name" class="tab-avatar" />
-            <span class="tab-name">{{ streamer.name }}</span>
-            <span v-if="streamer.hasMonitor" class="monitor-dot" title="已开启弹幕监控"></span>
-          </button>
-        </nav>
-
-        <!-- 移动端：汉堡菜单按钮 -->
-        <button class="hamburger" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="切换菜单">
-          <span></span><span></span><span></span>
-        </button>
-      </div>
-
-      <!-- 移动端展开菜单 -->
-      <div class="mobile-menu" v-show="mobileMenuOpen">
-        <button
-          v-for="(streamer, i) in VUP_LIST"
-          :key="streamer.uid"
-          class="mobile-menu-item"
-          :class="{ active: activeIndex === i }"
-          @click="selectStreamer(i); mobileMenuOpen = false"
-        >
-          <img :src="streamer.avatarUrl" :alt="streamer.name" class="mobile-avatar" />
-          <span>{{ streamer.name }}</span>
-          <span v-if="streamer.hasMonitor" class="monitor-badge">监控</span>
-        </button>
-      </div>
-    </header>
+    <TopNav />
 
     <!-- ===== 主内容区 ===== -->
     <main class="main-content">
@@ -137,24 +94,6 @@
               </button>
             </template>
 
-            <!-- 无监控用户：显示禁用态占位 -->
-            <template v-else>
-              <div class="action-card disabled">
-                <el-icon class="action-icon"><ChatDotRound /></el-icon>
-                <div class="action-text">
-                  <span class="action-title">弹幕历史</span>
-                  <span class="action-desc">暂未开启监控</span>
-                </div>
-              </div>
-              <div class="action-card disabled">
-                <el-icon class="action-icon"><Headset /></el-icon>
-                <div class="action-text">
-                  <span class="action-title">点歌历史</span>
-                  <span class="action-desc">暂未开启监控</span>
-                </div>
-              </div>
-            </template>
-
             <!-- 通用外链 -->
             <a :href="activeStreamer.homepageUrl" target="_blank" class="action-card">
               <el-icon class="action-icon"><User /></el-icon>
@@ -191,8 +130,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import TopNav from '../components/TopNav.vue';
 import { VUP_LIST } from '../constants/vups';
 import {
   ChatDotRound, Headset, ArrowRight, User,
@@ -200,9 +140,29 @@ import {
 } from '@element-plus/icons-vue';
 
 const router = useRouter();
+const route = useRoute();
 const activeIndex = ref(0);
-const mobileMenuOpen = ref(false);
-const navTabsRef = ref<HTMLElement | null>(null);
+
+const checkSelectedStreamer = () => {
+  const savedIndex = localStorage.getItem('selectedStreamerIndex');
+  if (savedIndex !== null) {
+    const index = parseInt(savedIndex, 10);
+    if (index >= 0 && index < VUP_LIST.length) {
+      activeIndex.value = index;
+    }
+  }
+};
+
+onMounted(() => {
+  checkSelectedStreamer();
+});
+
+// 监听路由变化，当从列表页跳转到主页时检查选中的主播
+watch(() => route.path, (newPath) => {
+  if (newPath === '/') {
+    checkSelectedStreamer();
+  }
+});
 
 const activeStreamer = computed(() => VUP_LIST[activeIndex.value]);
 const profileCardRef = ref<HTMLElement | null>(null);
@@ -221,19 +181,6 @@ const cardStyle = computed<Record<string, string>>(() => ({
   '--glare-y': `${glareY.value}%`,
   '--glare-opacity': `${glareOpacity.value}`
 }));
-
-const selectStreamer = (index: number) => {
-  activeIndex.value = index;
-  // 滚动导航栏至对应 tab 可见
-  nextTick(() => {
-    const tabs = navTabsRef.value;
-    if (!tabs) return;
-    const activeTab = tabs.children[index] as HTMLElement;
-    if (activeTab) {
-      activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-    }
-  });
-};
 
 const handleCardMove = (e: MouseEvent) => {
   pointer.x = e.clientX;
@@ -356,189 +303,6 @@ const formatRelativeTime = (ts: number): string => {
     rgba(0, 0, 0, 0.4) 100%
   );
   z-index: 1;
-}
-
-/* ===== 顶部导航栏 ===== */
-.top-nav {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-}
-
-.nav-inner {
-  height: 56px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 16px;
-}
-
-.nav-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.logo-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.logo-text {
-  color: white;
-  font-weight: 700;
-  font-size: 15px;
-  white-space: nowrap;
-}
-
-/* 滚动式 tab 列表 */
-.nav-tabs {
-  flex: 1;
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding: 4px 0;
-}
-.nav-tabs::-webkit-scrollbar { display: none; }
-
-.nav-tab {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.55);
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s ease;
-  position: relative;
-  white-space: nowrap;
-}
-
-.nav-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.nav-tab.active {
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  border-color: rgba(255, 255, 255, 0.25);
-  font-weight: 600;
-}
-
-.tab-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.tab-name {
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.monitor-dot {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #67C23A;
-  box-shadow: 0 0 6px rgba(103, 194, 58, 0.8);
-}
-
-/* 汉堡菜单 */
-.hamburger {
-  display: none;
-  flex-direction: column;
-  gap: 5px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  flex-shrink: 0;
-}
-.hamburger span {
-  display: block;
-  width: 22px;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.8);
-  border-radius: 2px;
-  transition: all 0.3s;
-}
-
-/* 移动端展开菜单 */
-.mobile-menu {
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 8px;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.mobile-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid transparent;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: left;
-}
-.mobile-menu-item:hover { background: rgba(255, 255, 255, 0.1); }
-.mobile-menu-item.active {
-  background: rgba(64, 158, 255, 0.2);
-  border-color: rgba(64, 158, 255, 0.4);
-  color: white;
-}
-
-.mobile-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.monitor-badge {
-  margin-left: auto;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgba(103, 194, 58, 0.25);
-  color: #67C23A;
-  border: 1px solid rgba(103, 194, 58, 0.4);
-  flex-shrink: 0;
 }
 
 /* ===== 主内容 ===== */
@@ -911,9 +675,6 @@ const formatRelativeTime = (ts: number): string => {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
-
-
-
 
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
