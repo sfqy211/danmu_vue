@@ -253,6 +253,17 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v2.1 - 2026-02-26 (界面优化与功能完善)" name="2.1">
+              <ul class="changelog-list">
+                <li><strong>顶栏重构</strong>：将顶栏抽取为独立组件，确保主页和列表页顶栏效果完全一致，采用透明玻璃样式。</li>
+                <li><strong>列表页重构</strong>：重构列表页布局，所有主播在一个页面中全部显示，不同分类使用长横线分割。</li>
+                <li><strong>主播卡片优化</strong>：列表页主播项改为左边头像、右边名字的小按钮布局，提升视觉效果。</li>
+                <li><strong>弹幕录制标识</strong>：为开启了弹幕录制的 VUP 添加绿色标志，方便用户识别。</li>
+                <li><strong>功能显示优化</strong>：对于没有开启弹幕录制的主播，不再显示弹幕历史和点歌历史入口。</li>
+                <li><strong>交互体验提升</strong>：优化列表页跳转主页的逻辑，确保正确切换到选中的主播。</li>
+                <li><strong>代码质量优化</strong>：删除未使用的代码和函数，提升代码可维护性。</li>
+              </ul>
+            </el-collapse-item>
             <el-collapse-item title="v2.0 - 2026-02-25 (后端迁移与管理增强)" name="1.6">
               <ul class="changelog-list">
                 <li><strong>后端升级</strong>：移除 Node.js 后端，全面迁移至 .NET 并优化 Docker 构建流程。</li>

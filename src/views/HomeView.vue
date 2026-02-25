@@ -244,17 +244,6 @@ const openLivestream = (url: string) => {
   if (url) window.open(url, '_blank');
 };
 
-const handleImageError = (e: Event, fallbackUrl: string) => {
-  const img = e.target as HTMLImageElement;
-  if (img.dataset.retried === 'true') return;
-  img.dataset.retried = 'true';
-  if (fallbackUrl && img.src !== fallbackUrl) {
-    img.src = fallbackUrl;
-  } else {
-    img.style.display = 'none';
-  }
-};
-
 const formatNumber = (n: number): string => {
   if (n >= 10000) return (n / 10000).toFixed(1) + '万';
   return n.toString();
@@ -392,6 +381,8 @@ const formatRelativeTime = (ts: number): string => {
   cursor: pointer;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   align-self: stretch;
+  aspect-ratio: 1 / 1;
+  min-height: 400px;
 }
 
 .cover-img {
@@ -697,8 +688,8 @@ const formatRelativeTime = (ts: number): string => {
   }
 
   .cover-section {
-    max-width: 240px;
-    max-height: 240px;
+    max-width: 320px;
+    max-height: 320px;
     aspect-ratio: 1 / 1;
     margin: 0 auto;
   }

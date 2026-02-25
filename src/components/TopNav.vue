@@ -57,7 +57,7 @@ const route = useRoute();
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  cursor: pointer;
+  cursor: default;
 }
 
 .logo-avatar {
