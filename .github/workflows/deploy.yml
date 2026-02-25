@@ -48,14 +48,12 @@ jobs:
           pip install tencentcloud-sdk-python
           python .github/scripts/purge_cdn.py
 
-      - name: Upload Backend Files to Server
+      - name: Pack Backend Files
         run: |
-          # Create temporary archive
-          tar -czf backend.tar.gz \
-            server_net/ \
-            server/ \
-            src/ \
-            public/ \
+          tar -czf /tmp/backend.tar.gz \
+            server_net \
+            src \
+            public \
             package.json \
             package-lock.json \
             vite.config.ts \
@@ -64,13 +62,13 @@ jobs:
             Dockerfile \
             docker-compose.yml
 
-      - name: Copy Backend Files to Server
+      - name: Upload Backend Package to Server
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "backend.tar.gz"
+          source: "/tmp/backend.tar.gz"
           target: "/opt/1panel/apps/danmu-tools/"
 
       - name: Deploy Backend and Restart Services
@@ -90,10 +88,11 @@ jobs:
 
             cd "$TARGET_DIR"
 
-            # Extract backend files
-            if [ -f "backend.tar.gz" ]; then
-              tar -xzf backend.tar.gz --strip-components=0
-              rm backend.tar.gz
+            # Extract uploaded package, overwriting existing files
+            ARCHIVE="$TARGET_DIR/tmp/backend.tar.gz"
+            if [ -f "$ARCHIVE" ]; then
+              tar -xzf "$ARCHIVE" -C "$TARGET_DIR"
+              rm -rf "$TARGET_DIR/tmp/"
             fi
 
             # Restart Docker Containers
