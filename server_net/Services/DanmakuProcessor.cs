@@ -29,6 +29,7 @@ public class DanmakuProcessor : BackgroundService
         _watcher = new FileSystemWatcher(_danmakuDir, "*.xml")
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+            IncludeSubdirectories = true,
             EnableRaisingEvents = true
         };
 

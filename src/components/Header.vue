@@ -180,7 +180,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>BiliDanmu 弹幕时光机 v1.5</p>
+          <p>BiliDanmu 弹幕时光机 v2.0</p>
         </div>
       </template>
     </el-drawer>
@@ -253,6 +253,16 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v2.0 - 2026-02-25 (后端迁移与管理增强)" name="1.6">
+              <ul class="changelog-list">
+                <li><strong>后端升级</strong>：移除 Node.js 后端，全面迁移至 .NET 并优化 Docker 构建流程。</li>
+                <li><strong>管理能力增强</strong>：新增直播回放与点歌记录的数据库管理功能。</li>
+                <li><strong>直播间支持</strong>：支持 B 站短房间号，增加开播状态与时长显示。</li>
+                <li><strong>配置与稳定性</strong>：改进环境变量解析、调度器启动、数据路径与空值处理，提升 API 兼容性。</li>
+                <li><strong>安全与跨域</strong>：优化 CORS 与管理端认证流程，修复管理端 API 基础 URL 解析。</li>
+                <li><strong>部署与存储</strong>：集成腾讯云 COS/CDN，完善部署脚本与构建变量传递。</li>
+              </ul>
+            </el-collapse-item>
             <el-collapse-item title="v1.5 - 2026-02-20 (功能增强与性能优化)" name="1.5">
               <ul class="changelog-list">
                 <li><strong>侧边栏功能增强</strong>：增加会话总数统计和时间范围筛选功能，添加刷新按钮用于更新主播和回放列表。</li>

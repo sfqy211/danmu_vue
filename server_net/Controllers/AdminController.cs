@@ -17,6 +17,7 @@ public class AdminController : ControllerBase
     private readonly ProcessManager _pm;
     private readonly ILogger<AdminController> _logger;
     private readonly BilibiliService _bilibili;
+    private readonly string _danmakuDir;
 
     public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, ILogger<AdminController> logger)
     {
@@ -24,6 +25,8 @@ public class AdminController : ControllerBase
         _pm = pm;
         _bilibili = bilibili;
         _logger = logger;
+        _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
+                      ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
     }
 
     [HttpGet("rooms")]
@@ -313,12 +316,49 @@ public class AdminController : ControllerBase
         var session = await _db.Sessions.FindAsync(id);
         if (session == null) return NotFound(new { error = "Session not found" });
 
+        var fullPath = ResolveSessionFilePath(session);
+
         var requests = _db.SongRequests.Where(r => r.SessionId == id);
         _db.SongRequests.RemoveRange(requests);
         _db.Sessions.Remove(session);
         await _db.SaveChangesAsync();
 
+        if (!string.IsNullOrEmpty(fullPath))
+        {
+            try
+            {
+                if (System.IO.File.Exists(fullPath))
+                {
+                    System.IO.File.Delete(fullPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Failed to delete danmaku file: {fullPath}");
+            }
+        }
+
         return Ok(new { success = true });
+    }
+
+    private string? ResolveSessionFilePath(Session session)
+    {
+        if (session == null || string.IsNullOrEmpty(session.FilePath)) return null;
+
+        var fullPath = Path.Combine(_danmakuDir, session.FilePath);
+        if (System.IO.File.Exists(fullPath)) return fullPath;
+
+        var basename = Path.GetFileName(session.FilePath);
+        if (!string.IsNullOrEmpty(session.RoomId))
+        {
+            var roomPath = Path.Combine(_danmakuDir, session.RoomId, basename);
+            if (System.IO.File.Exists(roomPath)) return roomPath;
+        }
+
+        var rootPath = Path.Combine(_danmakuDir, basename);
+        if (System.IO.File.Exists(rootPath)) return rootPath;
+
+        return fullPath;
     }
 
     [HttpGet("song-requests")]
