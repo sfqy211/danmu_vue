@@ -40,30 +40,25 @@
               class="danmaku-item"
               :class="{ 'is-expanded': expandedItemKey === getItemKey(item) }"
             >
-              <el-popover
-                placement="right"
-                :width="200"
-                trigger="click"
-                popper-class="user-menu-popover"
-              >
-                <template #reference>
-                  <span class="danmaku-username" :title="`UID: ${item.uid}`">{{ item.user }}</span>
+              <el-dropdown trigger="click" placement="right" popper-class="user-menu-popover">
+                <span class="danmaku-username" :title="`UID: ${item.uid}`">{{ item.user }}</span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="filterByUser(item.user)">
+                      <span class="menu-icon">🔍</span>
+                      <span>筛选此用户弹幕</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="!item.uid" @click="item.uid && openProfile(item.uid)">
+                      <span class="menu-icon">👤</span>
+                      <span>打开用户主页</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="!item.uid" @click="item.uid && openLaplace(item.uid)">
+                      <span class="menu-icon">🧪</span>
+                      <span>查成分 (Laplace)</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
                 </template>
-                <div class="user-menu-content">
-                  <div class="menu-item" @click="filterByUser(item.user)">
-                    <span class="menu-icon">🔍</span>
-                    <span>筛选此用户弹幕</span>
-                  </div>
-                  <div class="menu-item" :class="{ disabled: !item.uid }" @click="item.uid && openProfile(item.uid)">
-                    <span class="menu-icon">👤</span>
-                    <span>打开用户主页</span>
-                  </div>
-                  <div class="menu-item" :class="{ disabled: !item.uid }" @click="item.uid && openLaplace(item.uid)">
-                    <span class="menu-icon">🧪</span>
-                    <span>查成分 (Laplace)</span>
-                  </div>
-                </div>
-              </el-popover>
+              </el-dropdown>
               <span class="danmaku-text" :title="item.content" @click="toggleExpand(item)">{{ item.content }}</span>
               <span class="danmaku-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(item.timestamp) : item.timeStr }}</span>
             </div>
@@ -101,32 +96,27 @@
                   <span class="sc-price" :style="{ color: getSCStyle(item.price || 0).main }">
                     CNY {{ formatPrice(item.price || 0) }}
                   </span>
-                  <el-popover
-                    placement="right"
-                    :width="200"
-                    trigger="click"
-                    popper-class="user-menu-popover"
-                  >
-                    <template #reference>
-                      <span class="danmaku-username" :style="{ color: getSCStyle(item.price || 0).main }" :title="`UID: ${item.uid}`">
-                        {{ item.user }}
-                      </span>
+                  <el-dropdown trigger="click" placement="right" popper-class="user-menu-popover">
+                    <span class="danmaku-username" :style="{ color: getSCStyle(item.price || 0).main }" :title="`UID: ${item.uid}`">
+                      {{ item.user }}
+                    </span>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item @click="filterByUser(item.user)">
+                          <span class="menu-icon">🔍</span>
+                          <span>筛选此用户弹幕</span>
+                        </el-dropdown-item>
+                        <el-dropdown-item :disabled="!item.uid" @click="item.uid && openProfile(item.uid)">
+                          <span class="menu-icon">👤</span>
+                          <span>打开用户主页</span>
+                        </el-dropdown-item>
+                        <el-dropdown-item :disabled="!item.uid" @click="item.uid && openLaplace(item.uid)">
+                          <span class="menu-icon">🧪</span>
+                          <span>查成分 (Laplace)</span>
+                        </el-dropdown-item>
+                      </el-dropdown-menu>
                     </template>
-                    <div class="user-menu-content">
-                      <div class="menu-item" @click="filterByUser(item.user)">
-                        <span class="menu-icon">🔍</span>
-                        <span>筛选此用户弹幕</span>
-                      </div>
-                      <div class="menu-item" :class="{ disabled: !item.uid }" @click="item.uid && openProfile(item.uid)">
-                        <span class="menu-icon">👤</span>
-                        <span>打开用户主页</span>
-                      </div>
-                      <div class="menu-item" :class="{ disabled: !item.uid }" @click="item.uid && openLaplace(item.uid)">
-                        <span class="menu-icon">🧪</span>
-                        <span>查成分 (Laplace)</span>
-                      </div>
-                    </div>
-                  </el-popover>
+                  </el-dropdown>
                 </div>
                 <div class="danmaku-text" :title="item.content" @click="toggleExpand(item)">{{ item.content }}</div>
                 <div class="danmaku-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(item.timestamp) : item.timeStr }}</div>
@@ -161,6 +151,8 @@ const {
 
 // Expanded item state
 const expandedItemKey = ref<string | null>(null);
+
+
 
 const getItemKey = (item: any) => {
   if (item.id) return item.id;
@@ -306,8 +298,8 @@ const filteredNormalList = computed(() => {
   if (searchText.value) {
     const lower = searchText.value.toLowerCase();
     list = list.filter(d => 
-      d.content.toLowerCase().includes(lower) || 
-      d.user.toLowerCase().includes(lower)
+      (d.content && d.content.toLowerCase().includes(lower)) || 
+      (d.user && d.user.toLowerCase().includes(lower))
     );
   }
   return list;
@@ -318,8 +310,8 @@ const filteredSCList = computed(() => {
   if (searchText.value) {
     const lower = searchText.value.toLowerCase();
     list = list.filter(d => 
-      d.content.toLowerCase().includes(lower) || 
-      d.user.toLowerCase().includes(lower)
+      (d.content && d.content.toLowerCase().includes(lower)) || 
+      (d.user && d.user.toLowerCase().includes(lower))
     );
   }
   return list;
@@ -660,35 +652,41 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 
-/* User Menu Popover */
-.user-menu-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
+/* User Menu Dropdown */
+:deep(.user-menu-popover) {
+  padding: 8px !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-md) !important;
+  border: 1px solid var(--border) !important;
+  background-color: var(--bg-card) !important;
 }
 
-.menu-item {
-  padding: 8px 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.9rem;
-  color: var(--text-primary);
-  border-radius: 6px;
-  transition: all 0.2s ease;
+:deep(.user-menu-popover .el-dropdown-menu) {
+  border: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  padding: 0 !important;
 }
 
-.menu-item:hover {
-  background-color: var(--bg-hover);
-  color: var(--accent);
+:deep(.user-menu-popover .el-dropdown-menu__item) {
+  padding: 8px 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  font-size: 0.9rem !important;
+  color: var(--text-primary) !important;
+  border-radius: 6px !important;
+  transition: all 0.2s ease !important;
 }
 
-.menu-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  pointer-events: none;
+:deep(.user-menu-popover .el-dropdown-menu__item:hover) {
+  background-color: var(--bg-hover) !important;
+  color: var(--accent) !important;
+}
+
+:deep(.user-menu-popover .el-dropdown-menu__item.is-disabled) {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
 }
 
 .menu-icon {
@@ -696,14 +694,6 @@ onUnmounted(() => {
   width: 20px;
   display: flex;
   justify-content: center;
-}
-
-:deep(.user-menu-popover) {
-  padding: 8px !important;
-  border-radius: 12px !important;
-  box-shadow: var(--shadow-md) !important;
-  border: 1px solid var(--border) !important;
-  background-color: var(--bg-card) !important;
 }
 
 .danmaku-time {
