@@ -58,7 +58,7 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/22642754',
         playlistUrl: 'https://www.ovo.fan',
         groups: [GROUPS.OVO_FAMILY, GROUPS.TYBK_SISTERS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/1104048496.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1104048496.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`,
         hasMonitor: true
@@ -71,7 +71,7 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/673',
         playlistUrl: 'https://bot.starlwr.com/songlist?uid=4718716',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/4718716.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/4718716.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`,
         hasMonitor: true
@@ -84,7 +84,7 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/27484357',
         playlistUrl: 'https://www.nilianlily.cn',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/3493271057730096.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/3493271057730096.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`,
         hasMonitor: true
@@ -97,7 +97,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/443197',
         playlistUrl: 'https://dagel.live',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/17967817.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/17967817.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`,
         hasMonitor: false
     },
@@ -109,7 +110,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/545',
         playlistUrl: 'https://tools.vupgo.com/LiveMusic?buid=15641218',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/15641218.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/15641218.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`,
         hasMonitor: false
     },
@@ -121,7 +123,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/22857429',
         playlistUrl: 'http://gagako.minamini.cn',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/1376650682.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/1376650682.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`,
         hasMonitor: false
     },
@@ -133,7 +136,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/873642',
         playlistUrl: 'http://rinana.vsinger.ink',
         groups: [GROUPS.OVO_FAMILY],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/7591465.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/7591465.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`,
         hasMonitor: false
     },
@@ -145,7 +149,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/21465419',
         playlistUrl: 'http://yybb.vsinger.ink',
         groups: [GROUPS.TYBK_SISTERS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/390647282.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/390647282.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`,
         hasMonitor: false
     },
@@ -157,7 +162,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/685026',
         playlistUrl: 'https://2some.ren/niyabu/songs',
         groups: [GROUPS.TYBK_SISTERS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/188679.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/188679.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`,
         hasMonitor: false
     },
@@ -169,7 +175,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/23587427',
         playlistUrl: 'http://kkcc.vsinger.ink',
         groups: [GROUPS.TYBK_SISTERS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/128667389.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/128667389.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`,
         hasMonitor: false
     },
@@ -181,7 +188,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/54363',
         playlistUrl: 'http://songlist.rynia.live',
         groups: [GROUPS.FEIENDS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/703018634.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/703018634.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`,
         hasMonitor: false
     },
@@ -193,7 +201,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/5424',
         playlistUrl: '',
         groups: [GROUPS.FEIENDS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/90873.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/90873.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`,
         hasMonitor: false
     },
@@ -205,7 +214,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/22924075',
         playlistUrl: 'http://weisteria.vsinger.ink',
         groups: [GROUPS.FEIENDS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/1112031857.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/1112031857.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`,
         hasMonitor: false
     },
@@ -217,7 +227,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/858080',
         playlistUrl: 'https://codev.starlwr.com',
         groups: [GROUPS.FEIENDS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/121309.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/121309.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`,
         hasMonitor: false
     },
@@ -229,7 +240,8 @@ export const VUP_LIST: VupItem[] = [
         livestreamUrl: 'https://live.bilibili.com/3473884',
         playlistUrl: 'https://sumireji.com/',
         groups: [GROUPS.FEIENDS],
-        imageUrl: `${IMG_BASE_URL}/vup-bg/796556.png`,
+        imageUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`,
+        coverUrl: `${IMG_BASE_URL}/vup-cover/796556.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`,
         hasMonitor: false
     },

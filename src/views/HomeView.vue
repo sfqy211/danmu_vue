@@ -56,26 +56,24 @@
     <!-- ===== 主内容区 ===== -->
     <main class="main-content">
       <!-- 主角卡片 -->
-      <div class="profile-card" :key="activeStreamer.uid">
-        <!-- 封面/头像区 -->
-        <div class="cover-section" @click="openLivestream(activeStreamer.livestreamUrl)">
-          <img
-            :src="activeStreamer.coverUrl || activeStreamer.imageUrl"
-            :alt="activeStreamer.name"
-            class="cover-img"
-            @error="handleImageError($event, activeStreamer.imageUrl)"
-          />
-          <div class="cover-hover-mask">
-            <el-icon class="play-icon"><VideoPlay /></el-icon>
-            <span>进入直播间</span>
-          </div>
-        </div>
-
+      <div
+        class="profile-card"
+        :key="activeStreamer.uid"
+        ref="profileCardRef"
+        :style="cardStyle"
+        @mousemove="handleCardMove"
+        @mouseleave="resetCardTilt"
+      >
         <!-- 信息区 -->
         <div class="info-section">
           <!-- 名称 + 状态 -->
           <div class="name-row">
-            <img :src="activeStreamer.avatarUrl" class="profile-avatar" />
+            <div class="avatar-wrapper" @click="openLivestream(activeStreamer.livestreamUrl)">
+              <img :src="activeStreamer.avatarUrl" class="profile-avatar" />
+              <div class="avatar-hover-mask">
+                <el-icon><VideoPlay /></el-icon>
+              </div>
+            </div>
             <div class="name-block">
               <h1 class="profile-name">{{ activeStreamer.name }}</h1>
               <div class="status-tags">
@@ -207,6 +205,22 @@ const mobileMenuOpen = ref(false);
 const navTabsRef = ref<HTMLElement | null>(null);
 
 const activeStreamer = computed(() => VUP_LIST[activeIndex.value]);
+const profileCardRef = ref<HTMLElement | null>(null);
+const tiltX = ref(0);
+const tiltY = ref(0);
+const glareX = ref(50);
+const glareY = ref(50);
+const glareOpacity = ref(0);
+let rafId = 0;
+const pointer = { x: 0, y: 0 };
+
+const cardStyle = computed<Record<string, string>>(() => ({
+  '--tilt-x': `${tiltX.value}deg`,
+  '--tilt-y': `${tiltY.value}deg`,
+  '--glare-x': `${glareX.value}%`,
+  '--glare-y': `${glareY.value}%`,
+  '--glare-opacity': `${glareOpacity.value}`
+}));
 
 const selectStreamer = (index: number) => {
   activeIndex.value = index;
@@ -219,6 +233,56 @@ const selectStreamer = (index: number) => {
       activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
   });
+};
+
+const handleCardMove = (e: MouseEvent) => {
+  pointer.x = e.clientX;
+  pointer.y = e.clientY;
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    const card = profileCardRef.value;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (pointer.x - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (pointer.y - rect.top) / rect.height));
+    const rotateY = (x - 0.5) * 2;
+    const rotateX = (0.5 - y) * 2;
+    const distLeft = x;
+    const distRight = 1 - x;
+    const distTop = y;
+    const distBottom = 1 - y;
+    const minEdge = Math.min(distLeft, distRight, distTop, distBottom);
+    let edgeX = 50;
+    let edgeY = 50;
+    if (minEdge === distLeft) {
+      edgeX = 0;
+      edgeY = y * 100;
+    } else if (minEdge === distRight) {
+      edgeX = 100;
+      edgeY = y * 100;
+    } else if (minEdge === distTop) {
+      edgeX = x * 100;
+      edgeY = 0;
+    } else {
+      edgeX = x * 100;
+      edgeY = 100;
+    }
+    const edgeStrength = Math.max(0, 1 - minEdge * 3.2);
+    tiltX.value = rotateX;
+    tiltY.value = rotateY;
+    glareX.value = Math.max(0, Math.min(100, edgeX));
+    glareY.value = Math.max(0, Math.min(100, edgeY));
+    glareOpacity.value = 0.06 + edgeStrength * 0.2;
+  });
+};
+
+const resetCardTilt = () => {
+  tiltX.value = 0;
+  tiltY.value = 0;
+  glareX.value = 50;
+  glareY.value = 50;
+  glareOpacity.value = 0;
 };
 
 const navigateTo = (uid: string, type: 'danmaku' | 'songs') => {
@@ -276,8 +340,8 @@ const formatRelativeTime = (ts: number): string => {
   inset: 0;
   background-size: cover;
   background-position: center;
-  filter: blur(60px) brightness(0.4) saturate(1.4);
-  transform: scale(1.15);
+  filter: blur(4px) brightness(0.8) saturate(1.1);
+  transform: scale(1.02);
   z-index: 0;
   transition: background-image 0.8s ease;
 }
@@ -287,9 +351,9 @@ const formatRelativeTime = (ts: number): string => {
   inset: 0;
   background: linear-gradient(
     180deg,
-    rgba(0, 0, 0, 0.55) 0%,
-    rgba(0, 0, 0, 0.25) 40%,
-    rgba(0, 0, 0, 0.6) 100%
+    rgba(0, 0, 0, 0.3) 0%,
+    rgba(0, 0, 0, 0.1) 40%,
+    rgba(0, 0, 0, 0.4) 100%
   );
   z-index: 1;
 }
@@ -301,9 +365,11 @@ const formatRelativeTime = (ts: number): string => {
   left: 0;
   right: 0;
   z-index: 100;
-  background: rgba(10, 10, 15, 0.7);
+  background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .nav-inner {
@@ -327,7 +393,6 @@ const formatRelativeTime = (ts: number): string => {
   height: 32px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
 }
 
 .logo-text {
@@ -422,8 +487,12 @@ const formatRelativeTime = (ts: number): string => {
   transition: all 0.3s;
 }
 
+/* 移动端展开菜单 */
 .mobile-menu {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
   max-height: 60vh;
   overflow-y: auto;
   padding: 8px;
@@ -490,18 +559,60 @@ const formatRelativeTime = (ts: number): string => {
 
 /* ===== 主角卡片 ===== */
 .profile-card {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --glare-x: 50%;
+  --glare-y: 50%;
+  --glare-opacity: 0;
+  position: relative;
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 36px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 24px;
-  padding: 32px;
+  padding: 40px;
   animation: cardIn 0.4s ease;
   overflow: hidden;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transform: perspective(1200px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+  transform-style: preserve-3d;
+  transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  will-change: transform;
+}
+
+.profile-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(420px 180px at var(--glare-x) var(--glare-y), rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 60%);
+  opacity: var(--glare-opacity);
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 0;
+}
+
+.profile-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, 0.12) 62%, rgba(255, 255, 255, 0));
+  opacity: 0.22;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.profile-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes cardIn {
@@ -515,7 +626,7 @@ const formatRelativeTime = (ts: number): string => {
   border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   align-self: stretch;
 }
 
@@ -564,12 +675,48 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .profile-avatar {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  flex-shrink: 0;
+  display: block;
+}
+
+.avatar-wrapper {
+   position: relative;
+   width: 80px;
+   height: 80px;
+   border-radius: 50%;
+   overflow: hidden;
+   cursor: pointer;
+   flex-shrink: 0;
+   transition: transform 0.3s ease;
+ }
+
+.avatar-wrapper:hover {
+  transform: scale(1.05);
+}
+
+.avatar-hover-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.avatar-wrapper:hover .avatar-hover-mask {
+  opacity: 1;
+}
+
+.avatar-hover-mask .el-icon {
+  font-size: 24px;
+  margin-bottom: 2px;
 }
 
 .profile-name {
@@ -595,6 +742,7 @@ const formatRelativeTime = (ts: number): string => {
   padding: 3px 8px;
   border-radius: 20px;
   font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .tag-monitor {
@@ -630,13 +778,16 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .ext-info-item {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: 12px;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .ext-info-wide {
@@ -645,18 +796,20 @@ const formatRelativeTime = (ts: number): string => {
 
 .ext-label {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.55);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .ext-value {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
+  color: #ffffff;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .ext-value.placeholder {
@@ -683,19 +836,22 @@ const formatRelativeTime = (ts: number): string => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  color: #ffffff;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
   text-decoration: none;
 }
 
 .action-card:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.12));
+  border-color: rgba(255, 255, 255, 0.32);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .action-card.disabled {
@@ -706,7 +862,7 @@ const formatRelativeTime = (ts: number): string => {
 .action-icon {
   font-size: 20px;
   flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.7);
+  color: #ffffff;
 }
 
 .action-text {
@@ -720,12 +876,14 @@ const formatRelativeTime = (ts: number): string => {
 .action-title {
   font-size: 13px;
   font-weight: 600;
-  color: white;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .action-desc {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .action-arrow {
@@ -745,9 +903,13 @@ const formatRelativeTime = (ts: number): string => {
   font-size: 11px;
   padding: 3px 10px;
   border-radius: 20px;
-  background: rgba(64, 158, 255, 0.12);
-  color: rgba(121, 187, 255, 0.9);
-  border: 1px solid rgba(64, 158, 255, 0.25);
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 
@@ -768,6 +930,9 @@ const formatRelativeTime = (ts: number): string => {
     grid-template-columns: 1fr;
     padding: 18px;
     gap: 18px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   }
 
   .cover-section {
