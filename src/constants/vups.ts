@@ -8,7 +8,48 @@ export const GROUPS = {
 // 这样可以避免 Mixed Content 问题，且利用 CDN 加速
 const IMG_BASE_URL = ''; // 空字符串表示使用当前域名（即 CDN 域名）
 
-export const VUP_LIST = [
+// VUP 条目类型定义
+export interface VupItem {
+  id: string;
+  uid: string;
+  name: string;
+  homepageUrl: string;
+  livestreamUrl: string;
+  playlistUrl: string;
+  groups: string[];
+  imageUrl: string;
+  coverUrl?: string;
+  avatarUrl: string;
+  // 弹幕监控标识：与 VupConstants.cs 中的 Vups 列表对齐
+  hasMonitor: boolean;
+  // 扩展预留字段（未来接入 B站 API 时填充）
+  followers?: number;        // 粉丝数
+  latestVideo?: string;      // 最新投稿标题
+  latestVideoUrl?: string;   // 最新投稿链接
+  lastLiveTime?: number;     // 最近直播时间（Unix 时间戳 ms）
+  isLiving?: boolean;        // 是否正在直播
+}
+
+// 拥有弹幕监控的用户 UID 集合（与 VupConstants.cs 同步）
+export const MONITOR_UIDS = new Set([
+  '1104048496',       // 桃几OvO
+  '4718716',          // 鱼鸽鸽
+  '3493271057730096', // 妮莉安Lily
+  '17967817',         // 大哥L-
+  '15641218',         // 帅比笙歌超可爱OvO
+  '1376650682',       // 葡冷尔子gagako
+  '7591465',          // 里奈Rina
+  '390647282',        // 浅野天琪_TANCHJIM
+  '188679',           // Niya阿布
+  '128667389',        // -蔻蔻CC-
+  '703018634',        // 莱妮娅_Rynia
+  '90873',            // 内德维德
+  '1112031857',       // 薇Steria
+  '121309',           // CODE-V
+  '796556',           // -菫時-
+]);
+
+export const VUP_LIST: VupItem[] = [
     {
         id: '1',
         uid: '1104048496',
@@ -19,7 +60,8 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY, GROUPS.TYBK_SISTERS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/1104048496.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1104048496.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`,
+        hasMonitor: true
     },
     {
         id: '2',
@@ -31,7 +73,8 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/4718716.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/4718716.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`,
+        hasMonitor: true
     },
     {
         id: '3',
@@ -43,7 +86,8 @@ export const VUP_LIST = [
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/3493271057730096.png`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/3493271057730096.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`,
+        hasMonitor: true
     },
     {
         id: '4',
@@ -54,7 +98,8 @@ export const VUP_LIST = [
         playlistUrl: 'https://dagel.live',
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/17967817.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`,
+        hasMonitor: false
     },
     {
         id: '5',
@@ -65,7 +110,8 @@ export const VUP_LIST = [
         playlistUrl: 'https://tools.vupgo.com/LiveMusic?buid=15641218',
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/15641218.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`,
+        hasMonitor: false
     },
     {
         id: '6',
@@ -76,7 +122,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://gagako.minamini.cn',
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/1376650682.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`,
+        hasMonitor: false
     },
     {
         id: '7',
@@ -87,7 +134,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://rinana.vsinger.ink',
         groups: [GROUPS.OVO_FAMILY],
         imageUrl: `${IMG_BASE_URL}/vup-bg/7591465.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`,
+        hasMonitor: false
     },
     {
         id: '8',
@@ -98,7 +146,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://yybb.vsinger.ink',
         groups: [GROUPS.TYBK_SISTERS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/390647282.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`,
+        hasMonitor: false
     },
     {
         id: '9',
@@ -109,7 +158,8 @@ export const VUP_LIST = [
         playlistUrl: 'https://2some.ren/niyabu/songs',
         groups: [GROUPS.TYBK_SISTERS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/188679.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`,
+        hasMonitor: false
     },
     {
         id: '10',
@@ -120,7 +170,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://kkcc.vsinger.ink',
         groups: [GROUPS.TYBK_SISTERS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/128667389.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`,
+        hasMonitor: false
     },
     {
         id: '11',
@@ -131,7 +182,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://songlist.rynia.live',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/703018634.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`,
+        hasMonitor: false
     },
     {
         id: '12',
@@ -142,7 +194,8 @@ export const VUP_LIST = [
         playlistUrl: '',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/90873.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`,
+        hasMonitor: false
     },
     {
         id: '13',
@@ -153,7 +206,8 @@ export const VUP_LIST = [
         playlistUrl: 'http://weisteria.vsinger.ink',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/1112031857.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`,
+        hasMonitor: false
     },
     {
         id: '14',
@@ -164,7 +218,8 @@ export const VUP_LIST = [
         playlistUrl: 'https://codev.starlwr.com',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/121309.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`,
+        hasMonitor: false
     },
     {
         id: '15',
@@ -175,6 +230,7 @@ export const VUP_LIST = [
         playlistUrl: 'https://sumireji.com/',
         groups: [GROUPS.FEIENDS],
         imageUrl: `${IMG_BASE_URL}/vup-bg/796556.png`,
-        avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`
+        avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`,
+        hasMonitor: false
     },
 ];
