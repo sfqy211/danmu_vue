@@ -327,10 +327,10 @@ const formatRelativeTime = (ts: number): string => {
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 24px;
-  padding: 40px;
+  padding: clamp(20px, 4vw, 40px);
   animation: cardIn 0.4s ease;
   overflow: hidden;
-  max-width: 1600px;
+  max-width: clamp(1000px, 80vw, 1600px);
   margin: 0 auto;
   width: 100%;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -382,7 +382,7 @@ const formatRelativeTime = (ts: number): string => {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   align-self: stretch;
   aspect-ratio: 1 / 1;
-  min-height: 400px;
+  min-height: clamp(400px, 40vw, 600px);
 }
 
 .cover-img {
@@ -676,6 +676,10 @@ const formatRelativeTime = (ts: number): string => {
     padding-top: 68px;
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .dynamic-bg {
+    background-position: 50% 20%;
   }
 
   .profile-card {
