@@ -48,28 +48,24 @@ jobs:
           pip install tencentcloud-sdk-python
           python .github/scripts/purge_cdn.py
 
-      - name: Pack Backend Files
+      - name: Setup SSH Key
         run: |
-          tar -czf /tmp/backend.tar.gz \
-            server_net \
-            src \
-            public \
-            package.json \
-            package-lock.json \
-            vite.config.ts \
-            tsconfig.json \
-            index.html \
-            Dockerfile \
-            docker-compose.yml
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Upload Backend Package to Server
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "/tmp/backend.tar.gz"
-          target: "/opt/1panel/apps/danmu-tools/"
+      - name: Sync Backend Files to Server
+        run: |
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='server/data' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            server_net/ src/ public/ \
+            package.json package-lock.json vite.config.ts tsconfig.json index.html Dockerfile docker-compose.yml \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/opt/1panel/apps/danmu-tools/
 
       - name: Deploy Backend and Restart Services
         uses: appleboy/ssh-action@master
@@ -87,13 +83,6 @@ jobs:
             fi
 
             cd "$TARGET_DIR"
-
-            # Extract uploaded package, overwriting existing files
-            ARCHIVE="$TARGET_DIR/tmp/backend.tar.gz"
-            if [ -f "$ARCHIVE" ]; then
-              tar -xzf "$ARCHIVE" -C "$TARGET_DIR"
-              rm -rf "$TARGET_DIR/tmp/"
-            fi
 
             # Restart Docker Containers
             sudo docker-compose up --build -d
