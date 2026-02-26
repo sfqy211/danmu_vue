@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Danmu.Server.Data;
@@ -8,6 +9,7 @@ namespace Danmu.Server.Services;
 
 public class DanmakuService
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DanmakuService> _logger;
     private readonly string _danmakuDir;
@@ -80,6 +82,8 @@ public class DanmakuService
     {
         if (!File.Exists(filePath) || !filePath.EndsWith(".xml")) return null;
 
+        var fileLock = FileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
+        await fileLock.WaitAsync();
         try
         {
             string content = await File.ReadAllTextAsync(filePath);
@@ -91,7 +95,10 @@ public class DanmakuService
             var startMatch = Regex.Match(content, @"<video_start_time>(.*?)</video_start_time>");
 
             long.TryParse(startMatch.Groups[1].Value, out var recordStartTimestamp);
-            if (recordStartTimestamp == 0) recordStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (recordStartTimestamp == 0)
+            {
+                recordStartTimestamp = new DateTimeOffset(File.GetLastWriteTimeUtc(filePath)).ToUnixTimeMilliseconds();
+            }
 
             var meta = new
             {
@@ -227,7 +234,11 @@ public class DanmakuService
             var db = GetDb(scope);
 
             var relativePath = Path.GetRelativePath(_danmakuDir, filePath).Replace("\\", "/");
-            var existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.RoomId == meta.RoomId && s.StartTime == meta.RecordStartTimestamp);
+            var existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == relativePath);
+            if (existingSession == null)
+            {
+                existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.RoomId == meta.RoomId && s.StartTime == meta.RecordStartTimestamp);
+            }
 
             if (existingSession != null)
             {
@@ -287,6 +298,10 @@ public class DanmakuService
         {
             _logger.LogError(ex, $"Error processing file {filePath}");
             return null;
+        }
+        finally
+        {
+            fileLock.Release();
         }
     }
 
