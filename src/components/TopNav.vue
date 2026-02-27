@@ -81,6 +81,7 @@ const route = useRoute();
   display: flex;
   gap: 8px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 .nav-btn {
   display: flex;
@@ -96,6 +97,7 @@ const route = useRoute();
   transition: all 0.2s ease;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
 }
 .nav-btn:hover {
   background: rgba(255, 255, 255, 0.15);

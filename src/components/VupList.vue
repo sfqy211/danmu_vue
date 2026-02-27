@@ -142,30 +142,29 @@ const selectStreamer = (artist: VupItem) => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 14px;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
   cursor: pointer;
   transition: all 0.25s ease;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  min-width: 160px;
-  max-width: 220px;
-  flex: 1 1 auto;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  min-width: 200px;
+  flex: 1 1 200px;
 }
 
 .streamer-item:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
 .streamer-avatar {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid rgba(255, 255, 255, 0.2);
@@ -174,36 +173,36 @@ const selectStreamer = (artist: VupItem) => {
 }
 
 .streamer-item:hover .streamer-avatar {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.5);
   transform: scale(1.05);
 }
 
 .streamer-info {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   flex: 1;
   min-width: 0;
 }
 
 .streamer-name {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: white;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .monitor-indicator {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   background: rgba(103, 194, 58, 0.2);
   border: 1px solid rgba(103, 194, 58, 0.4);
   border-radius: 50%;
@@ -211,8 +210,33 @@ const selectStreamer = (artist: VupItem) => {
 }
 
 .monitor-indicator .el-icon {
-  font-size: 12px;
-  color: #67c23a;
+  font-size: 14px;
+  color: #95d475;
+}
+
+/* 移动端优化：占满一行 */
+@media (max-width: 768px) {
+  .vup-list-container {
+    padding: 72px 16px 40px;
+  }
+  
+  .streamer-item {
+    flex: 1 1 100%;
+    max-width: none;
+    padding: 14px 20px;
+    background: rgba(255, 255, 255, 0.12); /* 移动端稍亮一点 */
+    backdrop-filter: none; /* 移动端移除模糊以提升性能 */
+    -webkit-backdrop-filter: none;
+  }
+  
+  .streamer-name {
+    font-size: 16px;
+  }
+  
+  .streamer-avatar {
+    width: 48px;
+    height: 48px;
+  }
 }
 
 .live-indicator {

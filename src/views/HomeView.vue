@@ -542,10 +542,10 @@ const formatRelativeTime = (ts: number): string => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 13px;
+  padding: 4px 10px;
   border-radius: 20px;
-  font-weight: 500;
+  font-weight: 600;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
@@ -601,17 +601,17 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .ext-label {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.65);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .ext-value {
-  font-size: 14px;
+  font-size: 18px;
   color: #ffffff;
-  font-weight: 500;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -681,15 +681,15 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .action-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: #ffffff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .action-desc {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
@@ -707,8 +707,8 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .group-tag {
-  font-size: 11px;
-  padding: 3px 10px;
+  font-size: 13px;
+  padding: 5px 12px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
@@ -717,6 +717,7 @@ const formatRelativeTime = (ts: number): string => {
   -webkit-backdrop-filter: blur(10px);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  font-weight: 500;
 }
 
 /* ===== 响应式 ===== */
@@ -734,11 +735,32 @@ const formatRelativeTime = (ts: number): string => {
     grid-template-columns: 1fr;
     padding: 18px;
     gap: 18px;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    /* 移动端性能优化：移除实时高斯模糊，改用微透的纯色背景 */
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     transform: none !important;
     will-change: auto !important;
+  }
+  
+  /* 同样优化子元素 */
+  .ext-info-item,
+  .action-card,
+  .group-tag {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  
+  .ext-info-item,
+  .action-card {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+  
+  .group-tag {
+    background: rgba(255, 255, 255, 0.2) !important;
   }
 
   .cover-section {
