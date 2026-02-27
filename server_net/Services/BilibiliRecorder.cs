@@ -97,7 +97,14 @@ public class BilibiliRecorder : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Recorder error for {_roomId}, retrying in 5s...");
+                if (ex is EndOfStreamException)
+                {
+                    _logger.LogInformation($"Stream ended for {_roomId}.");
+                }
+                else
+                {
+                    _logger.LogError(ex, $"Recorder error for {_roomId}, retrying in 5s...");
+                }
                 Status = "reconnecting";
             }
             finally
@@ -138,6 +145,8 @@ public class BilibiliRecorder : IDisposable
                     return;
                 }
                 Status = "offline";
+                
+                await CheckAndCloseStaleSessionAsync();
             }
             catch (Exception ex)
             {
@@ -268,9 +277,40 @@ public class BilibiliRecorder : IDisposable
 
     private async Task HeartbeatLoopAsync(CancellationToken token)
     {
+        int heartbeatCount = 0;
         while (!token.IsCancellationRequested)
         {
             await Task.Delay(30000, token);
+
+            // Fail-safe: Check live status via API every 60s
+            heartbeatCount++;
+            if (heartbeatCount % 2 == 0 && _bilibiliService != null)
+            {
+                try
+                {
+                    var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+                    if (liveStatus != 1)
+                    {
+                        _logger.LogInformation($"Detected offline via API check for {_roomId}");
+                        if (_ws != null) 
+                        {
+                            try 
+                            {
+                                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Offline", token);
+                            } 
+                            catch {}
+                            // Close might not be enough if ReceiveLoop is stuck, but ReceiveAsync should return or throw.
+                            // However, we should break here to stop sending heartbeats.
+                        }
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to check live status in heartbeat: {ex.Message}");
+                }
+            }
+
             if (_ws != null && _ws.State == WebSocketState.Open)
             {
                 try {
@@ -344,6 +384,7 @@ public class BilibiliRecorder : IDisposable
                     }
                     catch (Exception ex) 
                     { 
+                        if (ex is EndOfStreamException) throw;
                         _logger.LogError(ex, "Zlib decompression failed"); 
                     }
                 }
@@ -357,7 +398,11 @@ public class BilibiliRecorder : IDisposable
                         bs.CopyTo(outMs);
                         ProcessPacket(outMs.ToArray());
                     }
-                    catch (Exception ex) { _logger.LogError(ex, "Brotli decompression failed"); }
+                    catch (Exception ex) 
+                    { 
+                        if (ex is EndOfStreamException) throw;
+                        _logger.LogError(ex, "Brotli decompression failed"); 
+                    }
                 }
             }
             else if (op == 8) // CONNECT_SUCCESS
@@ -389,6 +434,11 @@ public class BilibiliRecorder : IDisposable
             {
                 var cmd = cmdProp.GetString();
                 string xml = "";
+
+                if (cmd == "PREPARING")
+                {
+                    throw new EndOfStreamException("Stream ended (PREPARING)");
+                }
 
                 if (cmd != null && cmd.StartsWith("DANMU_MSG"))
                 {
@@ -508,6 +558,34 @@ public class BilibiliRecorder : IDisposable
         }
     }
     
+    private async Task CheckAndCloseStaleSessionAsync()
+    {
+        if (_currentSessionKey != null)
+        {
+             _logger.LogInformation($"Closing active session {_currentSessionKey} because room is offline.");
+             await EndRedisSessionAsync(isFinal: true);
+             return;
+        }
+
+        if (CheckActiveSession != null)
+        {
+            try 
+            {
+                var sessionKey = await CheckActiveSession(_roomId);
+                if (!string.IsNullOrEmpty(sessionKey))
+                {
+                    _logger.LogInformation($"Found stale session {sessionKey} for room {_roomId}. Closing it.");
+                    _currentSessionKey = sessionKey;
+                    await EndRedisSessionAsync(isFinal: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking/closing stale session");
+            }
+        }
+    }
+    
     private async Task EndRedisSessionAsync(bool isFinal)
     {
         if (_currentSessionKey == null) return;
@@ -520,7 +598,7 @@ public class BilibiliRecorder : IDisposable
             var messages = await _redis.GetMessagesAsync(_currentSessionKey + ":list");
             var meta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
             
-            if (messages.Count == 0 && meta.Count == 0) return;
+            // if (messages.Count == 0 && meta.Count == 0) return;
             
             var sb = new StringBuilder();
             sb.Append("<xml>\n");
