@@ -129,9 +129,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, reactive } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter } from 'vue-router';
 import TopNav from '../components/TopNav.vue';
-import { VUP_LIST } from '../constants/vups';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import {
   ChatDotRound, Headset, ArrowRight, User,
@@ -139,7 +138,6 @@ import {
 } from '@element-plus/icons-vue';
 
 const router = useRouter();
-const route = useRoute();
 const store = useDanmakuStore();
 
 // 本地存储 VUP 扩展数据
@@ -172,35 +170,6 @@ const currentVupData = computed(() => {
   return {
     ...staticData,
     ...dynamicData
-  };
-});
-
-
-
-const showMeshGradient = computed(() => {
-  return isMobile.value && currentVupData.value.themeColors && currentVupData.value.themeColors.length >= 3;
-});
-
-const meshColors = computed(() => {
-  const colors = currentVupData.value.themeColors || [];
-  if (colors.length >= 9) {
-    // Return first 5 colors or a mix if needed
-    return [colors[0], colors[1], colors[2], colors[3], colors[4]];
-  }
-  // Fallback: repeat colors if less than 5
-  return [
-    colors[0], 
-    colors[1], 
-    colors[2], 
-    colors[0], 
-    colors[1]
-  ];
-});
-
-const bgImageStyle = computed(() => {
-  const imgUrl = currentVupData.value.coverUrl || currentVupData.value.imageUrl;
-  return {
-    backgroundImage: `url(${imgUrl})`
   };
 });
 

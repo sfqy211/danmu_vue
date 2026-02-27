@@ -154,7 +154,10 @@ html.dark body {
 
 /* 侧边栏头部 */
 .sidebar-header {
-    padding: 20px 16px 12px;
+    padding: 0 16px;
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
 }
 
 .sidebar-header h3 {

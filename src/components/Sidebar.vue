@@ -71,7 +71,7 @@
           <el-date-picker
             v-model="customDate"
             type="date"
-            placeholder="选择一个具体日期"
+            placeholder="选择具体日期"
             size="small"
             @change="handleCustomDateChange"
             class="date-picker"
@@ -351,12 +351,15 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  padding: 20px 16px 12px;
-  min-height: 64px;
+  padding: 0 16px;
+  height: 60px;
+  min-height: 60px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
 }
 
 .collapsed .sidebar-header {
-  padding: 20px 0;
+  padding: 0;
   justify-content: center;
   gap: 0;
 }
@@ -385,7 +388,7 @@ onUnmounted(() => {
 }
 
 .filter-section {
-  padding: 0 16px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -402,14 +405,15 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   box-sizing: border-box;
+  flex: 1;
 }
 
 .time-range-wrapper {
-  flex: 0 0 30%;
+  /* flex: 0 0 30%; Removed to allow equal width */
 }
 
 .date-picker-wrapper {
-  flex: 0 0 70%;
+  /* flex: 0 0 70%; Removed to allow equal width */
 }
 
 /* 确保内部组件占满宽度 */

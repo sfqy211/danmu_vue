@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "npx tsx scripts/generate-colors.ts && vite",
-    "dev:server": "cd server && npm run dev",
+    "dev:server": "cd server_net && dotnet run --urls \"http://0.0.0.0:3001\"",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
-    "generate-avatars": "cd server && npx tsx src/generate_avatars.ts",
+    "generate-avatars": "cd server_net && dotnet run --project Danmu.Server.csproj -- generate-avatars",
     "generate-colors": "npx tsx scripts/generate-colors.ts",
     "build": "npx tsx scripts/generate-colors.ts && tsc && vite build",
     "preview": "vite preview",
-    "start": "cd server && npm start"
+    "start": "cd server_net && dotnet run --urls \"http://0.0.0.0:3001\" --configuration Release"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.3",

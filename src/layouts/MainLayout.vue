@@ -21,11 +21,6 @@
     <div class="bg-overlay" v-if="showDynamicBg"></div>
 
     <Sidebar v-if="showSidebar" class="sidebar" />
-    <div 
-      v-if="showSidebar && !store.isSidebarCollapsed" 
-      class="sidebar-overlay mobile-only" 
-      @click="store.isSidebarCollapsed = true"
-    ></div>
     <div class="content-area">
       <Header v-if="showHeader" class="app-header" />
       <div class="zoom-container">
@@ -42,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Sidebar from '../components/Sidebar.vue';
 import Header from '../components/Header.vue';
@@ -62,6 +57,13 @@ const isMobile = ref(mql.matches);
 const updateMobile = (e: MediaQueryListEvent) => {
   isMobile.value = e.matches;
 };
+
+// 监听移动端状态变化，自动收起侧边栏
+watch(isMobile, (newValue) => {
+  if (newValue) {
+    store.isSidebarCollapsed = true;
+  }
+});
 
 onMounted(() => {
   mql.addEventListener('change', updateMobile);
@@ -176,16 +178,6 @@ const zoomStyle = computed(() => {
   overflow: hidden;
   flex: 1;
   transform-origin: 0 0;
-}
-
-.sidebar-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  z-index: 999;
 }
 
 .mobile-only {
