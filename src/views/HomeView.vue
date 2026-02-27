@@ -159,6 +159,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   mql.removeEventListener('change', updateMobile);
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
 });
 
 const activeStreamer = computed(() => store.currentVup);

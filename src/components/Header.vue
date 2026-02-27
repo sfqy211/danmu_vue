@@ -16,7 +16,7 @@
         class="back-btn" 
         :icon="ArrowLeft" 
         circle 
-        @click="router.push('/')" 
+        @click="goHome" 
         title="返回首页"
       />
 
@@ -438,14 +438,9 @@ const handleResize = () => {
 };
 
 const goHome = () => {
-  const currentUid = route.params.uid;
-  if (currentUid) {
-    // 如果在主播页，"弹幕列表"应该跳转到该主播的弹幕列表页
-    router.push({ name: 'streamer-danmaku', params: { uid: currentUid } });
-  } else {
-    // 只有在没有 UID 的情况下才回首页（理论上在 Header 显示时不会发生，除非在非 vup 路由）
-    router.push({ name: 'home' });
-  }
+  // Use replace to prevent history stack buildup when returning to home
+  // This ensures that the back button logic works as expected (exiting the app or going to the previous external page)
+  router.replace({ name: 'home' });
   drawerVisible.value = false;
 };
 

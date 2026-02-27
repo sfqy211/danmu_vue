@@ -26,9 +26,7 @@
       <div class="zoom-container">
         <div class="zoom-wrapper" :style="zoomStyle">
           <router-view v-slot="{ Component }">
-            <keep-alive>
-              <component :is="Component" />
-            </keep-alive>
+            <component :is="Component" />
           </router-view>
         </div>
       </div>

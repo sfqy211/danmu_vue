@@ -8,7 +8,7 @@
       </div>
       <!-- 导航按钮 -->
       <nav class="nav-buttons">
-        <button class="nav-btn" :class="{ active: route.name === 'home' }" @click="router.push('/')">
+        <button class="nav-btn" :class="{ active: route.name === 'home' }" @click="router.replace('/')">
           <el-icon><HomeFilled /></el-icon>
           <span>主页</span>
         </button>

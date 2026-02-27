@@ -64,7 +64,7 @@ const selectStreamer = (artist: VupItem) => {
   const index = VUP_LIST.findIndex(v => v.uid === artist.uid);
   if (index !== -1) {
     store.setCurrentVupIndex(index);
-    router.push('/');
+    router.replace('/');
   }
 };
 </script>
