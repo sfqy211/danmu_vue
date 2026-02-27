@@ -47,8 +47,11 @@ import { useRouter } from 'vue-router';
 import TopNav from './TopNav.vue';
 import { VUP_LIST, GROUPS, type VupItem } from '../constants/vups';
 import { DataLine } from '@element-plus/icons-vue';
+import { useDanmakuStore } from '../stores/danmakuStore';
 
 const router = useRouter();
+const store = useDanmakuStore();
+
 const getArtistsByGroup = (group: string) => {
   return VUP_LIST.filter((artist: VupItem) => artist.groups.includes(group));
 };
@@ -60,7 +63,7 @@ const groupCount = (group: string) => {
 const selectStreamer = (artist: VupItem) => {
   const index = VUP_LIST.findIndex(v => v.uid === artist.uid);
   if (index !== -1) {
-    localStorage.setItem('selectedStreamerIndex', index.toString());
+    store.setCurrentVupIndex(index);
     router.push('/');
   }
 };
@@ -71,7 +74,7 @@ const selectStreamer = (artist: VupItem) => {
   min-height: 100vh;
   width: 100%;
   position: relative;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2d3436 100%);
+  /* background: linear-gradient(135deg, #1a1a1a 0%, #2d3436 100%); */
   overflow-x: hidden;
 }
 

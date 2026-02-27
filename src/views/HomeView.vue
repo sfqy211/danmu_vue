@@ -1,12 +1,5 @@
 <template>
   <div class="home-container">
-    <!-- 动态背景层 -->
-    <div
-      class="dynamic-bg"
-      :style="{ backgroundImage: `url(${currentVupData.coverUrl || currentVupData.imageUrl})` }"
-    ></div>
-    <div class="bg-overlay"></div>
-
     <!-- ===== 顶部导航栏 ===== -->
     <TopNav />
 
@@ -139,6 +132,7 @@ import { ref, computed, onMounted, watch, onUnmounted, reactive } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import TopNav from '../components/TopNav.vue';
 import { VUP_LIST } from '../constants/vups';
+import { useDanmakuStore } from '../stores/danmakuStore';
 import {
   ChatDotRound, Headset, ArrowRight, User,
   Promotion, VideoPlay, DataLine
@@ -146,20 +140,10 @@ import {
 
 const router = useRouter();
 const route = useRoute();
-const activeIndex = ref(0);
+const store = useDanmakuStore();
 
 // 本地存储 VUP 扩展数据
 const vupDataMap = reactive<Record<string, any>>({});
-
-const checkSelectedStreamer = () => {
-  const savedIndex = localStorage.getItem('selectedStreamerIndex');
-  if (savedIndex !== null) {
-    const index = parseInt(savedIndex, 10);
-    if (index >= 0 && index < VUP_LIST.length) {
-      activeIndex.value = index;
-    }
-  }
-};
 
 const mql = window.matchMedia('(max-width: 768px)');
 const isMobile = ref(mql.matches);
@@ -172,7 +156,6 @@ const updateMobile = (e: MediaQueryListEvent) => {
 };
 
 onMounted(() => {
-  checkSelectedStreamer();
   mql.addEventListener('change', updateMobile);
 });
 
@@ -180,14 +163,7 @@ onUnmounted(() => {
   mql.removeEventListener('change', updateMobile);
 });
 
-// 监听路由变化，当从列表页跳转到主页时检查选中的主播
-watch(() => route.path, (newPath) => {
-  if (newPath === '/') {
-    checkSelectedStreamer();
-  }
-});
-
-const activeStreamer = computed(() => VUP_LIST[activeIndex.value]);
+const activeStreamer = computed(() => store.currentVup);
 
 // 合并静态配置和动态获取的数据
 const currentVupData = computed(() => {
@@ -196,6 +172,35 @@ const currentVupData = computed(() => {
   return {
     ...staticData,
     ...dynamicData
+  };
+});
+
+
+
+const showMeshGradient = computed(() => {
+  return isMobile.value && currentVupData.value.themeColors && currentVupData.value.themeColors.length >= 3;
+});
+
+const meshColors = computed(() => {
+  const colors = currentVupData.value.themeColors || [];
+  if (colors.length >= 9) {
+    // Return first 5 colors or a mix if needed
+    return [colors[0], colors[1], colors[2], colors[3], colors[4]];
+  }
+  // Fallback: repeat colors if less than 5
+  return [
+    colors[0], 
+    colors[1], 
+    colors[2], 
+    colors[0], 
+    colors[1]
+  ];
+});
+
+const bgImageStyle = computed(() => {
+  const imgUrl = currentVupData.value.coverUrl || currentVupData.value.imageUrl;
+  return {
+    backgroundImage: `url(${imgUrl})`
   };
 });
 
@@ -333,32 +338,8 @@ const formatRelativeTime = (ts: number): string => {
   min-height: 100vh;
   width: 100%;
   position: relative;
-  background-color: var(--bg-primary, #0f0f13);
+  /* background-color: var(--bg-primary, #0f0f13); */
   overflow-x: hidden;
-}
-
-/* ===== 动态背景 ===== */
-.dynamic-bg {
-  position: fixed;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  filter: blur(4px) brightness(0.8) saturate(1.1);
-  transform: scale(1.02);
-  z-index: 0;
-  transition: background-image 0.8s ease;
-}
-
-.bg-overlay {
-  position: fixed;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.3) 0%,
-    rgba(0, 0, 0, 0.1) 40%,
-    rgba(0, 0, 0, 0.4) 100%
-  );
-  z-index: 1;
 }
 
 /* ===== 主内容 ===== */
@@ -389,10 +370,11 @@ const formatRelativeTime = (ts: number): string => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  /* 优化：背景调黑一点点，增强对比度，但保持通透 */
+  background: linear-gradient(140deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.05));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
   padding: clamp(20px, 4vw, 40px);
   animation: cardIn 0.4s ease;
@@ -400,7 +382,7 @@ const formatRelativeTime = (ts: number): string => {
   max-width: clamp(1000px, 80vw, 1600px);
   margin: 0 auto;
   width: 100%;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   transform: perspective(1200px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
   transform-style: preserve-3d;
   transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
@@ -547,7 +529,7 @@ const formatRelativeTime = (ts: number): string => {
   font-weight: 700;
   margin: 0 0 6px;
   letter-spacing: 1px;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
 }
 
 .status-tags {
@@ -569,14 +551,16 @@ const formatRelativeTime = (ts: number): string => {
 
 .tag-monitor {
   background: rgba(103, 194, 58, 0.15);
-  color: #85d15e;
+  color: #95d475;
   border: 1px solid rgba(103, 194, 58, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .tag-live {
   background: rgba(245, 108, 108, 0.15);
-  color: #f56c6c;
+  color: #f89898;
   border: 1px solid rgba(245, 108, 108, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .live-dot {
@@ -600,16 +584,16 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .ext-info-item {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 12px;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .ext-info-wide {
@@ -618,7 +602,7 @@ const formatRelativeTime = (ts: number): string => {
 
 .ext-label {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.65);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -631,11 +615,11 @@ const formatRelativeTime = (ts: number): string => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .ext-value.placeholder {
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .ext-link {
@@ -658,11 +642,11 @@ const formatRelativeTime = (ts: number): string => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08));
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   color: #ffffff;
   cursor: pointer;
   transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
@@ -670,10 +654,10 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .action-card:hover:not(.disabled) {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.12));
-  border-color: rgba(255, 255, 255, 0.32);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05));
+  border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .action-card.disabled {
@@ -685,6 +669,7 @@ const formatRelativeTime = (ts: number): string => {
   font-size: 20px;
   flex-shrink: 0;
   color: #ffffff;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
 }
 
 .action-text {
@@ -704,7 +689,7 @@ const formatRelativeTime = (ts: number): string => {
 
 .action-desc {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.75);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
@@ -725,13 +710,13 @@ const formatRelativeTime = (ts: number): string => {
   font-size: 11px;
   padding: 3px 10px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ===== 响应式 ===== */
@@ -743,10 +728,6 @@ const formatRelativeTime = (ts: number): string => {
     padding-top: 68px;
     padding-left: 14px;
     padding-right: 14px;
-  }
-
-  .dynamic-bg {
-    background-position: 50% 20%;
   }
 
   .profile-card {
@@ -782,4 +763,6 @@ const formatRelativeTime = (ts: number): string => {
   .ext-info-grid { grid-template-columns: 1fr 1fr; }
   .mobile-menu { grid-template-columns: 1fr; }
 }
+
 </style>
+

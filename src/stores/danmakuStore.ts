@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { getSessionDanmaku, getSessionSummary, type Danmaku, type SessionInfo } from '../api/danmaku';
+import { VUP_LIST, type VupItem } from '../constants/vups';
 
 export const useDanmakuStore = defineStore('danmaku', () => {
   // State
+  const currentVupIndex = ref(0);
   const currentSession = ref<SessionInfo | null>(null);
   const sessionSummary = ref<any>(null);
   const danmakuList = ref<Danmaku[]>([]);
@@ -23,7 +25,27 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const zoomLevel = ref(100);
   const timeDisplayMode = ref<'relative' | 'absolute'>('relative');
 
+  // Getters
+  const currentVup = computed<VupItem>(() => VUP_LIST[currentVupIndex.value]);
+
   // Actions
+  const setCurrentVupIndex = (index: number) => {
+    if (index >= 0 && index < VUP_LIST.length) {
+      currentVupIndex.value = index;
+      localStorage.setItem('selectedStreamerIndex', index.toString());
+    }
+  };
+
+  const initVupSelection = () => {
+    const savedIndex = localStorage.getItem('selectedStreamerIndex');
+    if (savedIndex !== null) {
+      const index = parseInt(savedIndex, 10);
+      if (index >= 0 && index < VUP_LIST.length) {
+        currentVupIndex.value = index;
+      }
+    }
+  };
+
   const setZoomLevel = (val: number) => {
     zoomLevel.value = val;
   };
@@ -151,12 +173,22 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     totalDanmaku,
     currentPage,
     totalPages,
+    
+    // Filters
     searchText,
     showSC,
     showDanmaku,
     isSidebarCollapsed,
     zoomLevel,
     timeDisplayMode,
+    
+    // Vup State
+    currentVupIndex,
+    currentVup,
+    
+    // Actions
+    setCurrentVupIndex,
+    initVupSelection,
     setZoomLevel,
     toggleSidebar,
     loadSession,

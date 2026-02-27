@@ -1,3 +1,5 @@
+import VUP_COLORS from './vup-colors.json';
+
 export const GROUPS = {
   OVO_FAMILY: 'OVO家族',
   TYBK_SISTERS: '桃圆布蔻',
@@ -20,6 +22,8 @@ export interface VupItem {
   imageUrl: string;
   coverUrl?: string;
   avatarUrl: string;
+  // 预提取的主题色，用于移动端背景流光效果
+  themeColors?: string[];
   // 弹幕监控标识：与 VupConstants.cs 中的 Vups 列表对齐
   hasMonitor: boolean;
   // 扩展预留字段（未来接入 B站 API 时填充）
@@ -63,6 +67,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1104048496.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1104048496.webp`,
+        themeColors: VUP_COLORS['1104048496'],
         hasMonitor: true
     },
     {
@@ -76,6 +81,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/4718716.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/4718716.webp`,
+        themeColors: VUP_COLORS['4718716'],
         hasMonitor: true
     },
     {
@@ -89,6 +95,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/3493271057730096.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/3493271057730096.webp`,
+        themeColors: VUP_COLORS['3493271057730096'],
         hasMonitor: true
     },
     {
@@ -102,6 +109,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/17967817.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/17967817.webp`,
+        themeColors: VUP_COLORS['17967817'],
         hasMonitor: false
     },
     {
@@ -115,6 +123,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/15641218.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/15641218.webp`,
+        themeColors: VUP_COLORS['15641218'],
         hasMonitor: false
     },
     {
@@ -128,6 +137,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1376650682.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1376650682.webp`,
+        themeColors: VUP_COLORS['1376650682'],
         hasMonitor: false
     },
     {
@@ -141,6 +151,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/7591465.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/7591465.webp`,
+        themeColors: VUP_COLORS['7591465'],
         hasMonitor: false
     },
     {
@@ -154,6 +165,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/390647282.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/390647282.webp`,
+        themeColors: VUP_COLORS['390647282'],
         hasMonitor: false
     },
     {
@@ -167,6 +179,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/188679.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/188679.webp`,
+        themeColors: VUP_COLORS['188679'],
         hasMonitor: false
     },
     {
@@ -180,6 +193,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/128667389.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/128667389.webp`,
+        themeColors: VUP_COLORS['128667389'],
         hasMonitor: false
     },
     {
@@ -193,6 +207,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/703018634.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/703018634.webp`,
+        themeColors: VUP_COLORS['703018634'],
         hasMonitor: false
     },
     {
@@ -206,6 +221,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/90873.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/90873.webp`,
+        themeColors: VUP_COLORS['90873'],
         hasMonitor: false
     },
     {
@@ -219,6 +235,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/1112031857.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/1112031857.webp`,
+        themeColors: VUP_COLORS['1112031857'],
         hasMonitor: false
     },
     {
@@ -232,6 +249,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/121309.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/121309.webp`,
+        themeColors: VUP_COLORS['121309'],
         hasMonitor: false
     },
     {
@@ -245,6 +263,7 @@ export const VUP_LIST: VupItem[] = [
         imageUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`,
         coverUrl: `${IMG_BASE_URL}/vup-cover/796556.png`,
         avatarUrl: `${IMG_BASE_URL}/vup-avatar/796556.webp`,
+        themeColors: VUP_COLORS['796556'],
         hasMonitor: false
     },
 ];

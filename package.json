@@ -4,11 +4,12 @@
   "version": "1.5.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npx tsx scripts/generate-colors.ts && vite",
     "dev:server": "cd server && npm run dev",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "generate-avatars": "cd server && npx tsx src/generate_avatars.ts",
-    "build": "tsc && vite build",
+    "generate-colors": "npx tsx scripts/generate-colors.ts",
+    "build": "npx tsx scripts/generate-colors.ts && tsc && vite build",
     "preview": "vite preview",
     "start": "cd server && npm start"
   },
@@ -16,6 +17,8 @@
     "@vitejs/plugin-vue": "^6.0.3",
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
+    "jimp": "^1.6.0",
+    "node-vibrant": "^4.0.4",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "unplugin-auto-import": "^21.0.0",
