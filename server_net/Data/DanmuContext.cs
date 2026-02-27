@@ -7,9 +7,9 @@ public class DanmuContext : DbContext
 {
     public DanmuContext(DbContextOptions<DanmuContext> options) : base(options) { }
 
-    public DbSet<Session> Sessions { get; set; }
-    public DbSet<SongRequest> SongRequests { get; set; }
-    public DbSet<Room> Rooms { get; set; }
+    public required DbSet<Session> Sessions { get; set; }
+    public required DbSet<SongRequest> SongRequests { get; set; }
+    public required DbSet<Room> Rooms { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

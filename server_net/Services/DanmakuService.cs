@@ -62,8 +62,15 @@ public class DanmakuService
 
         var messages = await ParseMessagesAsync(fullPath, session.StartTime ?? 0);
         
-        var total = messages.Count;
-        var paged = messages.Skip((page - 1) * pageSize).Take(pageSize).Select(m => new 
+        // Filter out non-displayable messages (gifts/guards without text) from the list view
+        // Keep comments and super chats.
+        var displayableMessages = messages.Where(m => 
+            m.Type == "comment" || 
+            m.Type == "super_chat"
+        ).ToList();
+
+        var total = displayableMessages.Count;
+        var paged = displayableMessages.Skip((page - 1) * pageSize).Take(pageSize).Select(m => new 
         {
             time = Math.Max(0, (m.Timestamp - (session.StartTime ?? 0)) / 1000.0),
             timestamp = m.Timestamp,
@@ -355,16 +362,33 @@ public class DanmakuService
         }
 
         // 3. Super Chats <sc ...>
-        var scRegex = new Regex(@"<sc [^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""[^>]*>(.*?)</sc>");
+        // Regex notes:
+        // Old format (Bilibili official?): <sc ts="123.456" price="30" ...> (price is RMB)
+        // New/Recorder format: <sc price="30" ...> (price is RMB)
+        // Some recorder versions might save price*1000? Let's check logic.
+        // User says: ts="8552.882" price="30000" ... -> 30000 RMB which is wrong, should be 30 RMB.
+        // So if ts attribute exists, price is likely in (RMB * 1000) or similar unit? Or maybe just simple 30000 = 30 RMB (Gold bean unit).
+        // Let's check for 'ts' attribute presence.
+        
+        var scRegex = new Regex(@"<sc (?:ts=""([^""]+)"" )?[^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""[^>]*>(.*?)</sc>");
         foreach (Match match in scRegex.Matches(content))
         {
-            double.TryParse(match.Groups[1].Value, out var price);
-            long.TryParse(match.Groups[4].Value, out var timestamp);
-            var text = match.Groups[5].Value;
-            
-            // Heuristic from Node.js: if tag contains ts="..." (B-station native?), price might be different unit?
-            // In my recorder, I write price as int.
-            // Let's assume price is provided correctly.
+            var tsAttr = match.Groups[1].Value;
+            double.TryParse(match.Groups[2].Value, out var price);
+            long.TryParse(match.Groups[5].Value, out var timestamp);
+            var text = match.Groups[6].Value;
+            var senderName = match.Groups[3].Value;
+            var senderUid = match.Groups[4].Value;
+
+            // Fix for price unit:
+            // If 'ts' attribute exists (old format), price is likely in different unit (e.g. 30000 -> 30).
+            // Usually SC price is in RMB. If value is > 1000 and looks like integer multiple of 1000, it might be Gold Bean (1000 = 1 RMB).
+            // Or maybe the user meant the file HAS 'ts' and price is 30000.
+            // Let's assume if ts is present, divide by 1000.
+            if (!string.IsNullOrEmpty(tsAttr) && price >= 100)
+            {
+                price /= 1000.0;
+            }
             
             messages.Add(new DanmakuMessage
             {
@@ -372,7 +396,7 @@ public class DanmakuService
                 Text = text,
                 Price = price,
                 Timestamp = timestamp,
-                Sender = new Sender { Name = match.Groups[2].Value, Uid = match.Groups[3].Value }
+                Sender = new Sender { Name = senderName, Uid = senderUid }
             });
         }
 
