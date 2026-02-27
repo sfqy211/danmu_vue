@@ -3,7 +3,7 @@
     <!-- 动态背景层 -->
     <div
       class="dynamic-bg"
-      :style="{ backgroundImage: `url(${activeStreamer.coverUrl || activeStreamer.imageUrl})` }"
+      :style="{ backgroundImage: `url(${currentVupData.coverUrl || currentVupData.imageUrl})` }"
     ></div>
     <div class="bg-overlay"></div>
 
@@ -15,7 +15,7 @@
       <!-- 主角卡片 -->
       <div
         class="profile-card"
-        :key="activeStreamer.uid"
+        :key="currentVupData.uid"
         ref="profileCardRef"
         :style="cardStyle"
         @mousemove="handleCardMove"
@@ -25,19 +25,19 @@
         <div class="info-section">
           <!-- 名称 + 状态 -->
           <div class="name-row">
-            <div class="avatar-wrapper" @click="openLivestream(activeStreamer.livestreamUrl)">
-              <img :src="activeStreamer.avatarUrl" class="profile-avatar" />
+            <div class="avatar-wrapper" @click="openLivestream(currentVupData.livestreamUrl)">
+              <img :src="currentVupData.avatarUrl" class="profile-avatar" />
               <div class="avatar-hover-mask">
                 <el-icon><VideoPlay /></el-icon>
               </div>
             </div>
             <div class="name-block">
-              <h1 class="profile-name">{{ activeStreamer.name }}</h1>
+              <h1 class="profile-name">{{ currentVupData.name }}</h1>
               <div class="status-tags">
-                <span v-if="activeStreamer.hasMonitor" class="tag tag-monitor">
+                <span v-if="currentVupData.hasMonitor" class="tag tag-monitor">
                   <el-icon><DataLine /></el-icon> 弹幕监控
                 </span>
-                <span v-if="activeStreamer.isLiving" class="tag tag-live">
+                <span v-if="currentVupData.isLiving" class="tag tag-live">
                   <span class="live-dot"></span> 直播中
                 </span>
               </div>
@@ -48,26 +48,31 @@
           <div class="ext-info-grid">
             <div class="ext-info-item">
               <span class="ext-label">粉丝数</span>
-              <span class="ext-value" v-if="activeStreamer.followers != null">
-                {{ formatNumber(activeStreamer.followers) }}
+              <span class="ext-value" v-if="currentVupData.followers != null">
+                {{ formatNumber(currentVupData.followers) }}
+              </span>
+              <span class="ext-value placeholder" v-else>—</span>
+            </div>
+            <div class="ext-info-item">
+              <span class="ext-label">舰长数</span>
+              <span class="ext-value" v-if="currentVupData.guardNum != null">
+                {{ currentVupData.guardNum }}
+              </span>
+              <span class="ext-value placeholder" v-else>—</span>
+            </div>
+
+            <div class="ext-info-item">
+              <span class="ext-label">视频数</span>
+              <span class="ext-value" v-if="currentVupData.videoCount != null">
+                {{ currentVupData.videoCount }}
               </span>
               <span class="ext-value placeholder" v-else>—</span>
             </div>
             <div class="ext-info-item">
               <span class="ext-label">最近直播</span>
-              <span class="ext-value" v-if="activeStreamer.lastLiveTime">
-                {{ formatRelativeTime(activeStreamer.lastLiveTime) }}
+              <span class="ext-value" v-if="currentVupData.lastLiveTime">
+                {{ formatRelativeTime(currentVupData.lastLiveTime) }}
               </span>
-              <span class="ext-value placeholder" v-else>—</span>
-            </div>
-            <div class="ext-info-item ext-info-wide">
-              <span class="ext-label">最新投稿</span>
-              <a
-                v-if="activeStreamer.latestVideo"
-                :href="activeStreamer.latestVideoUrl"
-                target="_blank"
-                class="ext-value ext-link"
-              >{{ activeStreamer.latestVideo }}</a>
               <span class="ext-value placeholder" v-else>—</span>
             </div>
           </div>
@@ -75,8 +80,8 @@
           <!-- 操作按钮组 -->
           <div class="action-grid">
             <!-- 弹幕历史：仅限有监控的用户 -->
-            <template v-if="activeStreamer.hasMonitor">
-              <button class="action-card" @click="navigateTo(activeStreamer.uid, 'danmaku')">
+            <template v-if="currentVupData.hasMonitor">
+              <button class="action-card" @click="navigateTo(currentVupData.uid, 'danmaku')">
                 <el-icon class="action-icon"><ChatDotRound /></el-icon>
                 <div class="action-text">
                   <span class="action-title">弹幕历史</span>
@@ -84,7 +89,7 @@
                 </div>
                 <el-icon class="action-arrow"><ArrowRight /></el-icon>
               </button>
-              <button class="action-card" @click="navigateTo(activeStreamer.uid, 'songs')">
+              <button class="action-card" @click="navigateTo(currentVupData.uid, 'songs')">
                 <el-icon class="action-icon"><Headset /></el-icon>
                 <div class="action-text">
                   <span class="action-title">点歌历史</span>
@@ -95,7 +100,7 @@
             </template>
 
             <!-- 通用外链 -->
-            <a :href="activeStreamer.homepageUrl" target="_blank" class="action-card">
+            <a :href="currentVupData.homepageUrl" target="_blank" class="action-card">
               <el-icon class="action-icon"><User /></el-icon>
               <div class="action-text">
                 <span class="action-title">B站主页</span>
@@ -104,8 +109,8 @@
               <el-icon class="action-arrow"><ArrowRight /></el-icon>
             </a>
             <a
-              v-if="activeStreamer.playlistUrl"
-              :href="activeStreamer.playlistUrl"
+              v-if="currentVupData.playlistUrl"
+              :href="currentVupData.playlistUrl"
               target="_blank"
               class="action-card"
             >
@@ -120,7 +125,7 @@
 
           <!-- 分组标签 -->
           <div class="group-tags">
-            <span v-for="g in activeStreamer.groups" :key="g" class="group-tag">{{ g }}</span>
+            <span v-for="g in currentVupData.groups" :key="g" class="group-tag">{{ g }}</span>
           </div>
         </div>
       </div>
@@ -130,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted, reactive } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import TopNav from '../components/TopNav.vue';
 import { VUP_LIST } from '../constants/vups';
@@ -143,6 +148,9 @@ const router = useRouter();
 const route = useRoute();
 const activeIndex = ref(0);
 
+// 本地存储 VUP 扩展数据
+const vupDataMap = reactive<Record<string, any>>({});
+
 const checkSelectedStreamer = () => {
   const savedIndex = localStorage.getItem('selectedStreamerIndex');
   if (savedIndex !== null) {
@@ -153,8 +161,23 @@ const checkSelectedStreamer = () => {
   }
 };
 
+const mql = window.matchMedia('(max-width: 768px)');
+const isMobile = ref(mql.matches);
+
+const updateMobile = (e: MediaQueryListEvent) => {
+  isMobile.value = e.matches;
+  if (isMobile.value) {
+    resetCardTilt();
+  }
+};
+
 onMounted(() => {
   checkSelectedStreamer();
+  mql.addEventListener('change', updateMobile);
+});
+
+onUnmounted(() => {
+  mql.removeEventListener('change', updateMobile);
 });
 
 // 监听路由变化，当从列表页跳转到主页时检查选中的主播
@@ -165,6 +188,49 @@ watch(() => route.path, (newPath) => {
 });
 
 const activeStreamer = computed(() => VUP_LIST[activeIndex.value]);
+
+// 合并静态配置和动态获取的数据
+const currentVupData = computed(() => {
+  const staticData = activeStreamer.value;
+  const dynamicData = vupDataMap[staticData.uid] || {};
+  return {
+    ...staticData,
+    ...dynamicData
+  };
+});
+
+// 获取 VUP 详细数据 (调用 vtbs.moe API)
+const fetchVupData = async (uid: string) => {
+  if (vupDataMap[uid]) return; // 如果已有缓存数据则不重复请求
+  
+  try {
+    // 使用 api.md 中提到的接口: /v1/detail/:mid
+    // 注意：实际请求可能会遇到跨域问题，这里仅作为接口预留
+    const res = await fetch(`https://api.vtbs.moe/v1/detail/${uid}`);
+    if (res.ok) {
+      const data = await res.json();
+      vupDataMap[uid] = {
+        followers: data.follower,
+        guardNum: data.guardNum,
+        archiveView: data.archiveView,
+        videoCount: data.video,
+        online: data.online, // 在线人气，通常直播时才有
+        lastLiveTime: data.lastLive?.time,
+        // liveStatus: 0 下播, 1 直播
+        isLiving: data.liveStatus === 1
+      };
+    }
+  } catch (error) {
+    console.warn(`Failed to fetch data for uid ${uid}:`, error);
+    // 出错时可以保持默认值或设置特定状态
+  }
+};
+
+// 监听 activeStreamer 变化，获取数据
+watch(() => activeStreamer.value.uid, (newUid) => {
+  fetchVupData(newUid);
+}, { immediate: true });
+
 const profileCardRef = ref<HTMLElement | null>(null);
 const tiltX = ref(0);
 const tiltY = ref(0);
@@ -183,6 +249,7 @@ const cardStyle = computed<Record<string, string>>(() => ({
 }));
 
 const handleCardMove = (e: MouseEvent) => {
+  if (isMobile.value) return;
   pointer.x = e.clientX;
   pointer.y = e.clientY;
   if (rafId) return;
@@ -689,6 +756,8 @@ const formatRelativeTime = (ts: number): string => {
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transform: none !important;
+    will-change: auto !important;
   }
 
   .cover-section {

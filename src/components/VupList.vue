@@ -43,15 +43,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter } from 'vue-router';
 import TopNav from './TopNav.vue';
 import { VUP_LIST, GROUPS, type VupItem } from '../constants/vups';
-import { HomeFilled, List, DataLine } from '@element-plus/icons-vue';
+import { DataLine } from '@element-plus/icons-vue';
 
 const router = useRouter();
-const route = useRoute();
-
 const getArtistsByGroup = (group: string) => {
   return VUP_LIST.filter((artist: VupItem) => artist.groups.includes(group));
 };
@@ -66,29 +63,6 @@ const selectStreamer = (artist: VupItem) => {
     localStorage.setItem('selectedStreamerIndex', index.toString());
     router.push('/');
   }
-};
-
-const handleImageError = (e: Event) => {
-  const target = e.target as HTMLImageElement;
-  const wrapper = document.createElement('div');
-  wrapper.className = 'vup-avatar';
-  wrapper.style.backgroundColor = '#409EFF';
-  wrapper.textContent = target.alt[0];
-  wrapper.style.cssText += ';display:flex;align-items:center;justify-content:center;color:white;font-size:24px;font-weight:bold;';
-};
-
-const formatNumber = (n: number): string => {
-  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-  return n.toString();
-};
-
-const formatRelativeTime = (ts: number): string => {
-  const d = Math.floor((Date.now() - ts) / 86400000);
-  if (d === 0) return '今天';
-  if (d === 1) return '昨天';
-  if (d < 30) return `${d}天前`;
-  if (d < 365) return `${Math.floor(d / 30)}月前`;
-  return `${Math.floor(d / 365)}年前`;
 };
 </script>
 

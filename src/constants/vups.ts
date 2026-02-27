@@ -23,10 +23,12 @@ export interface VupItem {
   // 弹幕监控标识：与 VupConstants.cs 中的 Vups 列表对齐
   hasMonitor: boolean;
   // 扩展预留字段（未来接入 B站 API 时填充）
-  followers?: number;        // 粉丝数
-  latestVideo?: string;      // 最新投稿标题
-  latestVideoUrl?: string;   // 最新投稿链接
-  lastLiveTime?: number;     // 最近直播时间（Unix 时间戳 ms）
+  followers?: number;        // 粉丝数 (follower)
+  guardNum?: number;         // 舰长数 (guardNum)
+  archiveView?: number;      // 总播放量 (archiveView)
+  videoCount?: number;       // 视频数 (video)
+  online?: number;           // 在线人气 (online)
+  lastLiveTime?: number;     // 最近直播时间（Unix 时间戳 ms） (lastLive.time)
   isLiving?: boolean;        // 是否正在直播
 }
 
