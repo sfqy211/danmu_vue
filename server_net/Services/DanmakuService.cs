@@ -12,17 +12,85 @@ public class DanmakuService
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DanmakuService> _logger;
+    private readonly RedisService _redis;
     private readonly string _danmakuDir;
 
-    public DanmakuService(IServiceScopeFactory scopeFactory, ILogger<DanmakuService> logger)
+    public DanmakuService(IServiceScopeFactory scopeFactory, ILogger<DanmakuService> logger, RedisService redis)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _redis = redis;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
                        ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
     }
 
     private DanmuContext GetDb(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<DanmuContext>();
+
+    public async Task<Session?> GetActiveSessionAsync(long roomId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+        // Assuming EndTime == 0 means active/ongoing. Or EndTime == null.
+        // Model defines EndTime as long?. 
+        // Let's check for null or 0.
+        return await db.Sessions
+            .Where(s => s.RoomId == roomId.ToString() && (s.EndTime == null || s.EndTime == 0))
+            .OrderByDescending(s => s.StartTime)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task CreateLiveSessionAsync(long roomId, string title, string userName, long startTime, string sessionKey)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+        
+        // Double check if exists (though caller should check)
+        var session = await db.Sessions.FirstOrDefaultAsync(s => s.RoomId == roomId.ToString() && (s.EndTime == null || s.EndTime == 0));
+        if (session == null)
+        {
+            session = new Session
+            {
+                RoomId = roomId.ToString(),
+                Title = title,
+                UserName = userName,
+                StartTime = startTime,
+                EndTime = 0, // 0 for active
+                FilePath = "redis:" + sessionKey,
+                SummaryJson = "{}",
+                GiftSummaryJson = "{}",
+                CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            };
+            db.Sessions.Add(session);
+            await db.SaveChangesAsync();
+            _logger.LogInformation($"Created live session {session.Id} for room {roomId}");
+        }
+    }
+    
+    public async Task CloseSessionAsync(long roomId, long endTime, string finalFilePath)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+        
+        var session = await db.Sessions
+            .Where(s => s.RoomId == roomId.ToString() && (s.EndTime == null || s.EndTime == 0))
+            .OrderByDescending(s => s.StartTime)
+            .FirstOrDefaultAsync();
+            
+        if (session != null)
+        {
+            session.EndTime = endTime;
+            // Update FilePath from redis:... to relative path of XML
+            var relativePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
+            session.FilePath = relativePath;
+            
+            await db.SaveChangesAsync();
+            
+            // Trigger analysis update from the file
+            await ProcessFileAsync(finalFilePath);
+            
+            _logger.LogInformation($"Closed session {session.Id} for room {roomId}");
+        }
+    }
 
     public async Task<object> GetDanmakuPagedAsync(int sessionId, int page, int pageSize)
     {
@@ -32,38 +100,43 @@ public class DanmakuService
         
         if (session == null || string.IsNullOrEmpty(session.FilePath)) 
         {
-             // Try to find by ID if file path is missing (legacy support or broken DB)
              return new { total = 0, list = new List<object>() };
         }
 
-        string fullPath = Path.Combine(_danmakuDir, session.FilePath);
-        // Fallback logic for path
-        if (!File.Exists(fullPath))
+        List<DanmakuMessage> messages = new();
+
+        if (session.FilePath.StartsWith("redis:"))
         {
-             var basename = Path.GetFileName(session.FilePath);
-             // Try room subdir
-             if (!string.IsNullOrEmpty(session.RoomId))
-             {
-                 var roomPath = Path.Combine(_danmakuDir, session.RoomId, basename);
-                 if (File.Exists(roomPath)) fullPath = roomPath;
-                 else 
+            var key = session.FilePath.Substring(6);
+            var lines = await _redis.GetMessagesAsync(key + ":list");
+            var content = string.Join("\n", lines);
+            messages = ParseMessagesContent(content, session.StartTime ?? 0);
+        }
+        else
+        {
+            string fullPath = Path.Combine(_danmakuDir, session.FilePath);
+            if (!File.Exists(fullPath))
+            {
+                 var basename = Path.GetFileName(session.FilePath);
+                 if (!string.IsNullOrEmpty(session.RoomId))
                  {
-                     // Try root
-                     var rootPath = Path.Combine(_danmakuDir, basename);
-                     if (File.Exists(rootPath)) fullPath = rootPath;
+                     var roomPath = Path.Combine(_danmakuDir, session.RoomId, basename);
+                     if (File.Exists(roomPath)) fullPath = roomPath;
+                     else 
+                     {
+                         var rootPath = Path.Combine(_danmakuDir, basename);
+                         if (File.Exists(rootPath)) fullPath = rootPath;
+                     }
                  }
-             }
-        }
+            }
 
-        if (!File.Exists(fullPath)) 
-        {
-            return new { total = 0, list = new List<object>() };
+            if (File.Exists(fullPath)) 
+            {
+                string content = await File.ReadAllTextAsync(fullPath);
+                messages = ParseMessagesContent(content, session.StartTime ?? 0);
+            }
         }
-
-        var messages = await ParseMessagesAsync(fullPath, session.StartTime ?? 0);
         
-        // Filter out non-displayable messages (gifts/guards without text) from the list view
-        // Keep comments and super chats.
         var displayableMessages = messages.Where(m => 
             m.Type == "comment" || 
             m.Type == "super_chat"
@@ -95,7 +168,6 @@ public class DanmakuService
         {
             string content = await File.ReadAllTextAsync(filePath);
             
-            // Extract Metadata
             var titleMatch = Regex.Match(content, @"<room_title>(.*?)</room_title>");
             var userMatch = Regex.Match(content, @"<user_name>(.*?)</user_name>");
             var roomMatch = Regex.Match(content, @"<room_id>(.*?)</room_id>");
@@ -115,14 +187,9 @@ public class DanmakuService
                 RecordStartTimestamp = recordStartTimestamp
             };
 
-            var messages = await ParseMessagesAsync(filePath, meta.RecordStartTimestamp);
+            var messages = ParseMessagesContent(content, meta.RecordStartTimestamp);
             
-            // Extract Song Requests (custom logic if any)
             var songRequests = new List<SongRequest>(); 
-            // Logic for song requests: usually comments starting with "点歌" or similar.
-            // Node.js implementation:
-            // const kword = ['点歌', '点歌 ➖', '点歌 ', '点歌：', '点歌:'];
-            // if (msg.msg.startsWith(k)) ...
             foreach (var msg in messages)
             {
                 if (msg.Type == "comment" && !string.IsNullOrEmpty(msg.Text))
@@ -144,7 +211,6 @@ public class DanmakuService
                 }
             }
 
-            // Analysis
             var analysis = new AnalysisResult { TotalCount = messages.Count };
             var giftAnalysis = new GiftAnalysisResult();
 
@@ -220,7 +286,6 @@ public class DanmakuService
                 }
             }
 
-            // Finalize Analysis
             analysis.Timeline = timelineMap.OrderBy(k => k.Key).Select(k => new List<object> { k.Key, k.Value }).ToList();
             analysis.TopKeywords = keywordMap.OrderByDescending(k => k.Value).Take(20).Select(k => new KeywordStat { Word = k.Key, Count = k.Value }).ToList();
 
@@ -236,7 +301,6 @@ public class DanmakuService
                 u.GuardPrice = Math.Round(u.GuardPrice, 1);
             }
 
-            // Save to DB
             using var scope = _scopeFactory.CreateScope();
             var db = GetDb(scope);
 
@@ -249,19 +313,16 @@ public class DanmakuService
 
             if (existingSession != null)
             {
-                // Update existing
                 existingSession.EndTime = messages.Count > 0 ? messages.Last().Timestamp : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 existingSession.SummaryJson = JsonSerializer.Serialize(analysis);
                 existingSession.GiftSummaryJson = JsonSerializer.Serialize(giftAnalysis);
                 existingSession.FilePath = relativePath;
                 
-                // Remove old song requests
                 var oldRequests = db.SongRequests.Where(r => r.SessionId == existingSession.Id);
                 db.SongRequests.RemoveRange(oldRequests);
                 
                 await db.SaveChangesAsync();
                 
-                // Add new song requests
                 foreach (var sr in songRequests)
                 {
                     sr.SessionId = existingSession.Id;
@@ -272,7 +333,7 @@ public class DanmakuService
             }
             else
             {
-                // Create new
+                // This branch shouldn't really be hit if we created session on start, but good for recovery
                 var session = new Session
                 {
                     RoomId = meta.RoomId,
@@ -289,7 +350,6 @@ public class DanmakuService
                 db.Sessions.Add(session);
                 await db.SaveChangesAsync();
 
-                // Song Requests
                 foreach (var sr in songRequests)
                 {
                     sr.SessionId = session.Id;
@@ -312,14 +372,11 @@ public class DanmakuService
         }
     }
 
-    private async Task<List<DanmakuMessage>> ParseMessagesAsync(string filePath, long startTimestamp)
+    private List<DanmakuMessage> ParseMessagesContent(string content, long startTimestamp)
     {
         var messages = new List<DanmakuMessage>();
-        if (!File.Exists(filePath)) return messages;
+        if (string.IsNullOrEmpty(content)) return messages;
 
-        string content = await File.ReadAllTextAsync(filePath);
-
-        // 1. Comments <d ...>
         var danmakuRegex = new Regex(@"<d p=""([^""]+)"" user=""([^""]+)"" uid=""([^""]+)"" timestamp=""([^""]+)""[^>]*>(.*?)</d>");
         foreach (Match match in danmakuRegex.Matches(content))
         {
@@ -337,7 +394,6 @@ public class DanmakuService
             });
         }
 
-        // 2. Gifts <gift ...>
         var giftRegex = new Regex(@"<gift ts=""[^""]+"" giftname=""([^""]+)"" giftcount=""([^""]+)"" price=""([^""]+)"" user=""([^""]+)"" uid=""([^""]+)"" timestamp=""([^""]+)""");
         foreach (Match match in giftRegex.Matches(content))
         {
@@ -350,25 +406,11 @@ public class DanmakuService
                 Type = "give_gift",
                 Name = match.Groups[1].Value,
                 Count = count > 0 ? count : 1,
-                Price = priceRaw / 1000.0, // Usually price is int in API but maybe different here? Node logic implies division? No, Node logic uses price directly usually. Wait.
-                // In Node.js code I saw `price / 1000` for SuperChat, but for Gift?
-                // Let's assume price is in cents/gold bean (1000 = 1 RMB).
-                // My BilibiliRecorder outputs price as int.
-                // Let's divide by 1000 to be safe/consistent with common Bilibili units if it's Gold Bean.
-                // Actually, let's look at SC parsing below.
+                Price = priceRaw / 1000.0,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[4].Value, Uid = match.Groups[5].Value }
             });
         }
-
-        // 3. Super Chats <sc ...>
-        // Regex notes:
-        // Old format (Bilibili official?): <sc ts="123.456" price="30" ...> (price is RMB)
-        // New/Recorder format: <sc price="30" ...> (price is RMB)
-        // Some recorder versions might save price*1000? Let's check logic.
-        // User says: ts="8552.882" price="30000" ... -> 30000 RMB which is wrong, should be 30 RMB.
-        // So if ts attribute exists, price is likely in (RMB * 1000) or similar unit? Or maybe just simple 30000 = 30 RMB (Gold bean unit).
-        // Let's check for 'ts' attribute presence.
         
         var scRegex = new Regex(@"<sc (?:ts=""([^""]+)"" )?[^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""[^>]*>(.*?)</sc>");
         foreach (Match match in scRegex.Matches(content))
@@ -380,11 +422,6 @@ public class DanmakuService
             var senderName = match.Groups[3].Value;
             var senderUid = match.Groups[4].Value;
 
-            // Fix for price unit:
-            // If 'ts' attribute exists (old format), price is likely in different unit (e.g. 30000 -> 30).
-            // Usually SC price is in RMB. If value is > 1000 and looks like integer multiple of 1000, it might be Gold Bean (1000 = 1 RMB).
-            // Or maybe the user meant the file HAS 'ts' and price is 30000.
-            // Let's assume if ts is present, divide by 1000.
             if (!string.IsNullOrEmpty(tsAttr) && price >= 100)
             {
                 price /= 1000.0;
@@ -400,7 +437,6 @@ public class DanmakuService
             });
         }
 
-        // 4. Guards <guard ...>
         var guardRegex = new Regex(@"<guard [^>]*guard_level=""([^""]+)""[^>]*guard_name=""([^""]+)""[^>]*num=""([^""]+)""[^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""");
         foreach (Match match in guardRegex.Matches(content))
         {
@@ -415,7 +451,7 @@ public class DanmakuService
                 Name = match.Groups[2].Value,
                 GuardLevel = level > 0 ? level : 3,
                 Count = count > 0 ? count : 1,
-                Price = price, // Guard price usually in gold bean (1000 = 1 RMB)
+                Price = price,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[5].Value, Uid = match.Groups[6].Value }
             });

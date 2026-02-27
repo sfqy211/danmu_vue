@@ -18,12 +18,14 @@ public class ProcessManager
     private readonly ILogger<ProcessManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly RedisService _redis;
 
-    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory)
+    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _scopeFactory = scopeFactory;
+        _redis = redis;
     }
 
     public List<ProcessInfo> GetProcesses()
@@ -68,7 +70,35 @@ public class ProcessManager
             }
 
             var logger = _loggerFactory.CreateLogger<BilibiliRecorder>();
-            recorder = new BilibiliRecorder(roomId, name, logger);
+            recorder = new BilibiliRecorder(roomId, name, logger, _redis);
+            
+            // Delegate: Check for active session in DB
+            recorder.CheckActiveSession = async (rid) =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                var session = await svc.GetActiveSessionAsync(rid);
+                if (session != null && !string.IsNullOrEmpty(session.FilePath) && session.FilePath.StartsWith("redis:"))
+                {
+                    return session.FilePath.Substring(6); // Remove "redis:" prefix
+                }
+                return null;
+            };
+
+            recorder.OnSessionStarted += async (rid, title, uname, start, key) =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                await svc.CreateLiveSessionAsync(rid, title, uname, start, key);
+            };
+            
+            recorder.OnSessionEnded += async (rid, endTime, finalPath) =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                await svc.CloseSessionAsync(rid, endTime, finalPath);
+            };
+
             _recorders[processName] = recorder;
         }
 

@@ -12,32 +12,39 @@ public class BilibiliRecorder : IDisposable
     private readonly long _roomId;
     private readonly string _name;
     private readonly ILogger _logger;
+    private readonly RedisService _redis;
     private BilibiliService? _bilibiliService;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
     private Task? _heartbeatTask;
     private readonly string _danmakuDir;
-    private FileStream? _fileStream;
-    private readonly object _fileLock = new();
     private bool _isDisposed;
     private string? _token;
     private string? _host;
-    private string? _currentFilePath;
+    private string? _currentSessionKey;
     private string _title = "未知直播";
     private string _userName = "未知主播";
     private long _realRoomId;
+    
+    // Delegate to check for active session key
+    public Func<long, Task<string?>>? CheckActiveSession;
+    // Delegate to notify session started
+    public event Func<long, string, string, long, string, Task>? OnSessionStarted;
+    // Delegate to notify session ended
+    public event Func<long, long, string, Task>? OnSessionEnded;
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
     public string Uptime => Status != "stopped" ? $"{(int)(DateTime.Now - StartTime).TotalMinutes}m" : "0s";
     public int Pid => _receiveTask?.Id ?? 0;
 
-    public BilibiliRecorder(long roomId, string? name, ILogger logger)
+    public BilibiliRecorder(long roomId, string? name, ILogger logger, RedisService redis)
     {
         _roomId = roomId;
         _name = name ?? roomId.ToString();
         _logger = logger;
+        _redis = redis;
         
         var root = Directory.GetCurrentDirectory();
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
@@ -105,7 +112,8 @@ public class BilibiliRecorder : IDisposable
                     }
                 } catch { }
                 
-                CloseCurrentFile();
+                // In reconnect loop, we don't end session unless explicit stop or error handling logic decides so.
+                // But here we just want to keep session open.
             }
 
             if (!token.IsCancellationRequested)
@@ -159,7 +167,8 @@ public class BilibiliRecorder : IDisposable
             _ws = null;
         }
 
-        CloseCurrentFile();
+        // Only on explicit Stop do we finalize the session
+        await EndRedisSessionAsync(isFinal: true);
     }
 
     private async Task ConnectAsync()
@@ -168,15 +177,11 @@ public class BilibiliRecorder : IDisposable
         
         // Add headers if needed
         _ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        // Remove other headers to mimic recorder.ts (ws) behavior which doesn't set Cookie/Origin/Referer by default
         
         long uid = 0;
         var cookie = GetCookie();
         if (!string.IsNullOrEmpty(cookie))
         {
-            // _ws.Options.SetRequestHeader("Cookie", cookie); // Remove Cookie from WebSocket headers
-            
-            // Extract DedeUserID
             var match = Regex.Match(cookie, @"DedeUserID=([^;]+)");
             if (match.Success && long.TryParse(match.Groups[1].Value, out var parsedUid))
             {
@@ -184,8 +189,6 @@ public class BilibiliRecorder : IDisposable
             }
         }
         
-        // _ws.Options.SetRequestHeader("Cookie", cookie); // Ensure removed
-
         var uri = new Uri(_host ?? "wss://broadcastlv.chat.bilibili.com/sub");
         await _ws.ConnectAsync(uri, _cts!.Token);
         
@@ -288,7 +291,6 @@ public class BilibiliRecorder : IDisposable
         {
             if (_ws == null || _ws.State != WebSocketState.Open)
             {
-                // Wait for connection
                 throw new Exception("WebSocket closed or null");
             }
 
@@ -334,12 +336,7 @@ public class BilibiliRecorder : IDisposable
                 {
                     try
                     {
-                        // Skip first 2 bytes (0x78 0x9C usually) for DeflateStream if it's zlib wrapper
-                        // However, Bilibili uses raw deflate or zlib.
-                        // Try raw deflate first, if fails try zlib (skip 2 bytes)
-                        
                         using var ms = new MemoryStream(body);
-                        // ZLibStream handles Zlib header (RFC 1950)
                         using var zs = new ZLibStream(ms, CompressionMode.Decompress);
                         using var outMs = new MemoryStream();
                         zs.CopyTo(outMs);
@@ -366,15 +363,13 @@ public class BilibiliRecorder : IDisposable
             else if (op == 8) // CONNECT_SUCCESS
             {
                 _logger.LogInformation($"Room {_roomId} auth success");
-                EnsureFileOpen();
+                _ = StartRedisSessionAsync();
             }
             else if (op == 3) // HEARTBEAT_REPLY
             {
-                // Update popularity (4 bytes int)
                 if (body.Length >= 4)
                 {
                     var popularity = BinaryPrimitives.ReadUInt32BigEndian(body);
-                    // _logger.LogInformation($"Popularity: {popularity}");
                 }
             }
 
@@ -400,11 +395,8 @@ public class BilibiliRecorder : IDisposable
                     var info = root.GetProperty("info");
                     var content = info[1].GetString();
                     var user = info[2][1].GetString();
-                    var uid = info[2][0].ToString(); // UID can be long
-                    var timestamp = info[0][4].GetInt64(); // timestamp
-                    
-                    // Format: time,mode,size,color,timestamp,pool,uid,rowId
-                    // We only care about timestamp and uid really for our parser
+                    var uid = info[2][0].ToString();
+                    var timestamp = info[0][4].GetInt64();
                     xml = $"<d p=\"{timestamp},1,25,16777215,{timestamp},0,{uid},0\" user=\"{user}\" uid=\"{uid}\" timestamp=\"{timestamp}\">{content}</d>\n";
                 }
                 else if (cmd == "SEND_GIFT")
@@ -414,10 +406,9 @@ public class BilibiliRecorder : IDisposable
                     var num = data.GetProperty("num").GetInt32();
                     var uname = data.GetProperty("uname").GetString();
                     var action = data.GetProperty("action").GetString();
-                    var price = data.TryGetProperty("price", out var p) ? p.GetInt32() : 0; // price is usually int
+                    var price = data.TryGetProperty("price", out var p) ? p.GetInt32() : 0;
                     var uid = data.GetProperty("uid").ToString();
-                    var timestamp = data.GetProperty("timestamp").GetInt64() * 1000; // Gift timestamp is usually seconds
-                    
+                    var timestamp = data.GetProperty("timestamp").GetInt64() * 1000;
                     xml = $"<gift ts=\"{timestamp}\" giftname=\"{giftName}\" giftcount=\"{num}\" price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\" />\n";
                 }
                 else if (cmd == "SUPER_CHAT_MESSAGE")
@@ -429,7 +420,6 @@ public class BilibiliRecorder : IDisposable
                     var price = data.GetProperty("price").GetInt32();
                     var message = data.GetProperty("message").GetString();
                     var timestamp = data.GetProperty("ts").GetInt64() * 1000;
-                    
                     xml = $"<sc price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\">{message}</sc>\n";
                 }
                 else if (cmd == "GUARD_BUY")
@@ -442,96 +432,137 @@ public class BilibiliRecorder : IDisposable
                     var price = data.GetProperty("price").GetInt32();
                     var guardLevel = data.GetProperty("guard_level").GetInt32();
                     var timestamp = data.GetProperty("start_time").GetInt64() * 1000;
-
                     xml = $"<guard guard_level=\"{guardLevel}\" guard_name=\"{giftName}\" num=\"{num}\" price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\" />\n";
                 }
 
                 if (!string.IsNullOrEmpty(xml))
                 {
-                    WriteToFile(xml);
+                    _ = WriteToRedisAsync(xml);
                 }
             }
         }
         catch (Exception)
         {
-            // _logger.LogError(ex, "Error parsing message");
         }
     }
 
-    private void EnsureFileOpen()
+    private async Task StartRedisSessionAsync()
     {
-        lock (_fileLock)
+        try
         {
-            if (_fileStream != null) return;
-            
-            // Create directory: danmakuDir/roomId/
-            var roomDir = Path.Combine(_danmakuDir, _roomId.ToString());
-            if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
-            
-            // File name: yyyy-MM-dd HH-mm-ss Title.xml
+            // Check for existing session via delegate
+            if (CheckActiveSession != null)
+            {
+                var existingKey = await CheckActiveSession.Invoke(_roomId);
+                if (!string.IsNullOrEmpty(existingKey))
+                {
+                    _currentSessionKey = existingKey;
+                    _logger.LogInformation($"Resuming existing Redis session: {_currentSessionKey}");
+                    return;
+                }
+            }
+
             var now = DateTime.Now;
             var dateStr = now.ToString("yyyy-MM-dd HH-mm-ss");
             var safeTitle = string.Join("_", _title.Split(Path.GetInvalidFileNameChars()));
             var filename = $"{dateStr} {safeTitle}.xml";
             
-            _currentFilePath = Path.Combine(roomDir, filename);
-            
-            _fileStream = new FileStream(_currentFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-            
-            // Header with metadata
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var header = $"<xml>\n<room_id>{_roomId}</room_id>\n<room_title>{_title}</room_title>\n<user_name>{_userName}</user_name>\n<video_start_time>{timestamp}</video_start_time>\n";
-            var bytes = Encoding.UTF8.GetBytes(header);
-            _fileStream.Write(bytes, 0, bytes.Length);
-            _fileStream.Flush();
+            _currentSessionKey = $"danmaku:session:{_roomId}:{timestamp}";
             
-            _logger.LogInformation($"Started recording to {_currentFilePath}");
+            var meta = new Dictionary<string, string>
+            {
+                { "room_id", _roomId.ToString() },
+                { "room_title", _title },
+                { "user_name", _userName },
+                { "video_start_time", timestamp.ToString() },
+                { "filename", filename }
+            };
+            
+            await _redis.SetMetadataAsync(_currentSessionKey + ":meta", meta);
+            await _redis.SetLiveSessionKeyAsync(_roomId, _currentSessionKey);
+            
+            if (OnSessionStarted != null)
+            {
+                await OnSessionStarted.Invoke(_roomId, _title, _userName, timestamp, _currentSessionKey);
+            }
+            
+            _logger.LogInformation($"Started recording to Redis: {_currentSessionKey}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start Redis session");
         }
     }
 
-    private void WriteToFile(string content)
+    private async Task WriteToRedisAsync(string content)
     {
-        lock (_fileLock)
+        if (_currentSessionKey == null) return;
+        try 
         {
-            if (_fileStream == null)
-            {
-                // If file is closed but we receive data (rare race condition or logic error), try to reopen
-                // EnsureFileOpen(); // Be careful not to create new files for every packet if it fails
-                // For now, just drop or log?
-                // Actually, if we are in ReceiveLoop, file should be open.
-                // If ConnectSuccess was called, it opened file.
-                return;
-            }
-
-            if (_fileStream != null)
-            {
-                var bytes = Encoding.UTF8.GetBytes(content);
-                _fileStream.Write(bytes, 0, bytes.Length);
-                _fileStream.Flush();
-            }
+             await _redis.PushMessageAsync(_currentSessionKey + ":list", content);
+        }
+        catch (Exception ex)
+        {
+             _logger.LogError(ex, "Failed to write to Redis");
         }
     }
     
-    private void CloseCurrentFile()
+    private async Task EndRedisSessionAsync(bool isFinal)
     {
-        lock (_fileLock)
+        if (_currentSessionKey == null) return;
+        if (!isFinal) return; // We only dump on final stop now
+        
+        try
         {
-            if (_fileStream != null)
+            _logger.LogInformation($"Finalizing session {_currentSessionKey}...");
+            
+            var messages = await _redis.GetMessagesAsync(_currentSessionKey + ":list");
+            var meta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
+            
+            if (messages.Count == 0 && meta.Count == 0) return;
+            
+            var sb = new StringBuilder();
+            sb.Append("<xml>\n");
+            if (meta.TryGetValue("room_id", out var rid)) sb.Append($"<room_id>{rid}</room_id>\n");
+            if (meta.TryGetValue("room_title", out var title)) sb.Append($"<room_title>{title}</room_title>\n");
+            if (meta.TryGetValue("user_name", out var uname)) sb.Append($"<user_name>{uname}</user_name>\n");
+            if (meta.TryGetValue("video_start_time", out var time)) sb.Append($"<video_start_time>{time}</video_start_time>\n");
+            
+            foreach (var msg in messages)
             {
-                try
-                {
-                    var footer = "\n</xml>";
-                    var bytes = Encoding.UTF8.GetBytes(footer);
-                    _fileStream.Write(bytes, 0, bytes.Length);
-                    _fileStream.Flush();
-                }
-                catch { }
-                finally
-                {
-                    _fileStream.Dispose();
-                    _fileStream = null;
-                }
+                sb.Append(msg);
             }
+            sb.Append("\n</xml>");
+            
+            var filename = meta.ContainsKey("filename") ? meta["filename"] : $"{DateTime.Now:yyyy-MM-dd HH-mm-ss} {_roomId}.xml";
+            var roomDir = Path.Combine(_danmakuDir, _roomId.ToString());
+            if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
+            var filePath = Path.Combine(roomDir, filename);
+            var tempPath = filePath + ".tmp";
+            
+            await File.WriteAllTextAsync(tempPath, sb.ToString());
+            
+            if (File.Exists(filePath)) File.Delete(filePath);
+            File.Move(tempPath, filePath);
+            
+            _logger.LogInformation($"Dumped Redis to {filePath}");
+            
+            var endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            
+            if (OnSessionEnded != null)
+            {
+                await OnSessionEnded.Invoke(_roomId, endTime, filePath);
+            }
+
+            await _redis.DeleteKeyAsync(_currentSessionKey + ":list");
+            await _redis.DeleteKeyAsync(_currentSessionKey + ":meta");
+            await _redis.ClearLiveSessionKeyAsync(_roomId);
+            _currentSessionKey = null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to dump Redis to XML");
         }
     }
 

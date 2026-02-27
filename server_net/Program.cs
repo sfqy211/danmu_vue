@@ -60,6 +60,9 @@ builder.Services.AddDbContext<DanmuContext>(options =>
 // Services
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<DanmakuService>();
+// Start embedded Redis (Garnet) before connecting
+builder.Services.AddHostedService<EmbeddedRedisService>();
+builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHostedService<DanmakuProcessor>();
 builder.Services.AddHttpClient<BilibiliService>(client =>
 {

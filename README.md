@@ -23,22 +23,21 @@
 npm install
 ```
 
-### 启动后端
+### 启动步骤
 
-```bash
-cd server_net
-dotnet run --urls "http://0.0.0.0:3001"
-```
+1. **启动后端**
+   后端内置了 Redis 服务 (Microsoft Garnet)，无需单独安装 Redis。
+   ```bash
+   cd server_net
+   dotnet run --urls "http://0.0.0.0:3001"
+   ```
+   后端默认地址：`http://localhost:3001`
 
-后端默认地址：`http://localhost:3001`
-
-### 启动前端
-
-```bash
-npm run dev
-```
-
-前端默认地址：`http://localhost:5200`
+2. **启动前端**
+   ```bash
+   npm run dev
+   ```
+   前端默认地址：`http://localhost:5200`
 
 ## 数据与目录说明
 
@@ -59,6 +58,7 @@ npm run dev
 | `BILI_COOKIE` | Bilibili 账号 Cookie（可选） | 空 |
 | `DANMAKU_DIR` | 弹幕 XML 目录 | `server/data/danmaku` |
 | `DB_PATH` | SQLite 数据库路径 | `server/data/danmaku_data.db` |
+| `REDIS_CONNECTION` | Redis 连接字符串 | `localhost:6379,abortConnect=false` |
 
 ## 构建前端
 
