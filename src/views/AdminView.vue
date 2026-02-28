@@ -101,6 +101,124 @@ const songForm = ref({
   createdAt: ''
 });
 
+// --- Selection State & Batch Actions ---
+
+const selectedRooms = ref<Room[]>([]);
+const selectedSessions = ref<AdminSession[]>([]);
+const selectedSongRequests = ref<AdminSongRequest[]>([]);
+
+const handleRoomSelectionChange = (val: Room[]) => {
+  selectedRooms.value = val;
+};
+
+const handleSessionSelectionChange = (val: AdminSession[]) => {
+  selectedSessions.value = val;
+};
+
+const handleSongSelectionChange = (val: AdminSongRequest[]) => {
+  selectedSongRequests.value = val;
+};
+
+const batchDeleteRooms = async () => {
+  if (selectedRooms.value.length === 0) return;
+  try {
+    await ElMessageBox.confirm(`确定要删除选中的 ${selectedRooms.value.length} 个主播配置吗？这将停止录制并移除配置。`, '批量删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+    
+    let successCount = 0;
+    for (const room of selectedRooms.value) {
+      try {
+        await adminApi.delete(`/admin/rooms/${room.id}`, getAuthConfig());
+        successCount++;
+      } catch (e) {
+        console.error(`Failed to delete room ${room.id}`, e);
+      }
+    }
+    
+    if (successCount > 0) {
+      ElMessage.success(`成功删除 ${successCount} 个主播配置`);
+      await fetchRooms();
+      // Selection is cleared automatically as rows are removed, but safe to clear manually if needed
+      selectedRooms.value = []; 
+    } else {
+      ElMessage.warning('没有成功删除任何配置');
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('批量删除操作异常: ' + (e.message || '未知错误'));
+    }
+  }
+};
+
+const batchDeleteSessions = async () => {
+  if (selectedSessions.value.length === 0) return;
+  try {
+    await ElMessageBox.confirm(`确定要删除选中的 ${selectedSessions.value.length} 个直播场次吗？相关点歌记录也会删除。`, '批量删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+    
+    let successCount = 0;
+    for (const session of selectedSessions.value) {
+      try {
+        await adminApi.delete(`/admin/sessions/${session.id}`, getAuthConfig());
+        successCount++;
+      } catch (e) {
+         console.error(`Failed to delete session ${session.id}`, e);
+      }
+    }
+    
+    if (successCount > 0) {
+      ElMessage.success(`成功删除 ${successCount} 个直播场次`);
+      await fetchSessions();
+      selectedSessions.value = [];
+    } else {
+       ElMessage.warning('没有成功删除任何场次');
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('批量删除操作异常: ' + (e.message || '未知错误'));
+    }
+  }
+};
+
+const batchDeleteSongRequests = async () => {
+  if (selectedSongRequests.value.length === 0) return;
+  try {
+    await ElMessageBox.confirm(`确定要删除选中的 ${selectedSongRequests.value.length} 条点歌记录吗？`, '批量删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+    
+    let successCount = 0;
+    for (const req of selectedSongRequests.value) {
+      try {
+        await adminApi.delete(`/admin/song-requests/${req.id}`, getAuthConfig());
+        successCount++;
+      } catch (e) {
+        console.error(`Failed to delete song request ${req.id}`, e);
+      }
+    }
+    
+    if (successCount > 0) {
+      ElMessage.success(`成功删除 ${successCount} 条点歌记录`);
+      await fetchSongRequests();
+      selectedSongRequests.value = [];
+    } else {
+       ElMessage.warning('没有成功删除任何记录');
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('批量删除操作异常: ' + (e.message || '未知错误'));
+    }
+  }
+};
+
 // --- Computed Properties ---
 
 const breadcrumbs = computed(() => {
@@ -698,6 +816,14 @@ watch(activeSection, async (val) => {
                   >
                     添加并启动
                   </el-button>
+                  <el-button 
+                    type="danger" 
+                    :icon="Delete" 
+                    @click="batchDeleteRooms" 
+                    :disabled="selectedRooms.length === 0"
+                  >
+                    批量删除
+                  </el-button>
                 </div>
               </div>
 
@@ -708,6 +834,7 @@ watch(activeSection, async (val) => {
                   v-loading="loading"
                   border
                   stripe
+                  @selection-change="handleRoomSelectionChange"
                 >
                   <el-table-column type="selection" width="55" align="center" />
                   <el-table-column prop="name" label="主播" align="center" />
@@ -791,6 +918,14 @@ watch(activeSection, async (val) => {
                   >
                     新增
                   </el-button>
+                  <el-button 
+                    type="danger" 
+                    :icon="Delete" 
+                    @click="batchDeleteSessions"
+                    :disabled="selectedSessions.length === 0"
+                  >
+                    批量删除
+                  </el-button>
                 </div>
               </div>
 
@@ -801,6 +936,7 @@ watch(activeSection, async (val) => {
                   v-loading="sessionLoading"
                   border
                   stripe
+                  @selection-change="handleSessionSelectionChange"
                 >
                   <el-table-column type="selection" width="55" align="center" />
                   <el-table-column prop="id" label="ID" width="80" align="center" />
@@ -891,6 +1027,14 @@ watch(activeSection, async (val) => {
                   >
                     新增
                   </el-button>
+                  <el-button 
+                    type="danger" 
+                    :icon="Delete" 
+                    @click="batchDeleteSongRequests"
+                    :disabled="selectedSongRequests.length === 0"
+                  >
+                    批量删除
+                  </el-button>
                 </div>
               </div>
 
@@ -901,6 +1045,7 @@ watch(activeSection, async (val) => {
                   v-loading="songLoading"
                   border
                   stripe
+                  @selection-change="handleSongSelectionChange"
                 >
                   <el-table-column type="selection" width="55" align="center" />
                   <el-table-column prop="id" label="ID" width="80" align="center" />

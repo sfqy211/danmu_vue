@@ -25,6 +25,15 @@ public class Room
     [Column("auto_record")]
     public int AutoRecord { get; set; } = 1;
 
+    [Column("is_homepage_display")]
+    public int IsHomepageDisplay { get; set; } = 0;
+
+    [Column("group_name")]
+    public string? GroupName { get; set; }
+
+    [Column("playlist_url")]
+    public string? PlaylistUrl { get; set; }
+
     [Column("created_at")]
     public string? CreatedAt { get; set; }
 }
