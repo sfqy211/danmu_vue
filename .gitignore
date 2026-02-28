@@ -31,6 +31,5 @@ example/
 *.cache
 bin
 obj
-data
 归档
 public/*
