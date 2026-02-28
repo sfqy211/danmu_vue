@@ -17,17 +17,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Copy files to server (SCP)
+        uses: appleboy/scp-action@master
         with:
-          python-version: '3.10'
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "."
+          target: "/opt/1panel/apps/danmu-tools"
+          rm: false # Do not delete extra files on server (like .env, data)
+          exclude: ".git,.github,.idea,.vscode,__pycache__,node_modules,*.log"
 
-      - name: Pull Code and Restart Services on Server
+      - name: Restart Services on Server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 30m
           script: |
             TARGET_DIR="/opt/1panel/apps/danmu-tools"
 
@@ -38,27 +45,6 @@ jobs:
             fi
 
             cd "$TARGET_DIR"
-
-            # 如果没有 .git 目录，初始化 git
-            if [ ! -d ".git" ]; then
-              echo "Git repository not initialized. Initializing..."
-              git init
-              git remote add origin ${{ secrets.REPO_URL }}
-            fi
-
-            # 确保 remote URL 正确
-            git remote set-url origin ${{ secrets.REPO_URL }} || git remote add origin ${{ secrets.REPO_URL }}
-
-            # 拉取最新代码
-            echo "Fetching latest code..."
-            git fetch --all
-            
-            # 强制重置到最新代码
-            echo "Resetting to origin/master..."
-            git reset --hard origin/master
-
-            # 确保权限
-            sudo chown -R $(whoami):$(whoami) .
 
             # Restart Docker Containers
             sudo docker-compose up --build -d
