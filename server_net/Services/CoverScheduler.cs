@@ -67,12 +67,28 @@ public class CoverScheduler : BackgroundService
             // 2. Find one room to update
             foreach (var room in roomMap.Values)
             {
-                if (!_lastUpdateMap.TryGetValue(room.RoomId, out var lastUpdate) || (now - lastUpdate) > _updateInterval)
+                // 1. Check in-memory cache
+                if (_lastUpdateMap.TryGetValue(room.RoomId, out var lastUpdate) && (now - lastUpdate) <= _updateInterval)
                 {
-                    await UpdateSingleCoverAsync(room, stoppingToken);
-                    _lastUpdateMap[room.RoomId] = DateTime.UtcNow;
-                    break; // Process only one per tick
+                    continue;
                 }
+
+                // 2. Check file modification time
+                var filenameBase = !string.IsNullOrEmpty(room.Uid) ? room.Uid : room.RoomId.ToString();
+                var coverPath = Path.Combine(_coverDir, $"{filenameBase}.png");
+                if (File.Exists(coverPath))
+                {
+                    var lastWrite = File.GetLastWriteTimeUtc(coverPath);
+                    if ((now - lastWrite) <= _updateInterval)
+                    {
+                        _lastUpdateMap[room.RoomId] = lastWrite;
+                        continue;
+                    }
+                }
+
+                await UpdateSingleCoverAsync(room, stoppingToken);
+                _lastUpdateMap[room.RoomId] = DateTime.UtcNow;
+                break; // Process only one per tick
             }
         }
         catch (Exception ex)

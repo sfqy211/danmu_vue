@@ -6,7 +6,7 @@ ON CONFLICT(uid) DO UPDATE SET name=excluded.name, group_name=excluded.group_nam
 
 INSERT INTO rooms (room_id, uid, name, is_active, auto_record, group_name, playlist_url, sort_order, followers, guard_num, video_count, last_live_time, updated_at) 
 VALUES 
-(2302412, '4718716', '鱼鸽鸽', 1, 1, 'OVO家族', 'https://bot.starlwr.com/songlist?uid=4718716', 2, 0, 0, 0, 0, NULL)
+(2303412, '4718716', '鱼鸽鸽', 1, 1, 'OVO家族', 'https://bot.starlwr.com/songlist?uid=4718716', 2, 0, 0, 0, 0, NULL)
 ON CONFLICT(uid) DO UPDATE SET name=excluded.name, group_name=excluded.group_name, playlist_url=excluded.playlist_url, sort_order=excluded.sort_order, auto_record=excluded.auto_record;
 
 INSERT INTO rooms (room_id, uid, name, is_active, auto_record, group_name, playlist_url, sort_order, followers, guard_num, video_count, last_live_time, updated_at) 

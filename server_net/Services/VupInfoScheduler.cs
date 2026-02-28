@@ -47,11 +47,25 @@ public class VupInfoScheduler : BackgroundService
                 if (string.IsNullOrEmpty(room.Uid)) continue;
 
                 // Check if it's time to update this VUP
-                if (!_lastUpdateMap.TryGetValue(room.RoomId, out var lastUpdate) || (now - lastUpdate) > _updateInterval)
+                // 1. Check in-memory cache
+                if (_lastUpdateMap.TryGetValue(room.RoomId, out var lastUpdate) && (now - lastUpdate) <= _updateInterval)
                 {
-                    targetRoom = room;
-                    break; // Process only one per tick
+                    continue;
                 }
+
+                // 2. Check persistence field UpdatedAt
+                if (!string.IsNullOrEmpty(room.UpdatedAt) && DateTime.TryParse(room.UpdatedAt, out var persistentUpdate))
+                {
+                    if ((now - persistentUpdate.ToUniversalTime()) <= _updateInterval)
+                    {
+                        // Cache it to avoid parsing next time
+                        _lastUpdateMap[room.RoomId] = persistentUpdate.ToUniversalTime();
+                        continue;
+                    }
+                }
+
+                targetRoom = room;
+                break; // Process only one per tick
             }
 
             if (targetRoom != null)

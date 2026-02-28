@@ -48,12 +48,27 @@ public class AvatarScheduler : BackgroundService
             // Find one VUP that needs update
             foreach (var vup in VupConstants.Vups)
             {
-                if (!_lastUpdateMap.TryGetValue(vup.Uid, out var lastUpdate) || (now - lastUpdate) > _updateInterval)
+                // 1. Check in-memory cache
+                if (_lastUpdateMap.TryGetValue(vup.Uid, out var lastUpdate) && (now - lastUpdate) <= _updateInterval)
                 {
-                    await UpdateSingleAvatarAsync(vup, stoppingToken);
-                    _lastUpdateMap[vup.Uid] = DateTime.UtcNow;
-                    break; // Process only one per tick
+                    continue;
                 }
+
+                // 2. Check file modification time to persist across restarts
+                var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
+                if (File.Exists(bgPath))
+                {
+                    var lastWrite = File.GetLastWriteTimeUtc(bgPath);
+                    if ((now - lastWrite) <= _updateInterval)
+                    {
+                        _lastUpdateMap[vup.Uid] = lastWrite;
+                        continue;
+                    }
+                }
+
+                await UpdateSingleAvatarAsync(vup, stoppingToken);
+                _lastUpdateMap[vup.Uid] = DateTime.UtcNow;
+                break; // Process only one per tick
             }
         }
         catch (Exception ex)
