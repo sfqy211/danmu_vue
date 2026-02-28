@@ -35,25 +35,10 @@ public class AdminController : ControllerBase
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
 
-        // 1. Resolve and update short IDs sequentially to avoid DbContext thread safety issues
-        foreach (var room in rooms)
-        {
-            var realRoomId = await _bilibili.GetRealRoomIdAsync(room.RoomId);
-            if (realRoomId > 0 && realRoomId != room.RoomId)
-            {
-                _logger.LogInformation($"Auto-updating short ID {room.RoomId} to real ID {realRoomId} for {room.Name}");
-                room.RoomId = realRoomId;
-                _db.Rooms.Update(room);
-            }
-        }
-        await _db.SaveChangesAsync();
-
-        // 2. Fetch live status in parallel
-        var tasks = rooms.Select(async room =>
+        var result = rooms.Select(room =>
         {
             var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
             var proc = processes.FirstOrDefault(p => p.Name == procName);
-            var (liveStatus, liveStartTime) = await _bilibili.GetRoomLiveStatusAsync(room.RoomId);
 
             return new
             {
@@ -65,14 +50,13 @@ public class AdminController : ControllerBase
                 auto_record = room.AutoRecord,
                 process_status = proc?.Status ?? "stopped",
                 process_uptime = proc?.Uptime ?? "0s",
-                live_status = liveStatus,
-                live_start_time = liveStartTime,
+                live_status = 0, // Removed redundant live status fetch to avoid rate limit
+                live_start_time = room.LastLiveTime,
                 pid = proc?.Pid,
                 remark = room.Remark
             };
         });
 
-        var result = await Task.WhenAll(tasks);
         return Ok(result);
     }
 

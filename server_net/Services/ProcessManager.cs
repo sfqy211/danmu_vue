@@ -144,6 +144,8 @@ public class ProcessManager
             try 
             {
                 await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
+                // Add a larger delay between starting each recorder to avoid Bilibili rate limit (412)
+                await Task.Delay(TimeSpan.FromSeconds(30));
             }
             catch (Exception ex)
             {
