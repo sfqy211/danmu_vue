@@ -7,19 +7,22 @@
         link 
         @click="store.toggleSidebar"
       />
-      <h3 v-show="!store.isSidebarCollapsed">直播回放列表</h3>
-      <div class="session-count" v-show="!store.isSidebarCollapsed && selectedStreamer">
-        <span class="current">{{ sessions.length }}</span>
-        <span class="separator">/</span>
-        <span class="total">{{ totalSessions }}</span>
-      </div>
-      <el-button 
-        class="refresh-btn" 
-        :icon="Refresh" 
-        link 
-        v-show="!store.isSidebarCollapsed" 
-        @click="handleRefresh"
-      />
+      <transition name="fade">
+        <div class="header-content" v-show="!store.isSidebarCollapsed">
+          <h3>直播回放列表</h3>
+          <div class="session-count" v-show="selectedStreamer">
+            <span class="current">{{ sessions.length }}</span>
+            <span class="separator">/</span>
+            <span class="total">{{ totalSessions }}</span>
+          </div>
+          <el-button 
+            class="refresh-btn" 
+            :icon="Refresh" 
+            link 
+            @click="handleRefresh"
+          />
+        </div>
+      </transition>
     </div>
     
     <Teleport to="#header-dynamic-actions" :disabled="isMobile" v-if="isMountedFlag">
@@ -350,18 +353,34 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
   padding: 0 16px;
   height: 60px;
   min-height: 60px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .collapsed .sidebar-header {
   padding: 0;
   justify-content: center;
-  gap: 0;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.header-content h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
 }
 
 .collapse-btn {
@@ -369,6 +388,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
   padding: 8px;
   margin-left: -4px;
+  flex-shrink: 0;
 }
 
 .collapsed .collapse-btn {
@@ -381,6 +401,7 @@ onUnmounted(() => {
   padding: 8px;
   margin-left: auto;
   transition: color 0.2s;
+  flex-shrink: 0;
 }
 
 .refresh-btn:hover {
@@ -434,9 +455,23 @@ onUnmounted(() => {
   justify-content: center;
   font-size: 0.85rem;
   color: var(--text-tertiary);
-  margin: 0 8px;
+  margin: 0 4px;
   flex: 1;
   text-align: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Fade Transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
 }
 
 .session-count .current {
