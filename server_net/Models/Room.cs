@@ -34,6 +34,9 @@ public class Room
     [Column("playlist_url")]
     public string? PlaylistUrl { get; set; }
 
+    [Column("remark")]
+    public string? Remark { get; set; }
+
     [Column("created_at")]
     public string? CreatedAt { get; set; }
 }

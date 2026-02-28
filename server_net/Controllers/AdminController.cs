@@ -67,7 +67,8 @@ public class AdminController : ControllerBase
                 process_uptime = proc?.Uptime ?? "0s",
                 live_status = liveStatus,
                 live_start_time = liveStartTime,
-                pid = proc?.Pid
+                pid = proc?.Pid,
+                remark = room.Remark
             };
         });
 
@@ -78,29 +79,49 @@ public class AdminController : ControllerBase
     [HttpPost("rooms")]
     public async Task<IActionResult> AddRoom([FromBody] RoomDto dto)
     {
-        _logger.LogInformation($"AddRoom called: {dto.RoomId}, {dto.Name}");
+        _logger.LogInformation($"AddRoom called: Uid={dto.Uid}, Remark={dto.Remark}");
         try
         {
-            if (dto.RoomId <= 0 || string.IsNullOrEmpty(dto.Name))
+            long roomId = 0;
+            string name = "";
+            string uidStr = dto.Uid ?? string.Empty;
+            long uid = 0;
+
+            if (string.IsNullOrEmpty(uidStr) || !long.TryParse(uidStr, out uid) || uid <= 0)
             {
-                return BadRequest(new { error = "Missing roomId or name" });
+                return BadRequest(new { error = "必须提供有效的 UID" });
             }
 
-            // Resolve real room ID if it's a short ID
-            var realRoomId = await _bilibili.GetRealRoomIdAsync(dto.RoomId);
-            if (realRoomId <= 0) realRoomId = dto.RoomId;
+            var (fetchedRoomId, fetchedName) = await _bilibili.GetRoomInfoByUidAsync(uid);
+            if (fetchedRoomId > 0)
+            {
+                roomId = fetchedRoomId;
+                name = fetchedName;
+                _logger.LogInformation($"Resolved room from UID {uid}: RoomId={roomId}, Name={name}");
+            }
+            else
+            {
+                return BadRequest(new { error = $"无法找到 UID {uid} 对应的直播间" });
+            }
+
+            if (string.IsNullOrEmpty(name)) name = "Unknown";
+
+            // Resolve real room ID if it's a short ID (double check)
+            var realRoomId = await _bilibili.GetRealRoomIdAsync(roomId);
+            if (realRoomId <= 0) realRoomId = roomId;
 
             var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == realRoomId);
             if (existing != null)
             {
-                return BadRequest(new { error = "Room already exists (Real ID: " + realRoomId + ")" });
+                return BadRequest(new { error = "主播已存在 (真实房间号: " + realRoomId + ")" });
             }
 
             var room = new Room
             {
                 RoomId = realRoomId,
-                Name = dto.Name,
-                Uid = dto.Uid,
+                Name = name,
+                Uid = uid.ToString(),
+                Remark = dto.Remark,
                 IsActive = 1,
                 AutoRecord = 1,
                 CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
@@ -112,7 +133,7 @@ public class AdminController : ControllerBase
             // Start Process
             await _pm.StartRecorder(room.RoomId, room.Name);
 
-            return Ok(new { success = true, realRoomId = realRoomId });
+            return Ok(new { success = true, realRoomId = realRoomId, name = name });
         }
         catch (Exception ex)
         {
@@ -134,6 +155,24 @@ public class AdminController : ControllerBase
         _db.Rooms.Remove(room);
         await _db.SaveChangesAsync();
 
+        return Ok(new { success = true });
+    }
+
+    [HttpPut("rooms/{id}")]
+    public async Task<IActionResult> UpdateRoom(int id, [FromBody] RoomDto dto)
+    {
+        var room = await _db.Rooms.FindAsync(id);
+        if (room == null) return NotFound(new { error = "Room not found" });
+
+        if (!string.IsNullOrEmpty(dto.Remark))
+        {
+            room.Remark = dto.Remark;
+        }
+
+        // If Name or Uid update is needed, handle it here.
+        // For now, only Remark is explicitly requested.
+
+        await _db.SaveChangesAsync();
         return Ok(new { success = true });
     }
 
@@ -469,6 +508,7 @@ public class RoomDto
     public long RoomId { get; set; }
     public required string Name { get; set; }
     public string? Uid { get; set; }
+    public string? Remark { get; set; }
 }
 
 public class SessionDto

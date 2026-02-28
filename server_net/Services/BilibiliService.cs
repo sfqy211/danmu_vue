@@ -362,6 +362,51 @@ public class BilibiliService
         return ("", "wss://broadcastlv.chat.bilibili.com/sub", realRoomId);
     }
 
+    public async Task<(long RoomId, string Name)> GetRoomInfoByUidAsync(long uid)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/Master/info?uid={uid}");
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("code", out var code) && code.GetInt32() == 0)
+            {
+                if (root.TryGetProperty("data", out var data))
+                {
+                    var roomId = data.TryGetProperty("room_id", out var rid) ? rid.GetInt64() : 0;
+                    var name = "";
+                    if (data.TryGetProperty("info", out var info) && info.TryGetProperty("uname", out var uname))
+                    {
+                        name = uname.GetString() ?? "";
+                    }
+                    return (roomId, name);
+                }
+            }
+            else 
+            {
+                var msg = root.TryGetProperty("msg", out var m) ? m.GetString() : "Unknown error";
+                _logger.LogWarning($"GetRoomInfoByUidAsync failed for UID {uid}: {msg}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to get room info for UID {uid}");
+        }
+        return (0, "");
+    }
+
     public async Task<long> GetRealRoomIdAsync(long roomId)
     {
         try

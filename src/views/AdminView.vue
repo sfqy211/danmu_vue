@@ -19,6 +19,7 @@ interface Room {
   live_status: number;
   live_start_time: number | null;
   pid: number | null;
+  remark?: string;
 }
 
 interface AdminSession {
@@ -56,8 +57,10 @@ const sidebarCollapsed = ref(false);
 
 // Monitor Data
 const rooms = ref<Room[]>([]);
-const newRoom = ref({ roomId: '', name: '', uid: '' });
+const newRoom = ref({ roomId: '', name: '', uid: '', remark: '' });
 const adding = ref(false);
+const editDialogVisible = ref(false);
+const editForm = ref({ id: 0, remark: '' });
 
 // Sessions Data
 const sessions = ref<AdminSession[]>([]);
@@ -141,7 +144,6 @@ const batchDeleteRooms = async () => {
     if (successCount > 0) {
       ElMessage.success(`成功删除 ${successCount} 个主播配置`);
       await fetchRooms();
-      // Selection is cleared automatically as rows are removed, but safe to clear manually if needed
       selectedRooms.value = []; 
     } else {
       ElMessage.warning('没有成功删除任何配置');
@@ -150,6 +152,62 @@ const batchDeleteRooms = async () => {
     if (e !== 'cancel') {
       ElMessage.error('批量删除操作异常: ' + (e.message || '未知错误'));
     }
+  }
+};
+
+const batchRestartRooms = async () => {
+  if (selectedRooms.value.length === 0) return;
+  try {
+    await ElMessageBox.confirm(`确定要重启选中的 ${selectedRooms.value.length} 个主播录制吗？`, '批量重启确认', {
+      confirmButtonText: '重启',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+
+    let successCount = 0;
+    for (const room of selectedRooms.value) {
+      try {
+        await adminApi.post(`/admin/rooms/${room.id}/restart`, {}, getAuthConfig());
+        successCount++;
+      } catch (e) {
+        console.error(`Failed to restart room ${room.id}`, e);
+      }
+    }
+
+    if (successCount > 0) {
+      ElMessage.success(`成功重启 ${successCount} 个录制任务`);
+      // Wait a bit before refreshing
+      setTimeout(fetchRooms, 2000);
+    } else {
+      ElMessage.warning('没有成功重启任何任务');
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('批量重启操作异常: ' + (e.message || '未知错误'));
+    }
+  }
+};
+
+const openEditRoom = (row: Room) => {
+  editForm.value = {
+    id: row.id,
+    remark: row.remark || ''
+  };
+  editDialogVisible.value = true;
+};
+
+const saveRoomEdit = async () => {
+  try {
+    await adminApi.put(`/admin/rooms/${editForm.value.id}`, {
+      roomId: 0, // Not used
+      name: 'Unknown', // Not used
+      remark: editForm.value.remark
+    }, getAuthConfig());
+    ElMessage.success('更新成功');
+    editDialogVisible.value = false;
+    await fetchRooms();
+  } catch (e: any) {
+    ElMessage.error('更新失败: ' + (e.response?.data?.error || e.message));
   }
 };
 
@@ -410,16 +468,22 @@ const normalizeSongRequestRow = (row: any): AdminSongRequest => ({
 // --- Methods: Actions (Room) ---
 
 const addRoom = async () => {
-  if (!newRoom.value.roomId || !newRoom.value.name) return;
+  // 必须提供 UID
+  if (!newRoom.value.uid) {
+    ElMessage.warning('请提供 UID');
+    return;
+  }
+  
   adding.value = true;
   try {
     await adminApi.post('/admin/rooms', {
-      roomId: parseInt(newRoom.value.roomId),
-      name: newRoom.value.name,
-      uid: newRoom.value.uid
+      uid: newRoom.value.uid,
+      remark: newRoom.value.remark,
+      name: 'Unknown', // Backend will resolve this, but DTO requires it
+      roomId: 0 // Backend will resolve this
     }, getAuthConfig());
-    newRoom.value = { roomId: '', name: '', uid: '' };
-    ElMessage.success('添加成功');
+    newRoom.value = { roomId: '', name: '', uid: '', remark: '' };
+    ElMessage.success('添加成功，已自动获取直播间信息并启动录制');
     await fetchRooms();
   } catch (e: any) {
     ElMessage.error('添加失败: ' + (e.response?.data?.error || e.message));
@@ -793,19 +857,13 @@ watch(activeSection, async (val) => {
               <div class="search-section">
                 <div class="search-form">
                   <el-input 
-                    v-model="newRoom.name" 
-                    placeholder="主播名称" 
-                    clearable
-                  />
-                  <el-input 
-                    v-model="newRoom.roomId" 
-                    placeholder="房间号" 
-                    type="number"
-                    clearable
-                  />
-                  <el-input 
                     v-model="newRoom.uid" 
-                    placeholder="UID (可选)" 
+                    placeholder="请输入 UID" 
+                    clearable
+                  />
+                  <el-input 
+                    v-model="newRoom.remark" 
+                    placeholder="备注 (可选)" 
                     clearable
                   />
                   <el-button 
@@ -814,7 +872,7 @@ watch(activeSection, async (val) => {
                     @click="addRoom" 
                     :loading="adding"
                   >
-                    添加并启动
+                    通过 UID 添加
                   </el-button>
                   <el-button 
                     type="danger" 
@@ -823,6 +881,14 @@ watch(activeSection, async (val) => {
                     :disabled="selectedRooms.length === 0"
                   >
                     批量删除
+                  </el-button>
+                  <el-button 
+                    type="warning" 
+                    :icon="VideoPlay" 
+                    @click="batchRestartRooms" 
+                    :disabled="selectedRooms.length === 0"
+                  >
+                    批量重启
                   </el-button>
                 </div>
               </div>
@@ -838,6 +904,7 @@ watch(activeSection, async (val) => {
                 >
                   <el-table-column type="selection" width="55" align="center" />
                   <el-table-column prop="name" label="主播" align="center" />
+                  <el-table-column prop="remark" label="备注" align="center" show-overflow-tooltip />
                   <el-table-column prop="room_id" label="房间号" align="center" />
                   <el-table-column label="状态" width="100" align="center">
                     <template #default="scope">
@@ -860,10 +927,17 @@ watch(activeSection, async (val) => {
                       {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
                     </template>
                   </el-table-column>
-                  <el-table-column prop="pid" label="PID" width="80" align="center" />
-                  <el-table-column label="操作" width="200" align="center">
+                  <el-table-column label="操作" width="280" align="center">
                     <template #default="scope">
                       <div class="action-btns">
+                        <el-button 
+                          type="primary" 
+                          size="small" 
+                          :icon="EditPen" 
+                          @click="openEditRoom(scope.row)"
+                        >
+                          修改
+                        </el-button>
                         <el-button 
                           type="primary" 
                           size="small" 
@@ -1100,6 +1174,16 @@ watch(activeSection, async (val) => {
     </el-container>
 
     <!-- Dialogs -->
+    <el-dialog v-model="editDialogVisible" title="修改主播配置" width="400px">
+      <div class="dialog-form">
+        <el-input v-model="editForm.remark" placeholder="备注" />
+      </div>
+      <template #footer>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveRoomEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="sessionDialogVisible" :title="sessionFormMode === 'create' ? '新增直播回放' : '编辑直播回放'" width="520px">
       <div class="dialog-form">
         <el-input v-model="sessionForm.title" placeholder="直播标题" />
