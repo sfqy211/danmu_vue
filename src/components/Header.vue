@@ -180,7 +180,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>BiliDanmu 弹幕时光机 v2.0</p>
+          <p>BiliDanmu 弹幕时光机 v2.2</p>
         </div>
       </template>
     </el-drawer>
@@ -253,6 +253,15 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v2.2 - 2026-02-28 (管理增强与架构优化)" name="2.2">
+              <ul class="changelog-list">
+                <li><strong>管理功能增强</strong>：支持通过 UID 添加主播并提供备注管理功能；管理端新增批量删除功能，扩展房间模型字段以记录更多元数据；优化 VUP 信息调度器，支持同步粉丝数等动态数据。</li>
+                <li><strong>后端架构与性能</strong>：集成嵌入式 Garnet (Redis 兼容) 支持，重构弹幕存储逻辑，提升响应速度；修复并发文件读取时的数据竞争问题，增强数据一致性。</li>
+                <li><strong>CI/CD 与部署优化</strong>：全面重构 CI/CD 流程，升级为 scp 传输与临时目录中转方案，解决部署权限与稳定性问题；引入 Git 代理机制，提升海外服务器部署速度。</li>
+                <li><strong>界面与交互优化</strong>：集成 vtbs.moe API 同步更多 VUP 扩展信息；优化移动端响应式布局，将弹幕列表菜单重构为 dropdown 组件；新增动态背景并支持根据头像自动提取主题色。</li>
+                <li><strong>稳定性与修复</strong>：修复了 B 站录播流异常导致的会话清理失效问题；纠正了 SC 价格单位显示错误及弹幕列表样式偏差；解决调度器重复更新及房间 ID 匹配逻辑 bug。</li>
+              </ul>
+            </el-collapse-item>
             <el-collapse-item title="v2.1 - 2026-02-26 (界面优化与功能完善)" name="2.1">
               <ul class="changelog-list">
                 <li><strong>顶栏重构</strong>：将顶栏抽取为独立组件，确保主页和列表页顶栏效果完全一致，采用透明玻璃样式。</li>
