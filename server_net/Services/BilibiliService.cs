@@ -438,9 +438,18 @@ public class BilibiliService
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
             request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
+            request.Headers.TryAddWithoutValidation("Origin", "https://live.bilibili.com");
             
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            if (response.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+            {
+                return roomId;
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning($"Failed to resolve real room id for {roomId}: {(int)response.StatusCode} {response.ReasonPhrase}");
+                return roomId;
+            }
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;

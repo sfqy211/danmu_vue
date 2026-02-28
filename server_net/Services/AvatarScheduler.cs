@@ -13,8 +13,8 @@ public class AvatarScheduler : BackgroundService
     private readonly string _bgDir;
     private readonly string _avatarDir;
     private readonly ConcurrentDictionary<string, DateTime> _lastUpdateMap = new();
-    private readonly TimeSpan _updateInterval = TimeSpan.FromHours(24);
-    private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(2); // Check every 2 mins to spread out
+    private readonly TimeSpan _updateInterval = TimeSpan.FromDays(1);
+    private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(30);
 
     public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService)
     {

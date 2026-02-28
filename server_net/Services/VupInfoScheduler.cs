@@ -10,8 +10,8 @@ public class VupInfoScheduler : BackgroundService
     private readonly IServiceProvider _services;
     private readonly ILogger<VupInfoScheduler> _logger;
     private readonly ConcurrentDictionary<long, DateTime> _lastUpdateMap = new();
-    private readonly TimeSpan _updateInterval = TimeSpan.FromHours(1);
-    private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _updateInterval = TimeSpan.FromDays(1);
+    private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(30);
 
     public VupInfoScheduler(IServiceProvider services, ILogger<VupInfoScheduler> logger)
     {
@@ -86,40 +86,28 @@ public class VupInfoScheduler : BackgroundService
             _logger.LogInformation($"Updating stats for {room.Name} (RoomId: {room.RoomId})...");
 
             var (followers, guardNum, videoCount) = await biliService.GetVupStatsAsync(room.RoomId, room.Uid!);
-            var (liveStatus, liveStartTime) = await biliService.GetRoomLiveStatusAsync(room.RoomId);
             
             room.Followers = followers;
             room.GuardNum = guardNum;
             room.VideoCount = videoCount;
             
-            // Priority:
-            // 1. Current live status (if live)
-            // 2. Local session history (if offline)
-            
-            if (liveStatus == 1 && liveStartTime.HasValue)
+            // Try to find last session time from DB for LastLiveTime
+            try 
             {
-                room.LastLiveTime = liveStartTime.Value;
+                var roomIdStr = room.RoomId.ToString();
+                var lastSession = await db.Sessions
+                    .Where(s => s.RoomId == roomIdStr)
+                    .OrderByDescending(s => s.StartTime)
+                    .FirstOrDefaultAsync(stoppingToken);
+                    
+                if (lastSession != null && lastSession.StartTime > room.LastLiveTime)
+                {
+                    room.LastLiveTime = lastSession.StartTime ?? 0;
+                }
             }
-            else 
+            catch (Exception ex)
             {
-                // Try to find last session time from DB if offline
-                try 
-                {
-                    var roomIdStr = room.RoomId.ToString();
-                    var lastSession = await db.Sessions
-                        .Where(s => s.RoomId == roomIdStr)
-                        .OrderByDescending(s => s.StartTime)
-                        .FirstOrDefaultAsync(stoppingToken);
-                        
-                    if (lastSession != null && lastSession.StartTime > room.LastLiveTime)
-                    {
-                        room.LastLiveTime = lastSession.StartTime ?? 0;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"Failed to get last session time for {room.Name}");
-                }
+                _logger.LogWarning(ex, $"Failed to get last session time for {room.Name}");
             }
             
             room.UpdatedAt = DateTime.UtcNow.ToString("O");
