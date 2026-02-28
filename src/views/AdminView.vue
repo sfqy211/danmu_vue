@@ -13,7 +13,7 @@ interface Room {
   room_id: number;
   name: string;
   uid: string;
-  is_active: number;
+  auto_record: number;
   process_status: string;
   process_uptime: number | string;
   live_status: number;

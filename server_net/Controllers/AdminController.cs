@@ -46,7 +46,6 @@ public class AdminController : ControllerBase
                 room_id = room.RoomId,
                 name = room.Name,
                 uid = room.Uid,
-                is_active = room.IsActive,
                 auto_record = room.AutoRecord,
                 process_status = proc?.Status ?? "stopped",
                 process_uptime = proc?.Uptime ?? "0s",
@@ -106,7 +105,6 @@ public class AdminController : ControllerBase
                 Name = name,
                 Uid = uid.ToString(),
                 Remark = dto.Remark,
-                IsActive = 1,
                 AutoRecord = 1
             };
 
@@ -233,8 +231,6 @@ public class AdminController : ControllerBase
         if (body.TryGetProperty("autoRecord", out var autoRecordProp))
         {
             room.AutoRecord = autoRecordProp.ValueKind == JsonValueKind.True ? 1 : 0;
-            // Also keep isActive in sync if it's meant to be the master switch for PM2 control
-            room.IsActive = room.AutoRecord;
             
             await _db.SaveChangesAsync();
 

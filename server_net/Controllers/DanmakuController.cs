@@ -241,7 +241,7 @@ public class DanmakuController : ControllerBase
     public async Task<IActionResult> GetVups()
     {
         var vups = await _db.Rooms
-            .Where(r => r.IsActive == 1)
+            .Where(r => r.AutoRecord == 1)
             .OrderBy(r => r.SortOrder)
             .ToListAsync();
         return Ok(vups);
