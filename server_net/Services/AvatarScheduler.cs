@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Danmu.Server.Constants;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
@@ -11,6 +12,9 @@ public class AvatarScheduler : BackgroundService
     private readonly ImageService _imageService;
     private readonly string _bgDir;
     private readonly string _avatarDir;
+    private readonly ConcurrentDictionary<string, DateTime> _lastUpdateMap = new();
+    private readonly TimeSpan _updateInterval = TimeSpan.FromHours(24);
+    private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(2); // Check every 2 mins to spread out
 
     public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService)
     {
@@ -30,59 +34,61 @@ public class AvatarScheduler : BackgroundService
 
         _logger.LogInformation("AvatarScheduler started.");
 
-        // Calculate delay until next 04:00
-        var now = DateTime.Now;
-        var target = now.Date.AddHours(4); // Today 04:00
-        if (now > target)
+        using var timer = new PeriodicTimer(_checkInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            target = target.AddDays(1); // Next day 04:00
-        }
-        var delay = target - now;
-        
-        _logger.LogInformation($"Next avatar update scheduled at {target} (in {delay.TotalHours:F1} hours)");
-        await Task.Delay(delay, stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await RunUpdateTask();
-            // Run every 24 hours
-            await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+            await ProcessNextAvatarAsync(stoppingToken);
         }
     }
 
-    private async Task RunUpdateTask()
+    private async Task ProcessNextAvatarAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("[Avatar] Starting avatar update task...");
-
-        foreach (var vup in VupConstants.Vups)
+        try
         {
-            try
+            var now = DateTime.UtcNow;
+            
+            // Find one VUP that needs update
+            foreach (var vup in VupConstants.Vups)
             {
-                var avatarUrl = await _bilibiliService.GetAvatarUrlAsync(vup.Uid);
-                if (string.IsNullOrEmpty(avatarUrl)) continue;
-
-                var imageBytes = await _bilibiliService.DownloadImageAsync(avatarUrl);
-                if (imageBytes == null) continue;
-
-                // Save original to vup-bg
-                var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
-                await _imageService.SavePngAsync(imageBytes, bgPath);
-                _logger.LogInformation($"[Avatar] Saved original for {vup.Name} to {bgPath}");
-
-                // Save thumbnail to vup-avatar
-                var avatarPath = Path.Combine(_avatarDir, $"{vup.Uid}.webp");
-                await _imageService.ResizeAndSaveWebpAsync(imageBytes, avatarPath, 120, 120);
-                _logger.LogInformation($"[Avatar] Saved thumbnail for {vup.Name} to {avatarPath}");
-
-                // Wait 30 seconds between requests
-                await Task.Delay(30000);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"[Avatar] Failed to update avatar for {vup.Name}");
+                if (!_lastUpdateMap.TryGetValue(vup.Uid, out var lastUpdate) || (now - lastUpdate) > _updateInterval)
+                {
+                    await UpdateSingleAvatarAsync(vup, stoppingToken);
+                    _lastUpdateMap[vup.Uid] = DateTime.UtcNow;
+                    break; // Process only one per tick
+                }
             }
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in ProcessNextAvatarAsync");
+        }
+    }
 
-        _logger.LogInformation("[Avatar] Avatar update task completed.");
+    private async Task UpdateSingleAvatarAsync((string Uid, string Name, long RoomId) vup, CancellationToken stoppingToken)
+    {
+        try
+        {
+            _logger.LogInformation($"[Avatar] Checking avatar for {vup.Name}...");
+            
+            var avatarUrl = await _bilibiliService.GetAvatarUrlAsync(vup.Uid);
+            if (string.IsNullOrEmpty(avatarUrl)) return;
+
+            var imageBytes = await _bilibiliService.DownloadImageAsync(avatarUrl);
+            if (imageBytes == null) return;
+
+            // Save original to vup-bg
+            var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
+            await _imageService.SavePngAsync(imageBytes, bgPath);
+            _logger.LogInformation($"[Avatar] Saved original for {vup.Name} to {bgPath}");
+
+            // Save thumbnail to vup-avatar
+            var avatarPath = Path.Combine(_avatarDir, $"{vup.Uid}.webp");
+            await _imageService.ResizeAndSaveWebpAsync(imageBytes, avatarPath, 120, 120);
+            _logger.LogInformation($"[Avatar] Saved thumbnail for {vup.Name} to {avatarPath}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"[Avatar] Failed to update avatar for {vup.Name}");
+        }
     }
 }

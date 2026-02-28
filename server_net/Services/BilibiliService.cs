@@ -6,6 +6,7 @@ public class BilibiliService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<BilibiliService> _logger;
+    private readonly string? _cookie;
 
     public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger)
     {
@@ -13,6 +14,16 @@ public class BilibiliService
         _logger = logger;
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com");
+
+        _cookie = LoadCookie(logger);
+        if (!string.IsNullOrEmpty(_cookie))
+        {
+            logger.LogInformation("Bilibili Cookie loaded successfully.");
+        }
+        else
+        {
+            logger.LogWarning("Bilibili Cookie NOT found in environment or .env files. Some API requests may fail.");
+        }
     }
 
     private static string? NormalizeCookie(string? cookie)
@@ -26,33 +37,50 @@ public class BilibiliService
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
 
-    private static string? LoadCookieFromEnvFile()
+    private static string? LoadCookie(ILogger logger)
     {
+        // Try env var first
+        var envCookie = NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
+        if (!string.IsNullOrEmpty(envCookie)) return envCookie;
+
+        // Try .env files
         var root = Directory.GetCurrentDirectory();
-        var envPathLocal = Path.GetFullPath(Path.Combine(root, "../server/.env"));
-        var envPathRoot = Path.GetFullPath(Path.Combine(root, "../.env"));
-        var paths = new[] { envPathLocal, envPathRoot };
+        var paths = new[] 
+        { 
+            Path.GetFullPath(Path.Combine(root, ".env")),
+            Path.GetFullPath(Path.Combine(root, "../.env")),
+            Path.GetFullPath(Path.Combine(root, "../server/.env"))
+        };
+
         foreach (var path in paths)
         {
             if (!File.Exists(path)) continue;
-            foreach (var line in File.ReadAllLines(path))
+            try 
             {
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
-                var parts = line.Split('=', 2);
-                if (parts.Length != 2) continue;
-                if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
-                return NormalizeCookie(parts[1]);
+                foreach (var line in File.ReadAllLines(path))
+                {
+                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                    var parts = line.Split('=', 2);
+                    if (parts.Length != 2) continue;
+                    if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
+                    
+                    var cookie = NormalizeCookie(parts[1]);
+                    if (!string.IsNullOrEmpty(cookie))
+                    {
+                        logger.LogInformation($"Found BILI_COOKIE in {path}");
+                        return cookie;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Failed to read {path}: {ex.Message}");
             }
         }
         return null;
     }
 
-    private static string? GetCookie()
-    {
-        var fileCookie = LoadCookieFromEnvFile();
-        if (!string.IsNullOrEmpty(fileCookie)) return fileCookie;
-        return NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
-    }
+    private string? GetCookie() => _cookie;
 
     public async Task<string?> GetAvatarUrlAsync(string uid)
     {
@@ -103,7 +131,7 @@ public class BilibiliService
             {
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
 
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -138,6 +166,7 @@ public class BilibiliService
                 {
                     var userReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room?roomid={roomId}");
                     if (!string.IsNullOrEmpty(cookie)) userReq.Headers.TryAddWithoutValidation("Cookie", cookie);
+                    userReq.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
                     
                     var userRes = await _httpClient.SendAsync(userReq);
                     if (userRes.IsSuccessStatusCode)
@@ -173,7 +202,13 @@ public class BilibiliService
         try
         {
             var initReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
-            initReq.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                initReq.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+            initReq.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
+            
             var initRes = await _httpClient.SendAsync(initReq);
             initRes.EnsureSuccessStatusCode();
 
@@ -212,12 +247,11 @@ public class BilibiliService
             }
 
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={realRoomId}");
-            var cookie = GetCookie();
             if (!string.IsNullOrEmpty(cookie))
             {
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
 
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -367,12 +401,12 @@ public class BilibiliService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/Master/info?uid={uid}");
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             var cookie = GetCookie();
             if (!string.IsNullOrEmpty(cookie))
             {
                 request.Headers.TryAddWithoutValidation("Cookie", cookie);
             }
+            request.Headers.TryAddWithoutValidation("Referer", "https://live.bilibili.com/");
 
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -412,7 +446,13 @@ public class BilibiliService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var cookie = GetCookie();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
+            
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
@@ -428,5 +468,68 @@ public class BilibiliService
             _logger.LogError(ex, $"Failed to resolve real room id for {roomId}");
         }
         return roomId;
+    }
+
+    public async Task<(int Followers, int GuardNum, int VideoCount)> GetVupStatsAsync(long roomId, string uid)
+    {
+        int followers = 0;
+        int guardNum = 0;
+        int videoCount = 0;
+
+        try
+        {
+            // 1. Get Followers
+            var req1 = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/relation/stat?vmid={uid}");
+            if (!string.IsNullOrEmpty(_cookie)) req1.Headers.TryAddWithoutValidation("Cookie", _cookie);
+            req1.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
+            var res1 = await _httpClient.SendAsync(req1);
+            if (res1.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await res1.Content.ReadAsStringAsync());
+                if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("follower", out var f))
+                {
+                    followers = f.GetInt32();
+                }
+            }
+
+            // 2. Get Video Count
+            var req2 = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/space/navnum?mid={uid}");
+            if (!string.IsNullOrEmpty(_cookie)) req2.Headers.TryAddWithoutValidation("Cookie", _cookie);
+            req2.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
+            var res2 = await _httpClient.SendAsync(req2);
+            if (res2.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await res2.Content.ReadAsStringAsync());
+                if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
+                {
+                    videoCount = v.GetInt32();
+                }
+            }
+
+            // 3. Get Guard Num
+            var realRoomId = await GetRealRoomIdAsync(roomId);
+            if (realRoomId <= 0) realRoomId = roomId;
+
+            var req3 = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList?roomid={realRoomId}&page=1&ruid={uid}&page_size=0");
+            if (!string.IsNullOrEmpty(_cookie)) req3.Headers.TryAddWithoutValidation("Cookie", _cookie);
+            req3.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
+            var res3 = await _httpClient.SendAsync(req3);
+            if (res3.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await res3.Content.ReadAsStringAsync());
+                if (doc.RootElement.TryGetProperty("data", out var data) && 
+                    data.TryGetProperty("info", out var info) && 
+                    info.TryGetProperty("num", out var n))
+                {
+                    guardNum = n.GetInt32();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to get stats for UID {uid}");
+        }
+
+        return (followers, guardNum, videoCount);
     }
 }

@@ -236,4 +236,29 @@ public class DanmakuController : ControllerBase
 ";
         return Ok(new { analysis = mockAnalysis });
     }
+
+    [HttpGet("vups")]
+    public async Task<IActionResult> GetVups()
+    {
+        var vups = await _db.Rooms
+            .Where(r => r.IsActive == 1)
+            .OrderBy(r => r.SortOrder)
+            .ToListAsync();
+        return Ok(vups);
+    }
+
+    [HttpGet("vup/{uid}")]
+    public async Task<IActionResult> GetVup(string uid)
+    {
+        var vup = await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid);
+        if (vup == null) return NotFound(new { error = "VUP not found" });
+        
+        // Map to match frontend expectations if necessary, or just return Room object
+        // Frontend expects: follower, guardNum, video, online, lastLive.time, liveStatus
+        // Our Room has: Followers, GuardNum, VideoCount, LastLiveTime
+        // We can map it here to be safe or update frontend to use our keys.
+        // Updating frontend is better.
+        
+        return Ok(vup);
+    }
 }

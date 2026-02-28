@@ -14,7 +14,7 @@ public class DanmuContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Room>()
-            .HasIndex(r => r.RoomId)
+            .HasIndex(r => r.Uid)
             .IsUnique();
     }
 }

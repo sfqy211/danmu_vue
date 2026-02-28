@@ -123,8 +123,7 @@ public class AdminController : ControllerBase
                 Uid = uid.ToString(),
                 Remark = dto.Remark,
                 IsActive = 1,
-                AutoRecord = 1,
-                CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+                AutoRecord = 1
             };
 
             _db.Rooms.Add(room);

@@ -71,6 +71,7 @@ builder.Services.AddHttpClient<BilibiliService>(client =>
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddHostedService<AvatarScheduler>();
 builder.Services.AddHostedService<CoverScheduler>();
+builder.Services.AddHostedService<VupInfoScheduler>();
 
 // CORS
 builder.Services.AddCors(options =>
@@ -149,8 +150,17 @@ app.MapFallbackToFile("index.html", new StaticFileOptions
 // Init DB
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
-    db.Database.EnsureCreated();
+    var services = scope.ServiceProvider;
+    var context = services.GetRequiredService<DanmuContext>();
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    try 
+    {
+        DbInitializer.InitializeAsync(context, logger).Wait();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "An error occurred creating the DB.");
+    }
 }
 
 // Restore recorders

@@ -177,30 +177,27 @@ const currentVupData = computed(() => {
   };
 });
 
-// 获取 VUP 详细数据 (调用 vtbs.moe API)
+// 获取 VUP 详细数据 (调用后端 API)
 const fetchVupData = async (uid: string) => {
   if (vupDataMap[uid]) return; // 如果已有缓存数据则不重复请求
   
   try {
-    // 使用 api.md 中提到的接口: /v1/detail/:mid
-    // 注意：实际请求可能会遇到跨域问题，这里仅作为接口预留
-    const res = await fetch(`https://api.vtbs.moe/v1/detail/${uid}`);
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api';
+    const res = await fetch(`${apiBase}/vup/${uid}`);
     if (res.ok) {
       const data = await res.json();
       vupDataMap[uid] = {
-        followers: data.follower,
+        followers: data.followers,
         guardNum: data.guardNum,
-        archiveView: data.archiveView,
-        videoCount: data.video,
-        online: data.online, // 在线人气，通常直播时才有
-        lastLiveTime: data.lastLive?.time,
-        // liveStatus: 0 下播, 1 直播
-        isLiving: data.liveStatus === 1
+        videoCount: data.videoCount,
+        lastLiveTime: data.lastLiveTime > 0 ? data.lastLiveTime : null,
+        // 保留原有的 isLiving 逻辑（如果后端没返回，这里暂时无法更新直播状态，
+        // 除非我们在 Room 表中也添加 isLiving 字段并由 Scheduler 更新）
+        // 目前仅满足用户要求的 4 个字段
       };
     }
-  } catch (error) {
-    console.warn(`Failed to fetch data for uid ${uid}:`, error);
-    // 出错时可以保持默认值或设置特定状态
+  } catch (e) {
+    console.error('Failed to fetch vup data:', e);
   }
 };
 
