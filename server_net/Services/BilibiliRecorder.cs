@@ -198,7 +198,8 @@ public class BilibiliRecorder : IDisposable
             }
         }
         
-        var uri = new Uri(_host ?? "wss://broadcastlv.chat.bilibili.com/sub");
+        var uriString = string.IsNullOrWhiteSpace(_host) ? "wss://broadcastlv.chat.bilibili.com/sub" : _host;
+        var uri = new Uri(uriString);
         await _ws.ConnectAsync(uri, _cts!.Token);
         
         var authBody = JsonSerializer.Serialize(new
@@ -211,8 +212,6 @@ public class BilibiliRecorder : IDisposable
             key = _token
         });
         
-        _logger.LogInformation($"Auth Body for {_roomId}: {authBody}");
-
         var bodyBytes = Encoding.UTF8.GetBytes(authBody);
         await SendPacketAsync(7, bodyBytes);
         _logger.LogInformation($"Connected to room {_roomId}");

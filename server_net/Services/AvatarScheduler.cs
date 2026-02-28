@@ -32,8 +32,6 @@ public class AvatarScheduler : BackgroundService
         if (!Directory.Exists(_bgDir)) Directory.CreateDirectory(_bgDir);
         if (!Directory.Exists(_avatarDir)) Directory.CreateDirectory(_avatarDir);
 
-        _logger.LogInformation("AvatarScheduler started.");
-
         using var timer = new PeriodicTimer(_checkInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {

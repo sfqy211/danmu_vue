@@ -32,7 +32,6 @@ public static class DbInitializer
             while (await reader.ReadAsync())
             {
                 var name = reader.GetString(1); // name column
-                logger.LogInformation($"Found column: {name}");
                 
                 if (string.Equals(name, "group_name", StringComparison.OrdinalIgnoreCase)) hasGroupName = true;
                 if (string.Equals(name, "playlist_url", StringComparison.OrdinalIgnoreCase)) hasPlaylistUrl = true;

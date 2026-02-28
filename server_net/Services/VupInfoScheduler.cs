@@ -21,8 +21,6 @@ public class VupInfoScheduler : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("VupInfoScheduler started.");
-
         using var timer = new PeriodicTimer(_checkInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {

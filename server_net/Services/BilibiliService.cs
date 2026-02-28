@@ -16,11 +16,7 @@ public class BilibiliService
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com");
 
         _cookie = LoadCookie(logger);
-        if (!string.IsNullOrEmpty(_cookie))
-        {
-            logger.LogInformation("Bilibili Cookie loaded successfully.");
-        }
-        else
+        if (string.IsNullOrEmpty(_cookie))
         {
             logger.LogWarning("Bilibili Cookie NOT found in environment or .env files. Some API requests may fail.");
         }
@@ -67,7 +63,6 @@ public class BilibiliService
                     var cookie = NormalizeCookie(parts[1]);
                     if (!string.IsNullOrEmpty(cookie))
                     {
-                        logger.LogInformation($"Found BILI_COOKIE in {path}");
                         return cookie;
                     }
                 }
@@ -338,12 +333,8 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf for {realRoomId}: token len={token?.Length}, host={host}");
+                _logger.LogInformation($"Got danmaku conf for {realRoomId}: host={host}");
                 return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
-            }
-            else 
-            {
-                _logger.LogWarning($"GetDanmakuConf failed for {realRoomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("message").GetString()}");
             }
         }
         catch (Exception ex)
@@ -370,7 +361,7 @@ public class BilibiliService
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (root.TryGetProperty("code", out var code) && code.GetInt32() == 0)
+            if (root.TryGetProperty("code", out var oldCode) && oldCode.GetInt32() == 0)
             {
                 var data = root.GetProperty("data");
                 var token = data.GetProperty("token").GetString();
@@ -378,12 +369,8 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf (old API) for {realRoomId}: token len={token?.Length}, host={host}");
+                _logger.LogInformation($"Got danmaku conf (old API) for {realRoomId}: host={host}");
                 return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
-            }
-             else 
-            {
-                _logger.LogWarning($"GetDanmakuConf (old API) failed for {realRoomId}, code={root.GetProperty("code").GetInt32()}, msg={root.GetProperty("msg").GetString()}");
             }
         }
         catch (Exception ex)
@@ -391,7 +378,6 @@ public class BilibiliService
             _logger.LogError(ex, $"Failed to get danmaku conf (old API) for {realRoomId}");
         }
         
-        _logger.LogWarning($"Using fallback for {realRoomId}");
         // Fallback
         return ("", "wss://broadcastlv.chat.bilibili.com/sub", realRoomId);
     }

@@ -31,8 +31,6 @@ public class CoverScheduler : BackgroundService
     {
         if (!Directory.Exists(_coverDir)) Directory.CreateDirectory(_coverDir);
 
-        _logger.LogInformation("CoverScheduler started.");
-
         using var timer = new PeriodicTimer(_checkInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
