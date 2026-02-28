@@ -1,5 +1,5 @@
 <template>
-  <div class="header-container">
+  <div class="header-container" :style="themeStyle">
     <div class="left-panel">
       <el-button 
         v-if="showSidebarToggle"
@@ -388,6 +388,12 @@ import TimelineAnalysis from './TimelineAnalysis.vue';
 const store = useDanmakuStore();
 const router = useRouter();
 const route = useRoute();
+
+const themeStyle = computed(() => ({
+  '--theme-color': store.themeColor,
+  '--theme-color-alpha': store.themeColorAlpha
+}));
+
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
@@ -512,6 +518,28 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 覆盖 Element Plus 全局/Popper 下拉菜单颜色 */
+:root {
+  --el-color-primary: var(--theme-color);
+}
+
+:deep(.el-select-dropdown__item.is-selected) {
+  color: var(--theme-color) !important;
+}
+
+:deep(.el-select-dropdown__item:hover) {
+  background-color: var(--theme-color-alpha) !important;
+}
+
+:deep(.el-radio-button__inner:hover) {
+  color: var(--theme-color) !important;
+}
+
+:deep(.el-radio-button.is-active .el-radio-button__inner) {
+  background-color: var(--theme-color) !important;
+  border-color: var(--theme-color) !important;
+}
+
 .header-container {
   display: flex;
   justify-content: space-between;
@@ -670,6 +698,7 @@ onUnmounted(() => {
 /* Drawer Styles */
 :deep(.el-drawer) {
   background-color: var(--bg-primary);
+  --el-color-primary: var(--theme-color);
 }
 :deep(.el-drawer__header) {
   margin-bottom: 0;
@@ -706,13 +735,37 @@ onUnmounted(() => {
     transition: color 0.2s;
 }
 .drawer-item.clickable:hover {
-    color: var(--accent);
+    color: var(--theme-color, var(--accent));
 }
+
+.drawer-item.clickable:hover .item-left {
+    color: var(--theme-color, var(--accent));
+}
+
 .item-left {
     display: flex;
     align-items: center;
     gap: 10px;
 }
+
+/* 覆盖 Element Plus 组件的主题色 */
+:deep(.el-switch.is-checked .el-switch__core) {
+  background-color: var(--theme-color) !important;
+  border-color: var(--theme-color) !important;
+}
+
+:deep(.el-slider__bar) {
+  background-color: var(--theme-color) !important;
+}
+
+:deep(.el-slider__button) {
+  border-color: var(--theme-color) !important;
+}
+
+:deep(.el-input.is-focus .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--theme-color) !important;
+}
+
 .zoom-control {
     display: flex;
     align-items: center;
@@ -720,7 +773,8 @@ onUnmounted(() => {
 }
 .zoom-value {
     font-size: 12px;
-    color: var(--text-secondary);
+    color: var(--theme-color, var(--text-secondary));
+    font-weight: 600;
     width: 35px;
     text-align: right;
 }

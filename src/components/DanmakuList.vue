@@ -1,5 +1,6 @@
 <template>
   <div class="danmaku-container" v-loading="loading" 
+    :style="themeStyle"
     @mousemove="onMouseMove" @mouseup="stopResize" @mouseleave="stopResize"
     @touchmove="onTouchMove" @touchend="stopResize" @touchcancel="stopResize">
     <div v-if="!currentSession && !loading" class="empty-state">
@@ -221,6 +222,12 @@ const formatPrice = (price: number) => {
 const splitContainer = ref<HTMLElement | null>(null);
 const splitRatio = ref(70); // Percentage
 const isResizing = ref(false);
+
+const themeStyle = computed(() => ({
+  '--theme-color': store.themeColor,
+  '--theme-color-alpha': store.themeColorAlpha
+}));
+
 const isMobile = ref(window.innerWidth <= 768);
 
 const updateMobileStatus = () => {
@@ -498,11 +505,11 @@ onUnmounted(() => {
 }
 
 .badge {
-  background-color: var(--bg-hover);
+  background-color: var(--theme-color-alpha, var(--bg-hover));
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 0.8rem;
-  color: var(--text-secondary);
+  color: var(--theme-color, var(--text-secondary));
 }
 
 .scrollable-list {
@@ -556,7 +563,7 @@ onUnmounted(() => {
 .split-container:not(.is-mobile) .resizer:hover::after,
 .split-container:not(.is-mobile) .resizer:active::after {
   width: 4px;
-  background-color: var(--el-color-primary);
+  background-color: var(--theme-color, var(--el-color-primary));
   border-radius: 2px;
 }
 
@@ -628,11 +635,13 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  background-color: var(--theme-color-alpha, var(--bg-card));
+  border-color: var(--theme-color, var(--border));
 }
 
 .danmaku-item:hover {
   background-color: var(--bg-hover);
-  border-color: var(--accent);
+  border-color: var(--theme-color, var(--accent));
 }
 
 .danmaku-item.is-expanded .danmaku-text {
@@ -697,12 +706,18 @@ onUnmounted(() => {
 }
 
 .danmaku-time {
-  color: var(--text-tertiary);
+  color: var(--theme-color, var(--text-tertiary));
+  opacity: 0.7;
   font-size: 0.8rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   order: 3; /* Matches styles.css */
+}
+
+.danmaku-item.is-expanded .danmaku-time {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .danmaku-content-wrapper {
@@ -716,15 +731,37 @@ onUnmounted(() => {
 
 .danmaku-username {
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--theme-color, var(--text-secondary));
   font-size: 0.85rem;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .danmaku-username:hover {
-  color: var(--el-color-primary);
+  color: var(--theme-color, var(--el-color-primary));
+  opacity: 1;
+}
+
+:deep(.el-dropdown-menu__item:hover) {
+  background-color: var(--theme-color-alpha) !important;
+  color: var(--theme-color) !important;
+}
+
+:deep(.el-button--primary) {
+  background-color: var(--theme-color) !important;
+  border-color: var(--theme-color) !important;
+}
+
+:deep(.el-button--primary:hover) {
+  opacity: 0.8;
+}
+
+/* 覆盖 Element Plus 的蓝色高亮 */
+:deep(.el-dropdown__item:focus) {
+  background-color: var(--theme-color-alpha) !important;
+  color: var(--theme-color) !important;
 }
 
 .danmaku-text {
@@ -737,8 +774,8 @@ onUnmounted(() => {
 
 /* SC Styles */
 .sc-item {
-  border-left: 4px solid var(--accent);
-  background-color: rgba(0, 113, 227, 0.05);
+  border-left: 4px solid var(--theme-color, var(--accent));
+  background-color: var(--theme-color-alpha, rgba(0, 113, 227, 0.05));
 }
 
 .sc-header {
@@ -749,8 +786,12 @@ onUnmounted(() => {
 }
 
 .sc-price {
-  font-weight: 600;
-  color: var(--accent);
-  white-space: nowrap;
+  font-weight: 700;
+  color: var(--theme-color) !important;
+}
+
+.sc-header .danmaku-username {
+  color: var(--theme-color) !important;
+  opacity: 1;
 }
 </style>

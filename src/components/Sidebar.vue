@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar-container" :class="{ collapsed: store.isSidebarCollapsed }">
+  <div class="sidebar-container" :class="{ collapsed: store.isSidebarCollapsed }" :style="themeStyle">
     <div class="sidebar-header">
       <el-button 
         class="collapse-btn" 
@@ -124,6 +124,12 @@ import { VUP_LIST } from '../constants/vups';
 
 const store = useDanmakuStore();
 const route = useRoute();
+
+const themeStyle = computed(() => ({
+  '--theme-color': store.themeColor,
+  '--theme-color-alpha': store.themeColorAlpha
+}));
+
 const streamers = ref<StreamerInfo[]>([]);
 const sessions = ref<SessionInfo[]>([]);
 const selectedStreamer = ref('');
@@ -320,6 +326,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 覆盖 Element Plus 组件内部样式 */
+:deep(.el-select .el-input.is-focus .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--theme-color) !important;
+}
+
+:deep(.el-input.is-active .el-input__wrapper),
+:deep(.el-input:focus-within .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--theme-color) !important;
+}
+
+:deep(.el-select-dropdown__item.is-selected) {
+  color: var(--theme-color) !important;
+}
+
+:deep(.el-select-dropdown__item:hover) {
+  background-color: var(--theme-color-alpha) !important;
+}
+
 .sidebar-container {
   height: 100%;
   display: flex;
@@ -405,7 +429,7 @@ onUnmounted(() => {
 }
 
 .refresh-btn:hover {
-  color: var(--el-color-primary);
+  color: var(--theme-color, var(--el-color-primary));
 }
 
 .filter-section {
@@ -475,12 +499,19 @@ onUnmounted(() => {
 }
 
 .session-count .current {
-  color: var(--el-color-primary);
-  font-weight: 500;
+  color: var(--theme-color, var(--el-color-primary));
+  font-weight: 600;
 }
 
 .session-count .separator {
   margin: 0 4px;
+  color: var(--theme-color, var(--text-tertiary));
+  opacity: 0.4;
+}
+
+.session-count .total {
+  color: var(--theme-color, var(--text-secondary));
+  opacity: 0.6;
 }
 
 .collapsed-placeholder {
@@ -557,11 +588,24 @@ onUnmounted(() => {
 }
 
 .session-item.active {
-  background-color: var(--bg-active);
-  border-left: 3px solid var(--el-color-primary);
+  background-color: var(--theme-color-alpha, var(--bg-active));
+  border-left: 3px solid var(--theme-color, var(--el-color-primary));
   margin: 4px 12px;
   border-radius: 8px;
   padding-left: 12px;
+}
+
+.session-item.active .session-title {
+  color: var(--theme-color);
+}
+
+:deep(.el-select .el-input.is-focus .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--theme-color) !important;
+}
+
+:deep(.el-input.is-active .el-input__wrapper),
+:deep(.el-input:focus-within .el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--theme-color) !important;
 }
 
 .session-title {

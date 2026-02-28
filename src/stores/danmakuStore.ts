@@ -28,6 +28,21 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   // Getters
   const currentVup = computed<VupItem>(() => VUP_LIST[currentVupIndex.value]);
 
+  const themeColor = computed(() => {
+    const colors = currentVup.value.themeColors;
+    if (!colors || colors.length < 2) return '#409eff';
+    return colors[1]; // 第二个通常是主色
+  });
+
+  const themeColorAlpha = computed(() => {
+    const color = themeColor.value;
+    const rgbMatch = color.match(/\d+/g);
+    if (rgbMatch && rgbMatch.length >= 3) {
+      return `rgba(${rgbMatch[0]}, ${rgbMatch[1]}, ${rgbMatch[2]}, 0.15)`;
+    }
+    return 'rgba(64, 158, 255, 0.15)';
+  });
+
   // Actions
   const setCurrentVupIndex = (index: number) => {
     if (index >= 0 && index < VUP_LIST.length) {
@@ -185,6 +200,8 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     // Vup State
     currentVupIndex,
     currentVup,
+    themeColor,
+    themeColorAlpha,
     
     // Actions
     setCurrentVupIndex,
