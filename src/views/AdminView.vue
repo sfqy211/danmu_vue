@@ -533,6 +533,18 @@ const restartRoom = async (id: number) => {
   }
 };
 
+const toggleRoomMonitor = async (row: Room, active: boolean) => {
+  try {
+    await adminApi.post(`/admin/rooms/${row.id}/toggle-monitor`, { autoRecord: active }, getAuthConfig());
+    ElMessage.success(active ? '已启用监控' : '已停用监控');
+    // Delayed refresh to show updated process status
+    setTimeout(fetchRooms, 1500);
+  } catch (e: any) {
+    row.auto_record = active ? 0 : 1; // Revert on error
+    ElMessage.error('切换状态失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
 // --- Methods: Actions (Sessions) ---
 
 const applySessionFilters = async () => {
@@ -941,6 +953,16 @@ watch(activeSection, async (val) => {
                     </template>
                   </el-table-column>
                   <el-table-column prop="room_id" label="房间号" align="center" />
+                  <el-table-column label="开启监控" width="100" align="center">
+                    <template #default="scope">
+                      <el-switch
+                        v-model="scope.row.auto_record"
+                        :active-value="1"
+                        :inactive-value="0"
+                        @change="(val: number) => toggleRoomMonitor(scope.row, !!val)"
+                      />
+                    </template>
+                  </el-table-column>
                   <el-table-column label="监控状态" width="100" align="center">
                     <template #default="scope">
                       <el-popover

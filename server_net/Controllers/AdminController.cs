@@ -224,6 +224,37 @@ public class AdminController : ControllerBase
         return Ok(new { success = true });
     }
 
+    [HttpPost("rooms/{id}/toggle-monitor")]
+    public async Task<IActionResult> ToggleMonitor(int id, [FromBody] JsonElement body)
+    {
+        var room = await _db.Rooms.FindAsync(id);
+        if (room == null) return NotFound(new { error = "Room not found" });
+
+        if (body.TryGetProperty("autoRecord", out var autoRecordProp))
+        {
+            room.AutoRecord = autoRecordProp.ValueKind == JsonValueKind.True ? 1 : 0;
+            // Also keep isActive in sync if it's meant to be the master switch for PM2 control
+            room.IsActive = room.AutoRecord;
+            
+            await _db.SaveChangesAsync();
+
+            // If monitoring disabled, stop recorder
+            if (room.AutoRecord == 0)
+            {
+                var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
+                await _pm.StopRecorder(procName);
+            }
+            else
+            {
+                // If monitoring enabled, try starting the recorder
+                await _pm.StartRecorder(room.RoomId, room.Name);
+            }
+
+            return Ok(new { success = true, autoRecord = room.AutoRecord });
+        }
+        return BadRequest(new { error = "Missing autoRecord" });
+    }
+
     [HttpPost("init-db")]
     public async Task<IActionResult> InitDb()
     {

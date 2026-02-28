@@ -253,12 +253,17 @@ public class DanmakuController : ControllerBase
         var vup = await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid);
         if (vup == null) return NotFound(new { error = "VUP not found" });
         
-        // Map to match frontend expectations if necessary, or just return Room object
-        // Frontend expects: follower, guardNum, video, online, lastLive.time, liveStatus
-        // Our Room has: Followers, GuardNum, VideoCount, LastLiveTime
-        // We can map it here to be safe or update frontend to use our keys.
-        // Updating frontend is better.
-        
-        return Ok(vup);
+        // Return a consistent object for frontend
+        return Ok(new
+        {
+            uid = vup.Uid,
+            name = vup.Name,
+            roomId = vup.RoomId,
+            hasMonitor = vup.AutoRecord == 1, // User clarified: 1 means enabled, 0 means disabled
+            followers = vup.Followers,
+            guardNum = vup.GuardNum,
+            videoCount = vup.VideoCount,
+            lastLiveTime = vup.LastLiveTime
+        });
     }
 }

@@ -196,6 +196,7 @@ const fetchVupData = async (uid: string) => {
         guardNum: data.guardNum,
         videoCount: data.videoCount,
         lastLiveTime: data.lastLiveTime > 0 ? data.lastLiveTime : null,
+        hasMonitor: data.hasMonitor ?? false,
         // 保留原有的 isLiving 逻辑（如果后端没返回，这里暂时无法更新直播状态，
         // 除非我们在 Room 表中也添加 isLiving 字段并由 Scheduler 更新）
         // 目前仅满足用户要求的 4 个字段
