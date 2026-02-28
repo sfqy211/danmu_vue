@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { adminApi } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
@@ -53,7 +53,17 @@ const isAuthenticated = ref(false);
 const loading = ref(false);
 const error = ref('');
 const activeSection = ref<'monitor' | 'sessions' | 'songRequests'>('monitor');
-const sidebarCollapsed = ref(false);
+const isMobile = ref(window.innerWidth <= 768);
+const sidebarCollapsed = ref(window.innerWidth <= 768);
+
+// Handle resize for responsive states
+const handleResize = () => {
+  const mobile = window.innerWidth <= 768;
+  isMobile.value = mobile;
+  if (mobile) {
+    sidebarCollapsed.value = true;
+  }
+};
 
 // Monitor Data
 const rooms = ref<Room[]>([]);
@@ -356,6 +366,9 @@ const logout = () => {
 const handleMenuSelect = (index: string) => {
   if (['monitor', 'sessions', 'songRequests'].includes(index)) {
     activeSection.value = index as any;
+  }
+  if (isMobile.value) {
+    sidebarCollapsed.value = true;
   }
 };
 
@@ -738,9 +751,14 @@ const formatTimestamp = (value?: number) => {
 // --- Lifecycle ---
 
 onMounted(() => {
+  window.addEventListener('resize', handleResize);
   if (token.value) {
     checkAuth();
   }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize);
 });
 
 watch(activeSection, async (val) => {
@@ -786,6 +804,9 @@ watch(activeSection, async (val) => {
     <el-container v-else class="main-container">
       <el-header class="top-header">
         <div class="header-left">
+          <div v-if="isMobile" class="mobile-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
+            <el-icon :size="20"><Expand v-if="sidebarCollapsed" /><Fold v-else /></el-icon>
+          </div>
           <div class="logo-area">
             <h1 class="system-title">录制管理后台</h1>
           </div>
@@ -796,22 +817,26 @@ watch(activeSection, async (val) => {
             @click="refreshCurrentSection"
             :loading="isRefreshing"
           >
-            刷新状态
+            <span v-if="!isMobile">刷新状态</span>
           </el-button>
           <el-button 
             type="danger" 
             :icon="SwitchButton" 
             @click="logout"
           >
-            退出登录
+            <span v-if="!isMobile">退出登录</span>
           </el-button>
         </div>
       </el-header>
       
       <el-container class="content-container">
         <!-- Sidebar -->
-        <el-aside :width="sidebarCollapsed ? '64px' : '220px'" class="sidebar-container">
-          <div class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
+        <el-aside 
+          :width="sidebarCollapsed ? (isMobile ? '0' : '64px') : '220px'" 
+          class="sidebar-container"
+          :class="{ 'collapsed-mobile': isMobile && sidebarCollapsed }"
+        >
+          <div v-if="!isMobile" class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed">
              <el-icon :size="20" class="toggle-icon">
                <component :is="sidebarCollapsed ? Expand : Fold" />
              </el-icon>
@@ -841,8 +866,15 @@ watch(activeSection, async (val) => {
           </el-menu>
         </el-aside>
 
+        <!-- Sidebar Overlay (Mobile Only) -->
+        <div 
+          v-if="isMobile && !sidebarCollapsed" 
+          class="sidebar-overlay" 
+          @click="sidebarCollapsed = true"
+        ></div>
+
         <!-- Main Content -->
-        <el-main class="main-content">
+        <el-main class="main-content" @click="isMobile && !sidebarCollapsed ? sidebarCollapsed = true : null">
           <div class="breadcrumb-bar">
             <el-breadcrumb separator="/">
               <el-breadcrumb-item v-for="(item, index) in breadcrumbs" :key="index">
@@ -903,23 +935,34 @@ watch(activeSection, async (val) => {
                   @selection-change="handleRoomSelectionChange"
                 >
                   <el-table-column type="selection" width="55" align="center" />
-                  <el-table-column prop="name" label="主播" align="center" />
-                  <el-table-column prop="remark" label="备注" align="center" show-overflow-tooltip />
-                  <el-table-column prop="room_id" label="房间号" align="center" />
-                  <el-table-column label="状态" width="100" align="center">
+                  <el-table-column label="主播" align="center" show-overflow-tooltip>
                     <template #default="scope">
-                      <el-tag 
-                        :type="getMonitorStatusType(scope.row.process_status)"
-                        effect="dark"
-                        size="small"
-                      >
-                        {{ getMonitorStatusLabel(scope.row.process_status) }}
-                      </el-tag>
+                      {{ scope.row.remark || scope.row.name }}
                     </template>
                   </el-table-column>
-                  <el-table-column label="运行时长" align="center">
+                  <el-table-column prop="room_id" label="房间号" align="center" />
+                  <el-table-column label="监控状态" width="100" align="center">
                     <template #default="scope">
-                      {{ formatUptime(scope.row.process_uptime) }}
+                      <el-popover
+                        placement="top"
+                        :width="150"
+                        trigger="click"
+                      >
+                        <template #reference>
+                          <el-tag 
+                            :type="getMonitorStatusType(scope.row.process_status)"
+                            effect="dark"
+                            size="small"
+                            style="cursor: pointer"
+                          >
+                            {{ getMonitorStatusLabel(scope.row.process_status) }}
+                          </el-tag>
+                        </template>
+                        <div style="text-align: center">
+                          <p style="margin: 0; font-weight: bold; font-size: 12px; color: #909399; margin-bottom: 4px;">运行时长</p>
+                          <p style="margin: 0; font-size: 14px;">{{ formatUptime(scope.row.process_uptime) }}</p>
+                        </div>
+                      </el-popover>
                     </template>
                   </el-table-column>
                   <el-table-column label="开播时长" align="center">
@@ -1056,7 +1099,7 @@ watch(activeSection, async (val) => {
                     :page-size="sessionPageSize"
                     :total="sessionTotal"
                     :page-sizes="[10, 20, 50, 100]"
-                    layout="prev, pager, next, sizes, total"
+                    :layout="isMobile ? 'prev, pager, next' : 'prev, pager, next, sizes, total'"
                     @size-change="(val: number) => { sessionPageSize = val; sessionPage = 1; fetchSessions(); }"
                     @current-change="(val: number) => { sessionPage = val; fetchSessions(); }"
                   />
@@ -1161,7 +1204,7 @@ watch(activeSection, async (val) => {
                     :page-size="songPageSize"
                     :total="songTotal"
                     :page-sizes="[10, 20, 50, 100]"
-                    layout="prev, pager, next, sizes, total"
+                    :layout="isMobile ? 'prev, pager, next' : 'prev, pager, next, sizes, total'"
                     @size-change="(val: number) => { songPageSize = val; songPage = 1; fetchSongRequests(); }"
                     @current-change="(val: number) => { songPage = val; fetchSongRequests(); }"
                   />
@@ -1410,5 +1453,115 @@ watch(activeSection, async (val) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .sidebar-container {
+    position: fixed;
+    top: 60px;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    width: 220px !important;
+    box-shadow: 4px 0 10px rgba(0,0,0,0.1);
+  }
+
+  .sidebar-container.collapsed-mobile {
+    transform: translateX(-100%);
+    width: 0 !important;
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 999;
+  }
+
+  .main-content {
+    margin-left: 0 !important;
+  }
+
+  .mobile-toggle {
+    margin-right: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    color: #606266;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+  }
+
+  .top-header {
+    padding: 0 10px;
+  }
+  
+  .system-title {
+    font-size: 16px;
+  }
+  
+  .header-right {
+    gap: 8px;
+  }
+  
+  .header-right :deep(.el-button) {
+    padding: 8px;
+  }
+
+  .content-area {
+    padding: 10px;
+  }
+
+  .search-section {
+    padding: 12px;
+  }
+
+  .search-form {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .search-form :deep(.el-input),
+  .search-form :deep(.el-select),
+  .search-form :deep(.el-button) {
+    width: 100% !important;
+    margin: 0;
+  }
+
+  .table-section {
+    padding: 10px;
+    overflow-x: auto;
+  }
+
+  .breadcrumb-bar {
+    padding: 8px 12px;
+  }
+
+  /* Table responsive adjustments */
+  :deep(.el-table) {
+    font-size: 13px;
+  }
+  
+  :deep(.el-table .cell) {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+
+  .action-btns {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .action-btns :deep(.el-button) {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 </style>
