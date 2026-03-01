@@ -85,24 +85,34 @@ public class VupInfoScheduler : BackgroundService
         {
             _logger.LogInformation($"Updating stats for {room.Name} (RoomId: {room.RoomId})...");
 
-            var (followers, guardNum, videoCount) = await biliService.GetVupStatsAsync(room.RoomId, room.Uid!);
+            // Use the enhanced API to get all info including live status and start time
+            var (title, userName, liveStatus, coverUrl, uid, liveStartTime, followers, guardNum, videoCount) = 
+                await biliService.GetRoomInfoAsync(room.RoomId);
             
-            room.Followers = followers;
-            room.GuardNum = guardNum;
-            room.VideoCount = videoCount;
+            if (followers > 0) room.Followers = followers;
+            if (guardNum > 0) room.GuardNum = guardNum;
+            if (videoCount > 0) room.VideoCount = videoCount;
+            if (!string.IsNullOrEmpty(userName) && userName != "Unknown") room.Name = userName;
+
+            // Update LastLiveTime if found a more recent one from API
+            if (liveStartTime.HasValue && liveStartTime.Value > room.LastLiveTime)
+            {
+                room.LastLiveTime = liveStartTime.Value;
+            }
             
-            // Try to find last session time from DB for LastLiveTime
+            // Still check sessions for the absolute latest (in case API is behind)
             try 
             {
                 var roomIdStr = room.RoomId.ToString();
                 var lastSession = await db.Sessions
                     .Where(s => s.RoomId == roomIdStr)
                     .OrderByDescending(s => s.StartTime)
+                    .Select(s => s.StartTime)
                     .FirstOrDefaultAsync(stoppingToken);
                     
-                if (lastSession != null && lastSession.StartTime > room.LastLiveTime)
+                if (lastSession.HasValue && lastSession.Value > room.LastLiveTime)
                 {
-                    room.LastLiveTime = lastSession.StartTime ?? 0;
+                    room.LastLiveTime = lastSession.Value;
                 }
             }
             catch (Exception ex)
@@ -117,7 +127,7 @@ public class VupInfoScheduler : BackgroundService
             // Update the map
             _lastUpdateMap[room.RoomId] = DateTime.UtcNow;
             
-            _logger.LogInformation($"Updated stats for {room.Name}: Followers={followers}, Guards={guardNum}, Videos={videoCount}");
+            _logger.LogInformation($"Updated stats for {room.Name}: Followers={followers}, Guards={guardNum}, Videos={videoCount}, LastLive={room.LastLiveTime}");
         }
         catch (Exception ex)
         {

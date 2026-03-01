@@ -521,71 +521,75 @@ public class BilibiliService
 
     public async Task<(int Followers, int GuardNum, int VideoCount)> GetVupStatsAsync(long roomId, string uid)
     {
-        // 1. Try vtbs.moe first
-        var (vFollowers, vGuardNum, vVideoCount) = await GetVupStatsFromVtbsAsync(uid);
-        if (vFollowers.HasValue && vGuardNum.HasValue && vVideoCount.HasValue)
-        {
-            return (vFollowers.Value, vGuardNum.Value, vVideoCount.Value);
-        }
-
-        int followers = vFollowers ?? 0;
-        int guardNum = vGuardNum ?? 0;
-        int videoCount = vVideoCount ?? 0;
+        int followers = 0;
+        int guardNum = 0;
+        int videoCount = 0;
+        var cookie = GetCookie();
 
         try
         {
-            // 2. Fallback to official API if any data is missing
-            if (!vFollowers.HasValue)
-            {
-                var req1 = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/relation/stat?vmid={uid}");
-                if (!string.IsNullOrEmpty(_cookie)) req1.Headers.TryAddWithoutValidation("Cookie", _cookie);
-                req1.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
-                var res1 = await _httpClient.SendAsync(req1);
-                if (res1.IsSuccessStatusCode)
-                {
-                    using var doc = JsonDocument.Parse(await res1.Content.ReadAsStringAsync());
-                    if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("follower", out var f))
-                    {
-                        followers = f.GetInt32();
-                    }
-                }
-            }
+            // 1. Official Bilibili APIs (Parallel for speed)
+            var tasks = new List<Task>();
 
-            if (!vVideoCount.HasValue)
-            {
-                var req2 = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/space/navnum?mid={uid}");
-                if (!string.IsNullOrEmpty(_cookie)) req2.Headers.TryAddWithoutValidation("Cookie", _cookie);
-                req2.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
-                var res2 = await _httpClient.SendAsync(req2);
-                if (res2.IsSuccessStatusCode)
-                {
-                    using var doc = JsonDocument.Parse(await res2.Content.ReadAsStringAsync());
-                    if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
-                    {
-                        videoCount = v.GetInt32();
+            // Followers
+            tasks.Add(Task.Run(async () => {
+                try {
+                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/relation/stat?vmid={uid}");
+                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
+                    req.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
+                    var res = await _httpClient.SendAsync(req);
+                    if (res.IsSuccessStatusCode) {
+                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                        if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("follower", out var f))
+                            followers = f.GetInt32();
                     }
-                }
-            }
+                } catch {}
+            }));
 
-            if (!vGuardNum.HasValue)
-            {
-                var realRoomId = await GetRealRoomIdAsync(roomId);
-                if (realRoomId <= 0) realRoomId = roomId;
-
-                var req3 = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList?roomid={realRoomId}&page=1&ruid={uid}&page_size=0");
-                if (!string.IsNullOrEmpty(_cookie)) req3.Headers.TryAddWithoutValidation("Cookie", _cookie);
-                req3.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
-                var res3 = await _httpClient.SendAsync(req3);
-                if (res3.IsSuccessStatusCode)
-                {
-                    using var doc = JsonDocument.Parse(await res3.Content.ReadAsStringAsync());
-                    if (doc.RootElement.TryGetProperty("data", out var data) && 
-                        data.TryGetProperty("info", out var info) && 
-                        info.TryGetProperty("num", out var n))
-                    {
-                        guardNum = n.GetInt32();
+            // Video Count
+            tasks.Add(Task.Run(async () => {
+                try {
+                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/space/navnum?mid={uid}");
+                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
+                    req.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
+                    var res = await _httpClient.SendAsync(req);
+                    if (res.IsSuccessStatusCode) {
+                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                        if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
+                            videoCount = v.GetInt32();
                     }
-                }
+                } catch {}
+            }));
+
+            // Guard Num (requires real room id)
+            tasks.Add(Task.Run(async () => {
+                try {
+                    var realRoomId = await GetRealRoomIdAsync(roomId);
+                    if (realRoomId <= 0) realRoomId = roomId;
+
+                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList?roomid={realRoomId}&page=1&ruid={uid}&page_size=0");
+                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
+                    req.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
+                    var res = await _httpClient.SendAsync(req);
+                    if (res.IsSuccessStatusCode) {
+                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                        if (doc.RootElement.TryGetProperty("data", out var data) && 
+                            data.TryGetProperty("info", out var info) && 
+                            info.TryGetProperty("num", out var n))
+                            guardNum = n.GetInt32();
+                    }
+                } catch {}
+            }));
+
+            await Task.WhenAll(tasks);
+
+            // 2. Fallback to vtbs.moe ONLY if official data is missing
+            if (followers == 0 || guardNum == 0 || videoCount == 0)
+            {
+                var (vFollowers, vGuardNum, vVideoCount) = await GetVupStatsFromVtbsAsync(uid);
+                if (followers == 0) followers = vFollowers ?? 0;
+                if (guardNum == 0) guardNum = vGuardNum ?? 0;
+                if (videoCount == 0) videoCount = vVideoCount ?? 0;
             }
         }
         catch (Exception ex)
