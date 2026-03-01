@@ -29,3 +29,8 @@ services:
       # - DB_PATH=/app/server/data/danmaku_data.db
       
     restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: 1panel-network
