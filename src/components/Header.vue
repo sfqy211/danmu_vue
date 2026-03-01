@@ -180,7 +180,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>BiliDanmu 弹幕时光机 v2.2</p>
+          <p>BiliDanmu 弹幕时光机 v2.3</p>
         </div>
       </template>
     </el-drawer>
@@ -238,14 +238,16 @@
       <div class="about-content">
         <div class="about-section">
           <h3>项目介绍</h3>
-          <p>这是一个专为 Bilibili 直播回放设计的弹幕预览与数据分析工具，旨在提供极致的复盘体验。</p>
-          <p>核心功能：</p>
+          <p>这是一个专为 Bilibili 直播回放设计的弹幕预览与数据分析系统，通过“弹幕时光机”理念，提供极致的复盘体验。</p>
+          <p><strong>技术栈：</strong></p>
           <ul>
-            <li><strong>弹幕回放与筛选</strong>：支持按需加载海量弹幕，提供精准的用户/内容搜索与筛选功能。</li>
-            <li><strong>发送数据统计</strong>：可视化展示弹幕发送排行，支持按发送频次过滤，可一键导出或复制统计图表。</li>
-            <li><strong>全场热度分布</strong>：基于整场直播的时间轴统计，直观呈现直播过程中的弹幕高能时刻。</li>
-            <li><strong>跨端响应式布局</strong>：完美适配网页与手机端，网页端左右分栏提升效率，手机端上下布局优化观感。</li>
+            <li><strong>前端</strong>：基于 <strong>Vue 3</strong> + <strong>Vite</strong> + <strong>TypeScript</strong> 构建，状态管理采用 <strong>Pinia</strong>，UI 组件库使用 <strong>Element Plus</strong>，数据可视化依托 <strong>ECharts</strong>。</li>
+            <li><strong>后端</strong>：采用 <strong>ASP.NET Core 9</strong> 驱动，集成 <strong>EF Core</strong> (MySQL) 与后台任务调度，内置 <strong>Garnet</strong> (Redis 兼容) 高效处理弹幕缓冲。</li>
+            <li><strong>数据存储</strong>：结合 <strong>MySQL</strong> 持久化业务数据与 <strong>XML</strong> 存储原始弹幕，确保数据的完整性与高性能检索。</li>
+            <li><strong>部署架构</strong>：全面支持 <strong>Docker</strong> 容器化部署，前端产物通过后端静态资源服务或 <strong>CDN</strong> 极速分发。</li>
           </ul>
+          <p>B站主页：<a href="https://space.bilibili.com/182587768" target="_blank">朔风秋叶</a></p>
+          <p>项目地址：<a href="https://github.com/sfqy211/danmu_vue" target="_blank">https://github.com/sfqy211/danmu_vue</a></p>
         </div>
         
         <el-divider />
@@ -253,6 +255,15 @@
         <div class="about-section">
           <h3>更新日志</h3>
           <el-collapse class="changelog-collapse">
+            <el-collapse-item title="v2.3 - 2026-03-01 (数据同步与体验优化)" name="2.3">
+              <ul class="changelog-list">
+                <li><strong>统计数据自动同步</strong>：录制器在启动与心跳时自动同步 VUP 粉丝数、舰长数及视频数，无需手动触发。</li>
+                <li><strong>直播时长精准化</strong>：优化开播时间抓取逻辑，支持从会话记录自动回填，解决“直播中”状态显示不准的问题。</li>
+                <li><strong>管理端体验优化</strong>：为管理页面搜索栏添加移动端折叠功能，优化小屏幕下的操作空间。</li>
+                <li><strong>后端接口增强</strong>：重构 <code>GetRoomInfoAsync</code> 接口，支持全量 VUP 统计数据并行抓取，提升响应速度。</li>
+                <li><strong>数据库健壮性</strong>：修改种子数据同步策略，防止重启服务时覆盖用户已修改的监控配置。</li>
+              </ul>
+            </el-collapse-item>
             <el-collapse-item title="v2.2 - 2026-02-28 (管理增强与架构优化)" name="2.2">
               <ul class="changelog-list">
                 <li><strong>管理功能增强</strong>：支持通过 UID 添加主播并提供备注管理功能；管理端新增批量删除功能，扩展房间模型字段以记录更多元数据；优化 VUP 信息调度器，支持同步粉丝数等动态数据。</li>
@@ -345,11 +356,6 @@
         
         <el-divider />
         
-        <div class="about-section">
-          <h3>个人介绍</h3>
-          <p>B站主页：<a href="https://space.bilibili.com/182587768" target="_blank">朔风秋叶</a></p>
-          <p>项目主页：<a href="https://github.com/sfqy211/danmu_vue" target="_blank">danmu_vue</a></p>
-        </div>
       </div>
     </el-dialog>
   </div>
