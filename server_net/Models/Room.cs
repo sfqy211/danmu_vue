@@ -19,9 +19,6 @@ public class Room
     [Column("name")]
     public string? Name { get; set; }
 
-    [Column("is_active")]
-    public int IsActive { get; set; } = 1;
-
     [Column("auto_record")]
     public int AutoRecord { get; set; } = 1;
 

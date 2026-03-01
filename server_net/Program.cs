@@ -53,9 +53,16 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Database
-var dbPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku_data.db"));
+var connectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING") 
+                    ?? builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+}
+
 builder.Services.AddDbContext<DanmuContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
 // Services
 builder.Services.AddSingleton<ProcessManager>();
