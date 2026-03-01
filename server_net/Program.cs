@@ -53,16 +53,19 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Database
-var connectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING") 
+var connectionString = builder.Configuration["MYSQL_CONNECTION_STRING"] 
                     ?? builder.Configuration.GetConnectionString("DefaultConnection");
 
 if (string.IsNullOrEmpty(connectionString))
 {
-    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+    throw new InvalidOperationException("Connection string 'MYSQL_CONNECTION_STRING' not found.");
 }
 
 builder.Services.AddDbContext<DanmuContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+{
+    var serverVersion = new MySqlServerVersion(new Version(8, 4, 8));
+    options.UseMySql(connectionString, serverVersion);
+});
 
 // Services
 builder.Services.AddSingleton<ProcessManager>();
