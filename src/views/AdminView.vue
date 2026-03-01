@@ -4,7 +4,7 @@ import { adminApi } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
-  VideoCamera, DataLine, Fold, Expand 
+  VideoCamera, DataLine, Fold, Expand, ArrowDown, ArrowUp 
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -55,6 +55,7 @@ const error = ref('');
 const activeSection = ref<'monitor' | 'sessions' | 'songRequests'>('monitor');
 const isMobile = ref(window.innerWidth <= 768);
 const sidebarCollapsed = ref(window.innerWidth <= 768);
+const searchCollapsed = ref(window.innerWidth <= 768);
 
 // Handle resize for responsive states
 const handleResize = () => {
@@ -62,6 +63,7 @@ const handleResize = () => {
   isMobile.value = mobile;
   if (mobile) {
     sidebarCollapsed.value = true;
+    searchCollapsed.value = true;
   }
 };
 
@@ -718,10 +720,16 @@ const formatUptime = (val: number | string) => {
 };
 
 const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
-  if (liveStatus !== 1 || !liveStartTime) return '未开播';
+  if (liveStatus !== 1) return '未开播';
+  if (!liveStartTime || liveStartTime === 0) return '直播中';
+  const now = Date.now();
   const startMs = liveStartTime < 1_000_000_000_000 ? liveStartTime * 1000 : liveStartTime;
-  const diffSeconds = Math.floor((Date.now() - startMs) / 1000);
-  if (diffSeconds < 0) return '未开播';
+  
+  // 增加日志辅助调试
+  // console.log(`LiveStartTime: ${liveStartTime}, StartMs: ${startMs}, Now: ${now}, Diff: ${now - startMs}`);
+  
+  const diffSeconds = Math.floor((now - startMs) / 1000);
+  if (diffSeconds < 0) return '直播中'; // 如果时间还没到（本地时差），显示直播中而非未开播
   const seconds = diffSeconds % 60;
   const totalMinutes = Math.floor(diffSeconds / 60);
   const minutes = totalMinutes % 60;
@@ -898,8 +906,16 @@ watch(activeSection, async (val) => {
           <div class="content-area">
             <!-- Monitor Section -->
             <template v-if="activeSection === 'monitor'">
-              <div class="search-section">
-                <div class="search-form">
+              <div class="search-section" :class="{ 'is-mobile': isMobile }">
+                <div v-if="isMobile" class="mobile-search-toggle" @click="searchCollapsed = !searchCollapsed">
+                  <div class="toggle-content">
+                    <el-icon><Plus /></el-icon>
+                    <span>添加主播与批量操作</span>
+                  </div>
+                  <el-icon :class="{ 'is-rotated': !searchCollapsed }"><ArrowDown /></el-icon>
+                </div>
+                
+                <div class="search-form" v-show="!isMobile || !searchCollapsed">
                   <el-input 
                     v-model="newRoom.uid" 
                     placeholder="请输入 UID" 
@@ -1028,8 +1044,16 @@ watch(activeSection, async (val) => {
 
             <!-- Sessions Section -->
             <template v-else-if="activeSection === 'sessions'">
-              <div class="search-section">
-                <div class="search-form">
+              <div class="search-section" :class="{ 'is-mobile': isMobile }">
+                <div v-if="isMobile" class="mobile-search-toggle" @click="searchCollapsed = !searchCollapsed">
+                  <div class="toggle-content">
+                    <el-icon><DataLine /></el-icon>
+                    <span>筛选与管理</span>
+                  </div>
+                  <el-icon :class="{ 'is-rotated': !searchCollapsed }"><ArrowDown /></el-icon>
+                </div>
+
+                <div class="search-form" v-show="!isMobile || !searchCollapsed">
                   <el-select 
                     v-model="sessionFilterRoomId" 
                     placeholder="选择主播/房间" 
@@ -1131,8 +1155,16 @@ watch(activeSection, async (val) => {
 
             <!-- Song Requests Section -->
             <template v-else>
-              <div class="search-section">
-                <div class="search-form">
+              <div class="search-section" :class="{ 'is-mobile': isMobile }">
+                <div v-if="isMobile" class="mobile-search-toggle" @click="searchCollapsed = !searchCollapsed">
+                  <div class="toggle-content">
+                    <el-icon><Refresh /></el-icon>
+                    <span>筛选与管理</span>
+                  </div>
+                  <el-icon :class="{ 'is-rotated': !searchCollapsed }"><ArrowDown /></el-icon>
+                </div>
+
+                <div class="search-form" v-show="!isMobile || !searchCollapsed">
                   <el-select 
                     v-model="songFilterRoomId" 
                     placeholder="选择主播/房间" 
@@ -1441,6 +1473,44 @@ watch(activeSection, async (val) => {
   padding: 18px;
   border-radius: 4px;
   margin-bottom: 16px;
+  position: relative;
+  z-index: 10;
+}
+
+.search-section.is-mobile {
+  padding: 0;
+  overflow: visible;
+  margin-bottom: 12px;
+  border: 1px solid #ebeef5;
+}
+
+.mobile-search-toggle {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-search-toggle .toggle-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #409eff;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.mobile-search-toggle .el-icon {
+  transition: transform 0.3s;
+  color: #909399;
+}
+
+.mobile-search-toggle .is-rotated {
+  transform: rotate(180deg);
 }
 
 .search-form {
@@ -1449,8 +1519,25 @@ watch(activeSection, async (val) => {
   gap: 12px;
 }
 
+.search-section.is-mobile .search-form {
+  padding: 16px;
+  background: #fafafa;
+}
+
 .search-form :deep(.el-input) {
   width: 200px;
+}
+
+@media screen and (max-width: 768px) {
+  .search-form :deep(.el-input),
+  .search-form :deep(.el-select) {
+    width: 100% !important;
+  }
+  
+  .search-form .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 
 .table-section {
