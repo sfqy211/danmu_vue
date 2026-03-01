@@ -133,6 +133,7 @@ import { ref, computed, onMounted, watch, onUnmounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import TopNav from '../components/TopNav.vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
+import { api } from '../api/danmaku';
 import {
   ChatDotRound, Headset, ArrowRight, User,
   Promotion, VideoPlay, DataLine
@@ -187,21 +188,15 @@ const fetchVupData = async (uid: string) => {
   if (vupDataMap[uid]) return; // 如果已有缓存数据则不重复请求
   
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api';
-    const res = await fetch(`${apiBase}/vup/${uid}`);
-    if (res.ok) {
-      const data = await res.json();
-      vupDataMap[uid] = {
-        followers: data.followers,
-        guardNum: data.guardNum,
-        videoCount: data.videoCount,
-        lastLiveTime: data.lastLiveTime > 0 ? data.lastLiveTime : null,
-        hasMonitor: data.hasMonitor ?? false,
-        // 保留原有的 isLiving 逻辑（如果后端没返回，这里暂时无法更新直播状态，
-        // 除非我们在 Room 表中也添加 isLiving 字段并由 Scheduler 更新）
-        // 目前仅满足用户要求的 4 个字段
-      };
-    }
+    const res = await api.get(`/vup/${uid}`);
+    const data = res.data;
+    vupDataMap[uid] = {
+      followers: data.followers,
+      guardNum: data.guardNum,
+      videoCount: data.videoCount,
+      lastLiveTime: data.lastLiveTime > 0 ? data.lastLiveTime : null,
+      hasMonitor: data.hasMonitor ?? false,
+    };
   } catch (e) {
     console.error('Failed to fetch vup data:', e);
   }
