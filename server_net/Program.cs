@@ -107,9 +107,16 @@ app.UseAuthorization();
 // Serve Static Files
 var distPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../dist"));
 var publicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../public"));
-var staticPath = Directory.Exists(distPath) ? distPath : publicPath;
+var localPublicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "public"));
+var staticPath = Directory.Exists(distPath)
+    ? distPath
+    : Directory.Exists(publicPath)
+        ? publicPath
+        : Directory.Exists(localPublicPath)
+            ? localPublicPath
+            : null;
 
-if (Directory.Exists(staticPath))
+if (staticPath != null)
 {
     app.UseStaticFiles(new StaticFileOptions
     {
@@ -149,10 +156,13 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapControllers();
 
 // SPA Fallback
-app.MapFallbackToFile("index.html", new StaticFileOptions
+if (staticPath != null)
 {
-    FileProvider = new PhysicalFileProvider(staticPath)
-});
+    app.MapFallbackToFile("index.html", new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(staticPath)
+    });
+}
 
 // Init DB
 using (var scope = app.Services.CreateScope())
