@@ -11,7 +11,13 @@ public static class DbInitializer
         await db.Database.EnsureCreatedAsync();
 
         // 2. Seed Data from seed_vups.sql if table is empty OR force update
-        logger.LogInformation("Seeding/Updating VUP data from SQL script...");
+        if (await db.Rooms.AnyAsync())
+        {
+            logger.LogInformation("Database already contains rooms, skipping initial seed.");
+            return;
+        }
+
+        logger.LogInformation("Seeding VUP data from SQL script...");
         try
         {
             var seedPath = Path.Combine(Directory.GetCurrentDirectory(), "Data/seed_vups.sql");

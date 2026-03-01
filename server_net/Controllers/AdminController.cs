@@ -34,13 +34,31 @@ public class AdminController : ControllerBase
     {
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
+        var results = new List<object>();
 
-        var result = rooms.Select(room =>
+        foreach (var room in rooms)
         {
             var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
             var proc = processes.FirstOrDefault(p => p.Name == procName);
 
-            return new
+            // Fallback: If LastLiveTime is 0 or outdated, try to get from Sessions table
+            long liveStartTime = room.LastLiveTime;
+            var roomIdStr = room.RoomId.ToString();
+            var lastSession = await _db.Sessions
+                .Where(s => s.RoomId == roomIdStr)
+                .OrderByDescending(s => s.StartTime)
+                .Select(s => s.StartTime)
+                .FirstOrDefaultAsync();
+            
+            if (lastSession.HasValue && lastSession.Value > room.LastLiveTime)
+            {
+                liveStartTime = lastSession.Value;
+                // Sync back to Rooms table if we found a more recent session time
+                room.LastLiveTime = liveStartTime;
+                await _db.SaveChangesAsync();
+            }
+
+            results.Add(new
             {
                 id = room.Id,
                 room_id = room.RoomId,
@@ -49,14 +67,14 @@ public class AdminController : ControllerBase
                 auto_record = room.AutoRecord,
                 process_status = proc?.Status ?? "stopped",
                 process_uptime = proc?.Uptime ?? "0s",
-                live_status = 0, // Removed redundant live status fetch to avoid rate limit
-                live_start_time = room.LastLiveTime,
+                live_status = (proc?.Status == "online") ? 1 : 0, 
+                live_start_time = liveStartTime,
                 pid = proc?.Pid,
                 remark = room.Remark
-            };
-        });
+            });
+        }
 
-        return Ok(result);
+        return Ok(results);
     }
 
     [HttpPost("rooms")]
@@ -230,20 +248,29 @@ public class AdminController : ControllerBase
 
         if (body.TryGetProperty("autoRecord", out var autoRecordProp))
         {
-            room.AutoRecord = autoRecordProp.ValueKind == JsonValueKind.True ? 1 : 0;
+            // Robust parsing of boolean or number
+            bool isEnabled = false;
+            if (autoRecordProp.ValueKind == JsonValueKind.True) isEnabled = true;
+            else if (autoRecordProp.ValueKind == JsonValueKind.False) isEnabled = false;
+            else if (autoRecordProp.ValueKind == JsonValueKind.Number) isEnabled = autoRecordProp.GetInt32() != 0;
+
+            room.AutoRecord = isEnabled ? 1 : 0;
+            
+            _logger.LogInformation($"Toggling monitor for {room.Name}: {isEnabled} (ID: {id})");
             
             await _db.SaveChangesAsync();
 
-            // If monitoring disabled, stop recorder
+            // Perform action based on the NEW state in DB
             if (room.AutoRecord == 0)
             {
                 var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
                 await _pm.StopRecorder(procName);
+                _logger.LogInformation($"Stopped recorder for {room.Name}");
             }
             else
             {
-                // If monitoring enabled, try starting the recorder
                 await _pm.StartRecorder(room.RoomId, room.Name);
+                _logger.LogInformation($"Started recorder for {room.Name}");
             }
 
             return Ok(new { success = true, autoRecord = room.AutoRecord });

@@ -31,6 +31,11 @@ npm install
    cd server_net
    dotnet run --urls "http://0.0.0.0:3001"
    ```
+
+   **后端构建测试**
+   ```bash
+   dotnet build
+   ```
    后端默认地址：`http://localhost:3001`
 
 2. **启动前端**

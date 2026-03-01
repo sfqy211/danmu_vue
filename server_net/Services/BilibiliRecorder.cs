@@ -29,6 +29,8 @@ public class BilibiliRecorder : IDisposable
     
     // Delegate to check for active session key
     public Func<long, Task<string?>>? CheckActiveSession;
+    // Delegate to update last live time and stats in DB
+    public Func<long, long, int, int, int, Task>? UpdateVupStats;
     // Delegate to notify session started
     public event Func<long, string, string, long, string, Task>? OnSessionStarted;
     // Delegate to notify session ended
@@ -61,10 +63,15 @@ public class BilibiliRecorder : IDisposable
         // Fetch Room Info for Title
         try 
         {
-             var (title, userName, liveStatus, _, _) = await bilibiliService.GetRoomInfoAsync(_realRoomId);
+             var (title, userName, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await bilibiliService.GetRoomInfoAsync(_realRoomId);
              if (!string.IsNullOrEmpty(title)) _title = title;
              if (!string.IsNullOrEmpty(userName)) _userName = userName;
              _logger.LogInformation($"Room Info: {_title} (@{_userName})");
+
+             if (UpdateVupStats != null)
+             {
+                 _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+             }
         }
         catch (Exception ex)
         {
@@ -139,9 +146,13 @@ public class BilibiliRecorder : IDisposable
             if (_bilibiliService == null) return;
             try
             {
-                var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+                var (_, _, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
                 if (liveStatus == 1)
                 {
+                    if (UpdateVupStats != null)
+                    {
+                        _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+                    }
                     return;
                 }
                 Status = "offline";
@@ -287,7 +298,7 @@ public class BilibiliRecorder : IDisposable
             {
                 try
                 {
-                    var (_, _, liveStatus, _, _) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+                    var (_, _, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
                     if (liveStatus != 1)
                     {
                         _logger.LogInformation($"Detected offline via API check for {_roomId}");
@@ -298,10 +309,14 @@ public class BilibiliRecorder : IDisposable
                                 await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Offline", token);
                             } 
                             catch {}
-                            // Close might not be enough if ReceiveLoop is stuck, but ReceiveAsync should return or throw.
-                            // However, we should break here to stop sending heartbeats.
                         }
                         break;
+                    }
+
+                    // Update stats during heartbeat
+                    if (UpdateVupStats != null)
+                    {
+                        _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
                     }
                 }
                 catch (Exception ex)

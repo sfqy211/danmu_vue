@@ -116,7 +116,7 @@ public class BilibiliService
         return null;
     }
 
-    public async Task<(string? Title, string? UserName, int LiveStatus, string? CoverUrl, string? Uid)> GetRoomInfoAsync(long roomId)
+    public async Task<(string? Title, string? UserName, int LiveStatus, string? CoverUrl, string? Uid, long? LiveStartTime, int Followers, int GuardNum, int VideoCount)> GetRoomInfoAsync(long roomId)
     {
         try
         {
@@ -139,7 +139,7 @@ public class BilibiliService
             {
                 var msg = root.TryGetProperty("msg", out var m) ? m.GetString() : "Unknown error";
                 _logger.LogWarning($"Bilibili API Error for Room {roomId}: {msg}");
-                return (null, null, 0, null, null);
+                return (null, null, 0, null, null, null, 0, 0, 0);
             }
 
             if (root.TryGetProperty("data", out var data))
@@ -154,6 +154,28 @@ public class BilibiliService
 
                 string? uid = null;
                 if (data.TryGetProperty("uid", out var u)) uid = u.ToString();
+
+                long? liveStartTime = null;
+                if (data.TryGetProperty("live_start_time", out var lst))
+                {
+                    if (lst.ValueKind == JsonValueKind.Number) liveStartTime = lst.GetInt64();
+                    else if (lst.ValueKind == JsonValueKind.String && long.TryParse(lst.GetString(), out var parsed)) liveStartTime = parsed;
+                }
+                
+                // If liveStartTime is not found or 0, try live_time (from room_init)
+                if (liveStartTime == null || liveStartTime == 0)
+                {
+                    if (data.TryGetProperty("live_time", out var lt))
+                    {
+                        if (lt.ValueKind == JsonValueKind.Number) liveStartTime = lt.GetInt64();
+                        else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed)) liveStartTime = parsed;
+                    }
+                }
+
+                if (liveStartTime.HasValue && liveStartTime.Value > 0 && liveStartTime.Value < 1_000_000_000_000)
+                {
+                    liveStartTime = liveStartTime.Value * 1000;
+                }
 
                 // Get Anchor Info
                 string? userName = "Unknown";
@@ -182,14 +204,21 @@ public class BilibiliService
                     _logger.LogError(ex, "Failed to get anchor info");
                 }
 
-                return (title, userName, liveStatus, cover, uid);
+                // Fetch stats as well
+                int followers = 0, guardNum = 0, videoCount = 0;
+                if (!string.IsNullOrEmpty(uid))
+                {
+                    (followers, guardNum, videoCount) = await GetVupStatsAsync(roomId, uid);
+                }
+
+                return (title, userName, liveStatus, cover, uid, liveStartTime, followers, guardNum, videoCount);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Failed to get room info for Room {roomId}");
         }
-        return (null, null, 0, null, null);
+        return (null, null, 0, null, null, null, 0, 0, 0);
     }
 
     public async Task<(int LiveStatus, long? LiveStartTime)> GetRoomLiveStatusAsync(long roomId)

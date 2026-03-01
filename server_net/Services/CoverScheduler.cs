@@ -103,7 +103,7 @@ public class CoverScheduler : BackgroundService
         {
             _logger.LogInformation($"[Cover] Checking cover for {room.Name}...");
             
-            var (title, userName, liveStatus, coverUrl, uid) = await _bilibiliService.GetRoomInfoAsync(room.RoomId);
+            var (title, userName, liveStatus, coverUrl, uid, _, _, _, _) = await _bilibiliService.GetRoomInfoAsync(room.RoomId);
             if (string.IsNullOrEmpty(coverUrl)) return;
 
             // If we got a UID from API and don't have one, update it

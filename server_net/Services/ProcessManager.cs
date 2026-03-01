@@ -85,6 +85,32 @@ public class ProcessManager
                 return null;
             };
 
+            recorder.UpdateVupStats = async (rid, time, followers, guardNum, videoCount) =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+                var room = await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == rid);
+                if (room != null)
+                {
+                    bool changed = false;
+                    // Only update LastLiveTime if the new time is valid and significantly different or larger
+                    if (time > 0 && Math.Abs(time - room.LastLiveTime) > 5000) 
+                    { 
+                        room.LastLiveTime = time; 
+                        changed = true; 
+                    }
+                    if (followers > 0) { room.Followers = followers; changed = true; }
+                    if (guardNum > 0) { room.GuardNum = guardNum; changed = true; }
+                    if (videoCount > 0) { room.VideoCount = videoCount; changed = true; }
+                    
+                    if (changed)
+                    {
+                        room.UpdatedAt = DateTime.UtcNow.ToString("O");
+                        await db.SaveChangesAsync();
+                    }
+                }
+            };
+
             recorder.OnSessionStarted += async (rid, title, uname, start, key) =>
             {
                 using var scope = _scopeFactory.CreateScope();
@@ -143,13 +169,14 @@ public class ProcessManager
         {
             try 
             {
+                _logger.LogInformation($"Restoring recorder for {room.Name} (RoomId: {room.RoomId})...");
                 await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
-                // Add a larger delay between starting each recorder to avoid Bilibili rate limit (412)
-                await Task.Delay(TimeSpan.FromSeconds(30));
+                // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
+                await Task.Delay(TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,($"Failed to restore recorder for {room.Name}"));
+                _logger.LogError(ex, $"Failed to restore recorder for {room.Name}");
             }
         }
     }
