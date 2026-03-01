@@ -64,7 +64,10 @@ if (string.IsNullOrEmpty(connectionString))
 builder.Services.AddDbContext<DanmuContext>(options =>
 {
     var serverVersion = new MySqlServerVersion(new Version(8, 4, 8));
-    options.UseMySql(connectionString, serverVersion);
+    options.UseMySql(connectionString, serverVersion, mySqlOptions =>
+    {
+        mySqlOptions.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null);
+    });
 });
 
 // Services

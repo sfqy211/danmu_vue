@@ -10,6 +10,7 @@ namespace Danmu.Server.Services;
 public class DanmakuService
 {
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
+    private static readonly SemaphoreSlim FileProcessingSemaphore = new(4, 4);
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DanmakuService> _logger;
     private readonly RedisService _redis;
@@ -164,6 +165,7 @@ public class DanmakuService
 
         var fileLock = FileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
         await fileLock.WaitAsync();
+        await FileProcessingSemaphore.WaitAsync();
         try
         {
             string content = await File.ReadAllTextAsync(filePath);
@@ -368,6 +370,7 @@ public class DanmakuService
         }
         finally
         {
+            FileProcessingSemaphore.Release();
             fileLock.Release();
         }
     }
