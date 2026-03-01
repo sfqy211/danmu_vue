@@ -1,12 +1,25 @@
+# Frontend
 node_modules
 dist
+src
+public
+index.html
+vite.config.*
+package*.json
+tsconfig*.json
+.github
+
+# Backend
 server/node_modules
 server/data/*.db
 server/data/*.db-journal
 server/data/danmaku
 server_net/bin
 server_net/obj
+
+# Others
 .git
 .vscode
 .idea
 *.log
+.env
