@@ -233,7 +233,8 @@ public class DanmakuService
 
                 if (msg.Type == "give_gift" || msg.Type == "super_chat" || msg.Type == "guard")
                 {
-                    var price = msg.Price ?? 0;
+                    var count = msg.Count ?? 1;
+                    var price = (msg.Price ?? 0) * count;
                     giftAnalysis.TotalPrice += price;
 
                     if (!giftAnalysis.UserStats.ContainsKey(userName))
@@ -248,7 +249,7 @@ public class DanmakuService
                         stats.GiftPrice += price;
                         var giftName = msg.Name ?? "Unknown";
                         if (!giftCountMap.ContainsKey(giftName)) giftCountMap[giftName] = new GiftStat { Name = giftName };
-                        giftCountMap[giftName].Count += msg.Count ?? 1;
+                        giftCountMap[giftName].Count += count;
                         giftCountMap[giftName].Price += price;
                     }
                     else if (msg.Type == "super_chat")
@@ -259,10 +260,10 @@ public class DanmakuService
                     {
                         stats.GuardPrice += price;
                         giftAnalysis.GuardStats.TotalPrice += price;
-                        giftAnalysis.GuardStats.Count += msg.Count ?? 1;
+                        giftAnalysis.GuardStats.Count += count;
                         var level = (msg.GuardLevel ?? 3).ToString();
                         if (!giftAnalysis.GuardStats.CountByLevel.ContainsKey(level)) giftAnalysis.GuardStats.CountByLevel[level] = 0;
-                        giftAnalysis.GuardStats.CountByLevel[level] += msg.Count ?? 1;
+                        giftAnalysis.GuardStats.CountByLevel[level] += count;
                     }
 
                     var bucket = (msg.Timestamp / 60000) * 60000;
@@ -448,13 +449,24 @@ public class DanmakuService
             int.TryParse(match.Groups[3].Value, out var count);
             long.TryParse(match.Groups[7].Value, out var timestamp);
 
+            // 根据 guard_level (1总督, 2提督, 3舰长) 识别价格单位：
+            // 正常价格：舰长 198, 提督 1998, 总督 19998
+            // 原始单位(金瓜子)：舰长 198000, 提督 1998000, 总督 19998000
+            // 如果价格数值远大于该等级应有的金额，则判定为金瓜子单位，除以 1000
+            bool isSeeds = false;
+            if (level == 3 && price > 1000) isSeeds = true;      // 舰长 > 1000 必为金瓜子
+            else if (level == 2 && price > 10000) isSeeds = true; // 提督 > 10000 必为金瓜子
+            else if (level == 1 && price > 100000) isSeeds = true;// 总督 > 100000 必为金瓜子
+            
+            if (isSeeds) price /= 1000.0;
+
             messages.Add(new DanmakuMessage
             {
                 Type = "guard",
                 Name = match.Groups[2].Value,
                 GuardLevel = level > 0 ? level : 3,
                 Count = count > 0 ? count : 1,
-                Price = price / 1000.0,
+                Price = price,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[5].Value, Uid = match.Groups[6].Value }
             });
