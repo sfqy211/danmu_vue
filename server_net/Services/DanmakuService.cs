@@ -454,7 +454,7 @@ public class DanmakuService
                 Name = match.Groups[2].Value,
                 GuardLevel = level > 0 ? level : 3,
                 Count = count > 0 ? count : 1,
-                Price = price,
+                Price = price / 1000.0,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[5].Value, Uid = match.Groups[6].Value }
             });
