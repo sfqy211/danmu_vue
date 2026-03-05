@@ -77,6 +77,7 @@ const editForm = ref({ id: 0, remark: '' });
 // Sessions Data
 const sessions = ref<AdminSession[]>([]);
 const sessionLoading = ref(false);
+const sessionRecalcLoading = ref(false);
 const sessionSearch = ref('');
 const sessionFilterRoomId = ref('');
 const sessionPage = ref(1);
@@ -253,6 +254,39 @@ const batchDeleteSessions = async () => {
     if (e !== 'cancel') {
       ElMessage.error('批量删除操作异常: ' + (e.message || '未知错误'));
     }
+  }
+};
+
+const batchRecalculateSessions = async () => {
+  if (selectedSessions.value.length === 0) return;
+  try {
+    await ElMessageBox.confirm(`确定要重新统计选中的 ${selectedSessions.value.length} 个直播场次吗？`, '重新统计确认', {
+      confirmButtonText: '开始',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+
+    sessionRecalcLoading.value = true;
+    const res = await adminApi.post('/admin/sessions/recalculate', {
+      sessionIds: selectedSessions.value.map((s) => s.id)
+    }, getAuthConfig());
+    const data = res.data || {};
+    const successCount = data.successCount ?? 0;
+    const skippedCount = data.skippedCount ?? 0;
+    const failedCount = data.failedCount ?? 0;
+
+    if (failedCount > 0) {
+      ElMessage.warning(`完成重新统计：成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}`);
+    } else {
+      ElMessage.success(`完成重新统计：成功 ${successCount}，跳过 ${skippedCount}`);
+    }
+    await fetchSessions();
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('重新统计操作异常: ' + (e.response?.data?.error || e.message || '未知错误'));
+    }
+  } finally {
+    sessionRecalcLoading.value = false;
   }
 };
 
@@ -1088,6 +1122,15 @@ watch(activeSection, async (val) => {
                     :disabled="selectedSessions.length === 0"
                   >
                     批量删除
+                  </el-button>
+                  <el-button
+                    type="warning"
+                    :icon="Refresh"
+                    @click="batchRecalculateSessions"
+                    :loading="sessionRecalcLoading"
+                    :disabled="selectedSessions.length === 0"
+                  >
+                    重新统计
                   </el-button>
                 </div>
               </div>

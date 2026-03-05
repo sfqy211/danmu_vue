@@ -17,13 +17,15 @@ public class AdminController : ControllerBase
     private readonly ProcessManager _pm;
     private readonly ILogger<AdminController> _logger;
     private readonly BilibiliService _bilibili;
+    private readonly DanmakuService _danmakuService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
         _bilibili = bilibili;
+        _danmakuService = danmakuService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -367,6 +369,75 @@ public class AdminController : ControllerBase
         return Ok(new { success = true, id = session.Id });
     }
 
+    [HttpPost("sessions/recalculate")]
+    public async Task<IActionResult> RecalculateSessions([FromBody] RecalculateSessionsDto dto)
+    {
+        if (dto == null || dto.SessionIds == null || dto.SessionIds.Count == 0)
+        {
+            return BadRequest(new { error = "Missing sessionIds" });
+        }
+
+        var targetIds = dto.SessionIds.Where(id => id > 0).Distinct().ToList();
+        if (targetIds.Count == 0) return BadRequest(new { error = "Invalid sessionIds" });
+
+        var sessions = await _db.Sessions.Where(s => targetIds.Contains(s.Id)).ToListAsync();
+        var sessionMap = sessions.ToDictionary(s => s.Id, s => s);
+
+        var successIds = new List<int>();
+        var skippedIds = new List<int>();
+        var failedIds = new List<int>();
+
+        foreach (var id in targetIds)
+        {
+            if (!sessionMap.TryGetValue(id, out var session) || session == null)
+            {
+                failedIds.Add(id);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(session.FilePath) || session.FilePath.StartsWith("redis:"))
+            {
+                skippedIds.Add(id);
+                continue;
+            }
+
+            var fullPath = ResolveSessionFilePath(session);
+            if (string.IsNullOrEmpty(fullPath) || !System.IO.File.Exists(fullPath))
+            {
+                failedIds.Add(id);
+                continue;
+            }
+
+            try
+            {
+                var result = await _danmakuService.ProcessFileAsync(fullPath);
+                if (result == null)
+                {
+                    failedIds.Add(id);
+                }
+                else
+                {
+                    successIds.Add(id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Failed to recalculate session {id}");
+                failedIds.Add(id);
+            }
+        }
+
+        return Ok(new
+        {
+            successCount = successIds.Count,
+            skippedCount = skippedIds.Count,
+            failedCount = failedIds.Count,
+            successIds,
+            skippedIds,
+            failedIds
+        });
+    }
+
     [HttpPut("sessions/{id}")]
     public async Task<IActionResult> UpdateSession(int id, [FromBody] SessionDto dto)
     {
@@ -558,6 +629,11 @@ public class SessionDto
     public string? FilePath { get; set; }
     public string? SummaryJson { get; set; }
     public string? GiftSummaryJson { get; set; }
+}
+
+public class RecalculateSessionsDto
+{
+    public List<int> SessionIds { get; set; } = new();
 }
 
 public class SongRequestDto
