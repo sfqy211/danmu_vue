@@ -34,6 +34,11 @@ public class RedisService
         await _db.HashSetAsync(key, entries);
     }
 
+    public async Task SetMetadataFieldAsync(string key, string field, string value)
+    {
+        await _db.HashSetAsync(key, new HashEntry[] { new HashEntry(field, value) });
+    }
+
     public async Task<List<string>> GetMessagesAsync(string key)
     {
         var values = await _db.ListRangeAsync(key);

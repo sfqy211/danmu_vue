@@ -66,6 +66,25 @@ public class DanmakuService
             _logger.LogInformation($"Created live session {session.Id} for room {roomId}");
         }
     }
+
+    public async Task UpdateLiveSessionTitleAsync(long roomId, string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return;
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+
+        var session = await db.Sessions
+            .Where(s => s.RoomId == roomId.ToString() && (s.EndTime == null || s.EndTime == 0))
+            .OrderByDescending(s => s.StartTime)
+            .FirstOrDefaultAsync();
+
+        if (session != null && session.Title != title)
+        {
+            session.Title = title;
+            await db.SaveChangesAsync();
+        }
+    }
     
     public async Task CloseSessionAsync(long roomId, long endTime, string finalFilePath)
     {

@@ -35,6 +35,7 @@ public class BilibiliRecorder : IDisposable
     public event Func<long, string, string, long, string, Task>? OnSessionStarted;
     // Delegate to notify session ended
     public event Func<long, long, string, Task>? OnSessionEnded;
+    public event Func<long, string, Task>? OnTitleChanged;
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
@@ -498,6 +499,17 @@ public class BilibiliRecorder : IDisposable
                     var timestamp = data.GetProperty("start_time").GetInt64() * 1000;
                     xml = $"<guard guard_level=\"{guardLevel}\" guard_name=\"{giftName}\" num=\"{num}\" price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\" />\n";
                 }
+                else if (cmd == "ROOM_CHANGE")
+                {
+                    if (root.TryGetProperty("data", out var data) && data.TryGetProperty("title", out var titleProp))
+                    {
+                        var newTitle = titleProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(newTitle))
+                        {
+                            _ = UpdateTitleAsync(newTitle);
+                        }
+                    }
+                }
 
                 if (!string.IsNullOrEmpty(xml))
                 {
@@ -569,6 +581,22 @@ public class BilibiliRecorder : IDisposable
         catch (Exception ex)
         {
              _logger.LogError(ex, "Failed to write to Redis");
+        }
+    }
+
+    private async Task UpdateTitleAsync(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title == _title) return;
+        _title = title;
+
+        if (_currentSessionKey != null)
+        {
+            await _redis.SetMetadataFieldAsync(_currentSessionKey + ":meta", "room_title", _title);
+        }
+
+        if (OnTitleChanged != null)
+        {
+            await OnTitleChanged.Invoke(_roomId, _title);
         }
     }
     

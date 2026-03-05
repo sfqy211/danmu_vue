@@ -117,6 +117,13 @@ public class ProcessManager
                 var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
                 await svc.CreateLiveSessionAsync(rid, title, uname, start, key);
             };
+
+            recorder.OnTitleChanged += async (rid, title) =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                await svc.UpdateLiveSessionTitleAsync(rid, title);
+            };
             
             recorder.OnSessionEnded += async (rid, endTime, finalPath) =>
             {
