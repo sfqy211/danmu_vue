@@ -45,7 +45,7 @@ jobs:
           TENCENT_SECRET_ID: ${{ secrets.TENCENT_SECRET_ID }}
           TENCENT_SECRET_KEY: ${{ secrets.TENCENT_SECRET_KEY }}
           # Check if CDN_PATHS secret exists, otherwise use default domain
-          CDN_PATHS: ${{ secrets.CDN_PATHS || 'https://sfqyweb.xyz/' }}
+          CDN_PATHS: ${{ secrets.CDN_PATHS || 'https://ovodm.top/' }}
         run: |
           pip install tencentcloud-sdk-python
           python .github/scripts/purge_cdn.py
