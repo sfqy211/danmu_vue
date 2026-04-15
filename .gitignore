@@ -1,35 +1,38 @@
-# Logs
-logs
+# Dependencies and build outputs
+node_modules/
+dist/
+dist-ssr/
+
+# Runtime data and local state
+logs/
 *.log
-*.db
-*.xml
-*.env
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-server/data
+.env
+.env.*
+!.env.example
 *.local
-example/
+server/data/
 
-# Editor directories and files
+# Frontend / backend generated artifacts
+server_net/bin/
+server_net/obj/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor and IDE files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
+.vs/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-*.pyc
 *.cache
-bin
-obj
-归档
-public/*
+
+# Temporary or archived directories
+example/
+归档/
