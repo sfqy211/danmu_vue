@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { adminApi } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
-  VideoCamera, DataLine, Fold, Expand, ArrowDown, ArrowUp 
+  VideoCamera, DataLine, Fold, Expand, ArrowDown, ArrowUp, House
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -25,6 +26,7 @@ interface Room {
 
 interface AdminSession {
   id: number;
+  uid?: string;
   roomId: string;
   title: string;
   userName: string;
@@ -49,6 +51,7 @@ interface AdminSongRequest {
 // Auth
 const token = ref(localStorage.getItem('admin_token') || '');
 const isAuthenticated = ref(false);
+const router = useRouter();
 
 // UI State
 const loading = ref(false);
@@ -134,6 +137,10 @@ const handleSessionSelectionChange = (val: AdminSession[]) => {
 
 const handleSongSelectionChange = (val: AdminSongRequest[]) => {
   selectedSongRequests.value = val;
+};
+
+const goHome = () => {
+  router.push({ name: 'home' });
 };
 
 const batchDeleteRooms = async () => {
@@ -513,6 +520,7 @@ const normalizeRoomRow = (row: any): Room => ({
 
 const normalizeSessionRow = (row: any): AdminSession => ({
   id: row.id ?? row.Id ?? 0,
+  uid: row.uid ?? row.Uid ?? '',
   roomId: row.roomId ?? row.room_id ?? row.RoomId ?? '',
   title: row.title ?? row.Title ?? '',
   userName: row.userName ?? row.user_name ?? row.UserName ?? '',
@@ -886,6 +894,12 @@ watch(activeSection, async (val) => {
         </div>
         <div class="header-right">
           <el-button
+            :icon="House"
+            @click="goHome"
+          >
+            <span v-if="!isMobile">回到主页</span>
+          </el-button>
+          <el-button
             :icon="Refresh"
             @click="refreshCurrentSection"
             :loading="isRefreshing"
@@ -1026,6 +1040,7 @@ watch(activeSection, async (val) => {
                       {{ scope.row.remark || scope.row.name }}
                     </template>
                   </el-table-column>
+                  <el-table-column prop="uid" label="UID" min-width="130" align="center" show-overflow-tooltip />
                   <el-table-column prop="room_id" label="房间号" align="center" />
                   <el-table-column label="歌单" min-width="220" align="center" show-overflow-tooltip>
                     <template #default="scope">
@@ -1135,7 +1150,7 @@ watch(activeSection, async (val) => {
                     <el-option
                       v-for="room in rooms"
                       :key="room.room_id"
-                      :label="room.name + ' (' + room.room_id + ')'"
+                      :label="room.name + ' (UID: ' + room.uid + ' / 房间: ' + room.room_id + ')'"
                       :value="String(room.room_id)"
                     />
                   </el-select>
@@ -1255,7 +1270,7 @@ watch(activeSection, async (val) => {
                     <el-option
                       v-for="room in rooms"
                       :key="room.room_id"
-                      :label="room.name + ' (' + room.room_id + ')'"
+                      :label="room.name + ' (UID: ' + room.uid + ' / 房间: ' + room.room_id + ')'"
                       :value="String(room.room_id)"
                     />
                   </el-select>
