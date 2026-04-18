@@ -1,15 +1,4 @@
-import VUP_COLORS from './vup-colors.json';
-
 const IMG_BASE_URL = '';
-const DEFAULT_THEME_COLORS = [
-  'rgb(64, 158, 255)',
-  'rgb(64, 158, 255)',
-  'rgb(121, 187, 255)',
-  'rgb(133, 206, 97)',
-  'rgb(230, 162, 60)'
-];
-
-const themeColorMap = VUP_COLORS as Record<string, string[]>;
 
 export const getVupAssetKey = (uid?: string | null, roomId?: string | number | null) => {
   const resolvedUid = typeof uid === 'string' ? uid.trim() : '';
@@ -26,14 +15,6 @@ export const getVupAssetKey = (uid?: string | null, roomId?: string | number | n
   }
 
   return '';
-};
-
-export const getVupThemeColors = (uid?: string | null) => {
-  if (uid && themeColorMap[uid]) {
-    return themeColorMap[uid];
-  }
-
-  return DEFAULT_THEME_COLORS;
 };
 
 export const buildHomepageUrl = (uid?: string | null) => {

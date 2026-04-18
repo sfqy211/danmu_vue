@@ -1,5 +1,5 @@
 <template>
-  <div class="header-container" :style="themeStyle">
+  <div class="header-container">
     <div class="left-panel">
       <el-button 
         v-if="showSidebarToggle"
@@ -269,7 +269,7 @@
                 <li><strong>管理功能增强</strong>：支持通过 UID 添加主播并提供备注管理功能；管理端新增批量删除功能，扩展房间模型字段以记录更多元数据；优化 VUP 信息调度器，支持同步粉丝数等动态数据。</li>
                 <li><strong>后端架构与性能</strong>：集成嵌入式 Garnet (Redis 兼容) 支持，重构弹幕存储逻辑，提升响应速度；修复并发文件读取时的数据竞争问题，增强数据一致性。</li>
                 <li><strong>CI/CD 与部署优化</strong>：全面重构 CI/CD 流程，升级为 scp 传输与临时目录中转方案，解决部署权限与稳定性问题；引入 Git 代理机制，提升海外服务器部署速度。</li>
-                <li><strong>界面与交互优化</strong>：集成 vtbs.moe API 同步更多 VUP 扩展信息；优化移动端响应式布局，将弹幕列表菜单重构为 dropdown 组件；新增动态背景并支持根据头像自动提取主题色。</li>
+                <li><strong>界面与交互优化</strong>：集成 vtbs.moe API 同步更多 VUP 扩展信息；优化移动端响应式布局，将弹幕列表菜单重构为 dropdown 组件；新增动态背景并增强首页沉浸感。</li>
                 <li><strong>稳定性与修复</strong>：修复了 B 站录播流异常导致的会话清理失效问题；纠正了 SC 价格单位显示错误及弹幕列表样式偏差；解决调度器重复更新及房间 ID 匹配逻辑 bug。</li>
               </ul>
             </el-collapse-item>
@@ -393,11 +393,6 @@ import TimelineAnalysis from './TimelineAnalysis.vue';
 const store = useDanmakuStore();
 const router = useRouter();
 const route = useRoute();
-
-const themeStyle = computed(() => ({
-  '--theme-color': store.themeColor,
-  '--theme-color-alpha': store.themeColorAlpha
-}));
 
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
@@ -525,28 +520,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 覆盖 Element Plus 全局/Popper 下拉菜单颜色 */
-:root {
-  --el-color-primary: var(--theme-color);
-}
-
-:deep(.el-select-dropdown__item.is-selected) {
-  color: var(--theme-color) !important;
-}
-
-:deep(.el-select-dropdown__item:hover) {
-  background-color: var(--theme-color-alpha) !important;
-}
-
-:deep(.el-radio-button__inner:hover) {
-  color: var(--theme-color) !important;
-}
-
-:deep(.el-radio-button.is-active .el-radio-button__inner) {
-  background-color: var(--theme-color) !important;
-  border-color: var(--theme-color) !important;
-}
-
 .header-container {
   display: flex;
   justify-content: space-between;
@@ -705,7 +678,6 @@ onUnmounted(() => {
 /* Drawer Styles */
 :deep(.el-drawer) {
   background-color: var(--bg-primary);
-  --el-color-primary: var(--theme-color);
 }
 :deep(.el-drawer__header) {
   margin-bottom: 0;
@@ -742,35 +714,17 @@ onUnmounted(() => {
     transition: color 0.2s;
 }
 .drawer-item.clickable:hover {
-    color: var(--theme-color, var(--accent));
+    color: var(--el-color-primary);
 }
 
 .drawer-item.clickable:hover .item-left {
-    color: var(--theme-color, var(--accent));
+    color: var(--el-color-primary);
 }
 
 .item-left {
     display: flex;
     align-items: center;
     gap: 10px;
-}
-
-/* 覆盖 Element Plus 组件的主题色 */
-:deep(.el-switch.is-checked .el-switch__core) {
-  background-color: var(--theme-color) !important;
-  border-color: var(--theme-color) !important;
-}
-
-:deep(.el-slider__bar) {
-  background-color: var(--theme-color) !important;
-}
-
-:deep(.el-slider__button) {
-  border-color: var(--theme-color) !important;
-}
-
-:deep(.el-input.is-focus .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
 }
 
 .zoom-control {
@@ -780,7 +734,7 @@ onUnmounted(() => {
 }
 .zoom-value {
     font-size: 12px;
-    color: var(--theme-color, var(--text-secondary));
+    color: var(--text-secondary);
     font-weight: 600;
     width: 35px;
     text-align: right;

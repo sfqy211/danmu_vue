@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar-container" :class="{ collapsed: store.isSidebarCollapsed }" :style="themeStyle">
+  <div class="sidebar-container" :class="{ collapsed: store.isSidebarCollapsed }">
     <div class="sidebar-header">
       <el-button 
         class="collapse-btn" 
@@ -123,11 +123,6 @@ import { Fold, Expand, Refresh } from '@element-plus/icons-vue';
 
 const store = useDanmakuStore();
 const route = useRoute();
-
-const themeStyle = computed(() => ({
-  '--theme-color': store.themeColor,
-  '--theme-color-alpha': store.themeColorAlpha
-}));
 
 const streamers = ref<StreamerInfo[]>([]);
 const sessions = ref<SessionInfo[]>([]);
@@ -324,20 +319,20 @@ onUnmounted(() => {
 <style scoped>
 /* 覆盖 Element Plus 组件内部样式 */
 :deep(.el-select .el-input.is-focus .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
+  box-shadow: 0 0 0 1px var(--el-color-primary) !important;
 }
 
 :deep(.el-input.is-active .el-input__wrapper),
 :deep(.el-input:focus-within .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
+  box-shadow: 0 0 0 1px var(--el-color-primary) !important;
 }
 
 :deep(.el-select-dropdown__item.is-selected) {
-  color: var(--theme-color) !important;
+  color: var(--el-color-primary) !important;
 }
 
 :deep(.el-select-dropdown__item:hover) {
-  background-color: var(--theme-color-alpha) !important;
+  background-color: var(--el-color-primary-light-9) !important;
 }
 
 .sidebar-container {
@@ -425,7 +420,7 @@ onUnmounted(() => {
 }
 
 .refresh-btn:hover {
-  color: var(--theme-color, var(--el-color-primary));
+  color: var(--el-color-primary);
 }
 
 .filter-section {
@@ -495,18 +490,18 @@ onUnmounted(() => {
 }
 
 .session-count .current {
-  color: var(--theme-color, var(--el-color-primary));
+  color: var(--el-color-primary);
   font-weight: 600;
 }
 
 .session-count .separator {
   margin: 0 4px;
-  color: var(--theme-color, var(--text-tertiary));
+  color: var(--text-tertiary);
   opacity: 0.4;
 }
 
 .session-count .total {
-  color: var(--theme-color, var(--text-secondary));
+  color: var(--text-secondary);
   opacity: 0.6;
 }
 
@@ -584,24 +579,24 @@ onUnmounted(() => {
 }
 
 .session-item.active {
-  background-color: var(--theme-color-alpha, var(--bg-active));
-  border-left: 3px solid var(--theme-color, var(--el-color-primary));
+  background-color: var(--el-color-primary-light-9);
+  border-left: 3px solid var(--el-color-primary);
   margin: 4px 12px;
   border-radius: 8px;
   padding-left: 12px;
 }
 
 .session-item.active .session-title {
-  color: var(--theme-color);
+  color: var(--el-color-primary);
 }
 
 :deep(.el-select .el-input.is-focus .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
+  box-shadow: 0 0 0 1px var(--el-color-primary) !important;
 }
 
 :deep(.el-input.is-active .el-input__wrapper),
 :deep(.el-input:focus-within .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
+  box-shadow: 0 0 0 1px var(--el-color-primary) !important;
 }
 
 .session-title {

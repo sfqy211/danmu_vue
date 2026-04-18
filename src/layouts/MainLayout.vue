@@ -1,22 +1,7 @@
 <template>
   <div class="main-content">
-    <!-- 动态背景层 (全局共享) -->
     <div class="dynamic-bg" v-if="showDynamicBg">
-      <!-- Desktop / Fallback Image -->
-      <div 
-        class="bg-image" 
-        :style="bgImageStyle"
-        :class="{ 'hidden-on-mobile': showMeshGradient }"
-      ></div>
-
-      <!-- Mobile Mesh Gradient -->
-      <div class="mesh-gradient" v-if="showMeshGradient">
-        <div class="mesh-blob blob-1" :style="{ backgroundColor: meshColors[0] }"></div>
-        <div class="mesh-blob blob-2" :style="{ backgroundColor: meshColors[1] }"></div>
-        <div class="mesh-blob blob-3" :style="{ backgroundColor: meshColors[2] }"></div>
-        <div class="mesh-blob blob-4" :style="{ backgroundColor: meshColors[3] || meshColors[0] }"></div>
-        <div class="mesh-blob blob-5" :style="{ backgroundColor: meshColors[4] || meshColors[1] }"></div>
-      </div>
+      <div class="bg-image" :style="bgImageStyle"></div>
     </div>
     <div class="bg-overlay" v-if="showDynamicBg"></div>
 
@@ -87,27 +72,6 @@ const showDynamicBg = computed(() => {
 });
 
 const currentVup = computed(() => store.currentVup);
-
-const showMeshGradient = computed(() => {
-  return isMobile.value && currentVup.value?.themeColors && currentVup.value.themeColors.length >= 3;
-});
-
-const meshColors = computed(() => {
-  const colors = currentVup.value?.themeColors || [];
-  if (colors.length >= 9) {
-    return [colors[0], colors[1], colors[2], colors[3], colors[4]];
-  }
-  if (colors.length > 0) {
-    return [
-      colors[0], 
-      colors[1] || colors[0], 
-      colors[2] || colors[0], 
-      colors[0], 
-      colors[1] || colors[0]
-    ];
-  }
-  return ['#000', '#000', '#000', '#000', '#000'];
-});
 
 const bgImageStyle = computed(() => {
   if (!currentVup.value) return {};
@@ -207,10 +171,6 @@ const zoomStyle = computed(() => {
     transform: scale(1.1);
   }
 
-  /* 当显示网格渐变时，隐藏底层图片，避免干扰 */
-  .bg-image.hidden-on-mobile {
-    opacity: 0;
-  }
 }
 
 /* Dynamic Background Styles */
@@ -233,31 +193,6 @@ const zoomStyle = computed(() => {
   transition: background-image 0.8s ease;
   z-index: 0;
 }
-
-.mesh-gradient {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: transparent;
-  z-index: 1;
-}
-
-.mesh-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.8;
-  mix-blend-mode: normal;
-}
-
-.blob-1 { top: -10%; left: -10%; width: 70%; height: 70%; }
-.blob-2 { top: -10%; right: -10%; width: 60%; height: 60%; }
-.blob-3 { bottom: -10%; left: -10%; width: 70%; height: 70%; }
-.blob-4 { bottom: -5%; right: -5%; width: 65%; height: 65%; }
-.blob-5 { top: 35%; left: 35%; width: 50%; height: 50%; }
 
 .bg-overlay {
   position: fixed;

@@ -1,5 +1,5 @@
 <template>
-  <div class="song-requests-container" v-loading="loading" :style="themeStyle">
+  <div class="song-requests-container" v-loading="loading">
     <Teleport to="#header-dynamic-actions" :disabled="isMobile" v-if="isMountedFlag">
       <div class="header-controls-teleported">
         <div class="streamer-selector">
@@ -136,11 +136,6 @@ const streamers = ref<StreamerInfo[]>([]);
 const selectedStreamer = ref<StreamerInfo | null>(null);
 const viewMode = ref<'current' | 'all'>('current');
 const searchText = ref('');
-
-const themeStyle = computed(() => ({
-  '--theme-color': store.themeColor,
-  '--theme-color-alpha': store.themeColorAlpha
-}));
 
 const isMobile = ref(window.innerWidth <= 768);
 const isMountedFlag = ref(false);
@@ -406,7 +401,7 @@ const formatTime = (timestamp: number) => {
   padding: 15px;
   border-radius: 8px;
   text-align: center;
-  border: 1px solid var(--theme-color-alpha, transparent);
+  border: 1px solid var(--border);
 }
 
 .stats-card .label {
@@ -418,7 +413,7 @@ const formatTime = (timestamp: number) => {
 .stats-card .value {
   font-size: 20px;
   font-weight: 700;
-  color: var(--theme-color, var(--text-primary));
+  color: var(--el-color-primary);
 }
 
 .text-truncate {
@@ -429,38 +424,29 @@ const formatTime = (timestamp: number) => {
 
 .song-name {
   font-weight: 500;
-  color: var(--theme-color, var(--el-color-primary));
-}
-
-:deep(.el-button--primary) {
-  background-color: var(--theme-color) !important;
-  border-color: var(--theme-color) !important;
-}
-
-:deep(.el-button--primary:hover) {
-  opacity: 0.8;
+  color: var(--el-color-primary);
 }
 
 :deep(.el-radio-button__inner:hover) {
-  color: var(--theme-color) !important;
+  color: var(--el-color-primary) !important;
 }
 
 :deep(.el-radio-button.is-active .el-radio-button__inner) {
-  background-color: var(--theme-color) !important;
-  border-color: var(--theme-color) !important;
-  box-shadow: -1px 0 0 0 var(--theme-color) !important;
+  background-color: var(--el-color-primary) !important;
+  border-color: var(--el-color-primary) !important;
+  box-shadow: -1px 0 0 0 var(--el-color-primary) !important;
 }
 
 :deep(.el-input.is-focus .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--theme-color) !important;
+  box-shadow: 0 0 0 1px var(--el-color-primary) !important;
 }
 
 :deep(.el-table__row:hover > td) {
-  background-color: var(--theme-color-alpha) !important;
+  background-color: var(--el-color-primary-light-9) !important;
 }
 
 :deep(.el-pagination.is-background .el-pager li:not(.is-disabled).is-active) {
-  background-color: var(--theme-color) !important;
+  background-color: var(--el-color-primary) !important;
 }
 
 .time-cell {

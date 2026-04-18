@@ -3,8 +3,7 @@ import {
   buildAvatarUrl,
   buildCoverUrl,
   buildHomepageUrl,
-  buildLivestreamUrl,
-  getVupThemeColors
+  buildLivestreamUrl
 } from '../constants/vups';
 
 const normalizeApiBase = (baseUrl: string) => {
@@ -140,7 +139,6 @@ export interface VupInfo {
   imageUrl: string;
   coverUrl: string;
   avatarUrl: string;
-  themeColors: string[];
   isLiving: boolean;
 }
 
@@ -170,7 +168,6 @@ const normalizeVup = (vup: any): VupInfo => {
     imageUrl: buildAvatarUrl(uid, roomId),
     coverUrl: buildCoverUrl(uid, roomId),
     avatarUrl: buildAvatarUrl(uid, roomId),
-    themeColors: getVupThemeColors(uid),
     isLiving: false
   };
 };

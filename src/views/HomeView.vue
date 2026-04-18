@@ -75,7 +75,7 @@
           <div class="action-grid">
             <!-- 弹幕历史：仅限有监控的用户 -->
             <template v-if="currentVupData.hasMonitor">
-              <button class="action-card" :style="themeStyle" @click="navigateTo(currentVupData.uid, 'danmaku')">
+              <button class="action-card" @click="navigateTo(currentVupData.uid, 'danmaku')">
                 <el-icon class="action-icon"><ChatDotRound /></el-icon>
                 <div class="action-text">
                   <span class="action-title">弹幕历史</span>
@@ -83,7 +83,7 @@
                 </div>
                 <el-icon class="action-arrow"><ArrowRight /></el-icon>
               </button>
-              <button class="action-card" :style="themeStyle" @click="navigateTo(currentVupData.uid, 'songs')">
+              <button class="action-card" @click="navigateTo(currentVupData.uid, 'songs')">
                 <el-icon class="action-icon"><Headset /></el-icon>
                 <div class="action-text">
                   <span class="action-title">点歌历史</span>
@@ -94,7 +94,7 @@
             </template>
 
             <!-- 通用外链 -->
-            <a :href="currentVupData.homepageUrl" target="_blank" class="action-card" :style="themeStyle">
+            <a :href="currentVupData.homepageUrl" target="_blank" class="action-card">
               <el-icon class="action-icon"><User /></el-icon>
               <div class="action-text">
                 <span class="action-title">B站主页</span>
@@ -107,7 +107,6 @@
               :href="currentVupData.playlistUrl"
               target="_blank"
               class="action-card"
-              :style="themeStyle"
             >
               <el-icon class="action-icon"><Promotion /></el-icon>
               <div class="action-text">
@@ -168,10 +167,6 @@ onUnmounted(() => {
 });
 
 const activeStreamer = computed(() => store.currentVup);
-const themeStyle = computed(() => ({
-  '--theme-color': store.themeColor,
-  '--theme-color-alpha': store.themeColorAlpha
-}));
 
 const currentVupData = computed(() => {
   const staticData = activeStreamer.value;
@@ -608,7 +603,7 @@ const formatRelativeTime = (ts: number): string => {
   padding: 12px 14px;
   border-radius: 14px;
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
-  border: 1px solid var(--theme-color-alpha, rgba(255, 255, 255, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -619,8 +614,8 @@ const formatRelativeTime = (ts: number): string => {
 }
 
 .action-card:hover:not(.disabled) {
-  background: linear-gradient(145deg, var(--theme-color-alpha, rgba(255, 255, 255, 0.15)), rgba(255, 255, 255, 0.05));
-  border-color: var(--theme-color, rgba(255, 255, 255, 0.25));
+  background: linear-gradient(145deg, rgba(64, 158, 255, 0.15), rgba(255, 255, 255, 0.05));
+  border-color: var(--el-color-primary);
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
@@ -633,7 +628,7 @@ const formatRelativeTime = (ts: number): string => {
 .action-icon {
   font-size: 20px;
   flex-shrink: 0;
-  color: var(--theme-color, #ffffff);
+  color: var(--el-color-primary);
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
 }
 
