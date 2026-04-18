@@ -44,16 +44,25 @@ npm install
 
 3. 在仓库根目录创建 `.env` 文件，可参考：`.env.example` 文件
 
-4. 启动后端
+4. 启动服务
 
-```bash
-cd server_net
-dotnet run --urls "http://0.0.0.0:3001"
+**一键启动（推荐）**
+
+双击运行 `start.ps1`，或在 PowerShell 中执行：
+
+```powershell
+.\start.ps1
 ```
 
-5. 回到仓库根目录，启动前端
+此脚本会在独立的终端窗口中分别启动前端和后端服务。
+
+**手动启动**
 
 ```bash
+# 终端1 - 启动后端
+npm run dev:server
+
+# 终端2 - 启动前端
 npm run dev
 ```
 
@@ -66,7 +75,7 @@ npm run dev
 
 ```bash
 npm run dev        # 开发前端
-npm run dev:all    # 同时开发前后端
+npm run dev:all    # 同时开发前后端（同一终端）
 npm run build      # 生产构建
 npm run start      # 生产启动
 ```
