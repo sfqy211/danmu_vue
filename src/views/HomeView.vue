@@ -7,6 +7,7 @@
     <main class="main-content">
       <!-- 主角卡片 -->
       <div
+        v-if="currentVupData"
         class="profile-card"
         :key="currentVupData.uid"
         ref="profileCardRef"
@@ -116,12 +117,11 @@
               <el-icon class="action-arrow"><ArrowRight /></el-icon>
             </a>
           </div>
-
-          <!-- 分组标签 -->
-          <div class="group-tags">
-            <span v-for="g in currentVupData.groups" :key="g" class="group-tag">{{ g }}</span>
-          </div>
         </div>
+      </div>
+
+      <div v-else class="empty-state">
+        <el-empty :description="store.vupLoading ? '正在加载主页数据...' : '暂无可展示的 VUP'" />
       </div>
 
     </main>
@@ -133,7 +133,7 @@ import { ref, computed, onMounted, watch, onUnmounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import TopNav from '../components/TopNav.vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
-import { api } from '../api/danmaku';
+import { getVup } from '../api/danmaku';
 import {
   ChatDotRound, Headset, ArrowRight, User,
   Promotion, VideoPlay, DataLine
@@ -173,9 +173,9 @@ const themeStyle = computed(() => ({
   '--theme-color-alpha': store.themeColorAlpha
 }));
 
-// 合并静态配置和动态获取的数据
 const currentVupData = computed(() => {
   const staticData = activeStreamer.value;
+  if (!staticData) return null;
   const dynamicData = vupDataMap[staticData.uid] || {};
   return {
     ...staticData,
@@ -188,23 +188,17 @@ const fetchVupData = async (uid: string) => {
   if (vupDataMap[uid]) return; // 如果已有缓存数据则不重复请求
   
   try {
-    const res = await api.get(`/vup/${uid}`);
-    const data = res.data;
-    vupDataMap[uid] = {
-      followers: data.followers,
-      guardNum: data.guardNum,
-      videoCount: data.videoCount,
-      lastLiveTime: data.lastLiveTime > 0 ? data.lastLiveTime : null,
-      hasMonitor: data.hasMonitor ?? false,
-    };
+    const data = await getVup(uid);
+    vupDataMap[uid] = data;
   } catch (e) {
     console.error('Failed to fetch vup data:', e);
   }
 };
 
-// 监听 activeStreamer 变化，获取数据
-watch(() => activeStreamer.value.uid, (newUid) => {
-  fetchVupData(newUid);
+watch(() => activeStreamer.value?.uid, (newUid) => {
+  if (newUid) {
+    fetchVupData(newUid);
+  }
 }, { immediate: true });
 
 const profileCardRef = ref<HTMLElement | null>(null);
@@ -670,25 +664,11 @@ const formatRelativeTime = (ts: number): string => {
   flex-shrink: 0;
 }
 
-/* 分组标签 */
-.group-tags {
+.empty-state {
+  flex: 1;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.group-tag {
-  font-size: 13px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  font-weight: 500;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ===== 响应式 ===== */
@@ -718,8 +698,7 @@ const formatRelativeTime = (ts: number): string => {
   
   /* 同样优化子元素 */
   .ext-info-item,
-  .action-card,
-  .group-tag {
+  .action-card {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -728,10 +707,6 @@ const formatRelativeTime = (ts: number): string => {
   .action-card {
     background: rgba(255, 255, 255, 0.15) !important;
     border: 1px solid rgba(255, 255, 255, 0.25);
-  }
-  
-  .group-tag {
-    background: rgba(255, 255, 255, 0.2) !important;
   }
 
   .cover-section {

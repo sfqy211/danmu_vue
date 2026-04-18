@@ -366,7 +366,6 @@ import { ref , onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { getPm2Status } from '../api/danmaku';
-import { VUP_LIST } from '../constants/vups';
 import { ElMessage } from 'element-plus';
 import { 
   Search, 
@@ -416,12 +415,14 @@ const showSidebarToggle = computed(() => {
   return route.path.startsWith('/vup/');
 });
 
+const routeUid = computed(() => {
+  const uid = route.params.uid;
+  if (Array.isArray(uid)) return uid[0];
+  return typeof uid === 'string' ? uid : '';
+});
+
 const currentStreamerName = computed(() => {
-  if (route.params.uid) {
-    const vup = VUP_LIST.find(v => v.uid === route.params.uid);
-    return vup ? vup.name : '';
-  }
-  return '';
+  return store.getVupByUid(routeUid.value)?.name || '';
 });
 
 const pageTitle = computed(() => {

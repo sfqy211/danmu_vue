@@ -20,6 +20,7 @@ interface Room {
   live_start_time: number | null;
   pid: number | null;
   remark?: string;
+  playlistUrl?: string;
 }
 
 interface AdminSession {
@@ -69,10 +70,10 @@ const handleResize = () => {
 
 // Monitor Data
 const rooms = ref<Room[]>([]);
-const newRoom = ref({ roomId: '', name: '', uid: '', remark: '' });
+const newRoom = ref({ roomId: '', name: '', uid: '', remark: '', playlistUrl: '' });
 const adding = ref(false);
 const editDialogVisible = ref(false);
-const editForm = ref({ id: 0, remark: '' });
+const editForm = ref({ id: 0, remark: '', playlistUrl: '' });
 
 // Sessions Data
 const sessions = ref<AdminSession[]>([]);
@@ -204,7 +205,8 @@ const batchRestartRooms = async () => {
 const openEditRoom = (row: Room) => {
   editForm.value = {
     id: row.id,
-    remark: row.remark || ''
+    remark: row.remark || '',
+    playlistUrl: row.playlistUrl || ''
   };
   editDialogVisible.value = true;
 };
@@ -214,7 +216,8 @@ const saveRoomEdit = async () => {
     await adminApi.put(`/admin/rooms/${editForm.value.id}`, {
       roomId: 0, // Not used
       name: 'Unknown', // Not used
-      remark: editForm.value.remark
+      remark: editForm.value.remark,
+      playlistUrl: editForm.value.playlistUrl
     }, getAuthConfig());
     ElMessage.success('更新成功');
     editDialogVisible.value = false;
@@ -432,7 +435,7 @@ const fetchRooms = async () => {
   loading.value = true;
   try {
     const res = await adminApi.get('/admin/rooms', getAuthConfig());
-    rooms.value = res.data;
+    rooms.value = Array.isArray(res.data) ? res.data.map(normalizeRoomRow) : [];
     error.value = '';
   } catch (e: any) {
     console.error('Fetch rooms failed:', e);
@@ -493,6 +496,21 @@ const fetchSongRequests = async () => {
 
 // --- Methods: Data Normalization ---
 
+const normalizeRoomRow = (row: any): Room => ({
+  id: row.id ?? row.Id ?? 0,
+  room_id: row.room_id ?? row.roomId ?? row.RoomId ?? 0,
+  name: row.name ?? row.Name ?? '',
+  uid: row.uid ?? row.Uid ?? '',
+  auto_record: row.auto_record ?? row.autoRecord ?? row.AutoRecord ?? 0,
+  process_status: row.process_status ?? row.processStatus ?? row.ProcessStatus ?? 'stopped',
+  process_uptime: row.process_uptime ?? row.processUptime ?? row.ProcessUptime ?? '0s',
+  live_status: row.live_status ?? row.liveStatus ?? row.LiveStatus ?? 0,
+  live_start_time: row.live_start_time ?? row.liveStartTime ?? row.LiveStartTime ?? null,
+  pid: row.pid ?? row.Pid ?? null,
+  remark: row.remark ?? row.Remark ?? '',
+  playlistUrl: row.playlistUrl ?? row.playlist_url ?? row.PlaylistUrl ?? row.Playlist_url ?? ''
+});
+
 const normalizeSessionRow = (row: any): AdminSession => ({
   id: row.id ?? row.Id ?? 0,
   roomId: row.roomId ?? row.room_id ?? row.RoomId ?? '',
@@ -528,10 +546,11 @@ const addRoom = async () => {
     await adminApi.post('/admin/rooms', {
       uid: newRoom.value.uid,
       remark: newRoom.value.remark,
+      playlistUrl: newRoom.value.playlistUrl,
       name: 'Unknown', // Backend will resolve this, but DTO requires it
       roomId: 0 // Backend will resolve this
     }, getAuthConfig());
-    newRoom.value = { roomId: '', name: '', uid: '', remark: '' };
+    newRoom.value = { roomId: '', name: '', uid: '', remark: '', playlistUrl: '' };
     ElMessage.success('添加成功，已自动获取直播间信息并启动录制');
     await fetchRooms();
   } catch (e: any) {
@@ -960,6 +979,11 @@ watch(activeSection, async (val) => {
                     placeholder="备注 (可选)" 
                     clearable
                   />
+                  <el-input 
+                    v-model="newRoom.playlistUrl" 
+                    placeholder="歌单链接 (可选)" 
+                    clearable
+                  />
                   <el-button 
                     type="primary" 
                     :icon="Plus" 
@@ -1003,6 +1027,19 @@ watch(activeSection, async (val) => {
                     </template>
                   </el-table-column>
                   <el-table-column prop="room_id" label="房间号" align="center" />
+                  <el-table-column label="歌单" min-width="220" align="center" show-overflow-tooltip>
+                    <template #default="scope">
+                      <a
+                        v-if="scope.row.playlistUrl"
+                        :href="scope.row.playlistUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {{ scope.row.playlistUrl }}
+                      </a>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="开启监控" width="100" align="center">
                     <template #default="scope">
                       <el-switch
@@ -1317,6 +1354,7 @@ watch(activeSection, async (val) => {
     <el-dialog v-model="editDialogVisible" title="修改主播配置" width="400px">
       <div class="dialog-form">
         <el-input v-model="editForm.remark" placeholder="备注" />
+        <el-input v-model="editForm.playlistUrl" placeholder="歌单链接" />
       </div>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>

@@ -120,7 +120,6 @@ import { useRoute } from 'vue-router';
 import { getStreamers, getSessions, getSessionsTotal, type SessionInfo, type StreamerInfo } from '../api/danmaku';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { Fold, Expand, Refresh } from '@element-plus/icons-vue';
-import { VUP_LIST } from '../constants/vups';
 
 const store = useDanmakuStore();
 const route = useRoute();
@@ -229,20 +228,16 @@ const handleCustomDateChange = async () => {
 const syncStreamerName = async () => {
   const uid = Array.isArray(route.params.uid) ? route.params.uid[0] : route.params.uid;
   if (!uid) return;
-  
-  const vup = VUP_LIST.find(v => v.uid === uid);
+
+  const vup = store.getVupByUid(uid);
   if (!vup) return;
   
   let targetName = vup.name;
   
-  if (streamers.value.length > 0 && vup.livestreamUrl) {
-    const match = vup.livestreamUrl.match(/\/(\d+)$/);
-    if (match) {
-      const roomId = match[1];
-      const backendStreamer = streamers.value.find(s => s.room_id?.toString() === roomId);
-      if (backendStreamer) {
-        targetName = backendStreamer.user_name;
-      }
+  if (streamers.value.length > 0 && vup.roomId) {
+    const backendStreamer = streamers.value.find(s => s.room_id?.toString() === vup.roomId);
+    if (backendStreamer) {
+      targetName = backendStreamer.user_name;
     }
   }
   
@@ -313,6 +308,7 @@ onMounted(async () => {
   isMountedFlag.value = true;
   window.addEventListener('resize', handleResize);
   try {
+    await store.loadVups();
     streamers.value = await getStreamers();
     await syncStreamerName();
   } catch (e) {

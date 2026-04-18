@@ -26,6 +26,24 @@ public class DanmakuController : ControllerBase
         _logger = logger;
     }
 
+    private static object MapVup(Room room)
+    {
+        return new
+        {
+            id = room.Id,
+            uid = room.Uid ?? string.Empty,
+            name = room.Name ?? string.Empty,
+            roomId = room.RoomId,
+            autoRecord = room.AutoRecord,
+            hasMonitor = room.AutoRecord == 1,
+            playlistUrl = room.PlaylistUrl,
+            followers = room.Followers,
+            guardNum = room.GuardNum,
+            videoCount = room.VideoCount,
+            lastLiveTime = room.LastLiveTime
+        };
+    }
+
     [HttpGet("pm2-status")]
     public IActionResult GetProcessStatus()
     {
@@ -241,10 +259,11 @@ public class DanmakuController : ControllerBase
     public async Task<IActionResult> GetVups()
     {
         var vups = await _db.Rooms
-            .Where(r => r.AutoRecord == 1)
-            .OrderBy(r => r.SortOrder)
+            .OrderBy(r => r.Name ?? string.Empty)
+            .ThenBy(r => r.Id)
             .ToListAsync();
-        return Ok(vups);
+
+        return Ok(vups.Select(MapVup));
     }
 
     [HttpGet("vup/{uid}")]
@@ -252,18 +271,7 @@ public class DanmakuController : ControllerBase
     {
         var vup = await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid);
         if (vup == null) return NotFound(new { error = "VUP not found" });
-        
-        // Return a consistent object for frontend
-        return Ok(new
-        {
-            uid = vup.Uid,
-            name = vup.Name,
-            roomId = vup.RoomId,
-            hasMonitor = vup.AutoRecord == 1, // User clarified: 1 means enabled, 0 means disabled
-            followers = vup.Followers,
-            guardNum = vup.GuardNum,
-            videoCount = vup.VideoCount,
-            lastLiveTime = vup.LastLiveTime
-        });
+
+        return Ok(MapVup(vup));
     }
 }

@@ -126,7 +126,6 @@ import { useDanmakuStore } from '../stores/danmakuStore';
 import { getSongRequests, getStreamers, type SongRequest, type StreamerInfo } from '../api/danmaku';
 import { ElMessage } from 'element-plus';
 import { Search } from '@element-plus/icons-vue';
-import { VUP_LIST } from '../constants/vups';
 
 const store = useDanmakuStore();
 const route = useRoute();
@@ -149,39 +148,36 @@ const currentPage = ref(1);
 const pageSize = ref(20);
 
 const isStreamerMode = computed(() => !!route.params.uid);
+const routeUid = computed(() => {
+  const uid = route.params.uid;
+  if (Array.isArray(uid)) return uid[0];
+  return typeof uid === 'string' ? uid : '';
+});
 
 const handleResize = () => {
   isMobile.value = window.innerWidth <= 768;
 };
 
 const initStreamerData = async () => {
-  // 检查路由参数
-  if (route.params.uid) {
+  if (routeUid.value) {
     selectedStreamer.value = null; // 先重置，防止残留
     requests.value = [];
     total.value = 0;
-    
-    const vup = VUP_LIST.find(v => v.uid === route.params.uid);
+
+    const vup = store.getVupByUid(routeUid.value);
     if (vup) {
-      // 1. 尝试通过名字匹配
-      let streamer = streamers.value.find(s => s.user_name === vup.name);
-      
-      // 2. 如果名字没匹配上，尝试从 livestreamUrl 提取 room_id 匹配
-      if (!streamer && vup.livestreamUrl) {
-        const match = vup.livestreamUrl.match(/\/(\d+)$/);
-        if (match) {
-          const roomId = match[1];
-          streamer = streamers.value.find(s => s.room_id?.toString() === roomId);
-        }
+      let streamer = streamers.value.find(s => s.room_id?.toString() === vup.roomId);
+
+      if (!streamer) {
+        streamer = streamers.value.find(s => s.user_name === vup.name);
       }
 
       if (streamer) {
         selectedStreamer.value = streamer;
-        // 如果当前有 session 且名字匹配，默认看本场，否则看全部
         if (store.currentSession && store.currentSession.user_name === streamer.user_name) {
           viewMode.value = 'current';
         } else {
-          viewMode.value = 'all'; 
+          viewMode.value = 'all';
         }
         await fetchRequests();
       } else {
@@ -202,6 +198,7 @@ const initStreamerData = async () => {
 onMounted(async () => {
   isMountedFlag.value = true;
   window.addEventListener('resize', handleResize);
+  await store.loadVups(routeUid.value);
   await loadStreamers();
   await initStreamerData();
 });
@@ -289,7 +286,6 @@ const handleViewModeChange = () => {
 };
 
 const fetchRequests = async () => {
-  // 清空现有数据
   if (!selectedStreamer.value) {
     requests.value = [];
     return;
@@ -317,17 +313,14 @@ const fetchRequests = async () => {
       // 仅获取当前场次
       params.id = store.currentSession.id;
     } else {
-      // 获取该主播全部历史
       if (selectedStreamer.value.room_id) {
         params.roomId = selectedStreamer.value.room_id;
       } else {
-        // 尝试通过名字获取
-        const vup = VUP_LIST.find(v => v.name === selectedStreamer.value?.user_name);
-        if (vup && vup.livestreamUrl) {
-           const match = vup.livestreamUrl.match(/\/(\d+)$/);
-           if (match) {
-             params.roomId = match[1];
-           }
+        const vup = store.getVupByUid(routeUid.value)
+          || store.vups.find(v => v.name === selectedStreamer.value?.user_name);
+
+        if (vup?.roomId) {
+          params.roomId = vup.roomId;
         }
 
         if (!params.roomId) {

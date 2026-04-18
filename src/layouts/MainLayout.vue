@@ -44,9 +44,19 @@ import { useDanmakuStore } from '../stores/danmakuStore';
 const store = useDanmakuStore();
 const route = useRoute();
 
-onMounted(() => {
-  store.initVupSelection();
-});
+const resolveRouteUid = () => {
+  const uid = route.params.uid;
+  if (Array.isArray(uid)) return uid[0];
+  return typeof uid === 'string' ? uid : undefined;
+};
+
+watch(
+  () => route.params.uid,
+  async () => {
+    await store.initVupSelection(resolveRouteUid());
+  },
+  { immediate: true }
+);
 
 // ===== 动态背景逻辑 =====
 const mql = window.matchMedia('(max-width: 768px)');

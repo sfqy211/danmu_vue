@@ -1,11 +1,15 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { getSessionDanmaku, getSessionSummary, type Danmaku, type SessionInfo } from '../api/danmaku';
-import { VUP_LIST, type VupItem } from '../constants/vups';
+import { getSessionDanmaku, getSessionSummary, getVups, type Danmaku, type SessionInfo, type VupInfo } from '../api/danmaku';
 
 export const useDanmakuStore = defineStore('danmaku', () => {
+  const SELECTED_VUP_STORAGE_KEY = 'selectedStreamerUid';
+  let vupLoadPromise: Promise<VupInfo[]> | null = null;
+
   // State
-  const currentVupIndex = ref(0);
+  const vups = ref<VupInfo[]>([]);
+  const currentVupUid = ref('');
+  const vupLoading = ref(false);
   const currentSession = ref<SessionInfo | null>(null);
   const sessionSummary = ref<any>(null);
   const danmakuList = ref<Danmaku[]>([]);
@@ -26,10 +30,56 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const timeDisplayMode = ref<'relative' | 'absolute'>('relative');
 
   // Getters
-  const currentVup = computed<VupItem>(() => VUP_LIST[currentVupIndex.value]);
+  const currentVup = computed<VupInfo | null>(() => {
+    if (currentVupUid.value) {
+      const matched = vups.value.find(vup => vup.uid === currentVupUid.value);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return vups.value[0] ?? null;
+  });
+
+  const getSavedVupUid = () => {
+    const savedUid = localStorage.getItem(SELECTED_VUP_STORAGE_KEY);
+    return savedUid ? savedUid.trim() : '';
+  };
+
+  const persistCurrentVup = (uid: string) => {
+    currentVupUid.value = uid;
+    localStorage.setItem(SELECTED_VUP_STORAGE_KEY, uid);
+  };
+
+  const syncCurrentVup = (preferredUid?: string) => {
+    const resolvedPreferredUid = preferredUid?.trim();
+    const currentUid = currentVupUid.value.trim();
+    const savedUid = getSavedVupUid();
+    const candidates = [resolvedPreferredUid, currentUid, savedUid].filter(Boolean) as string[];
+
+    for (const candidate of candidates) {
+      if (vups.value.some(vup => vup.uid === candidate)) {
+        persistCurrentVup(candidate);
+        return;
+      }
+    }
+
+    const firstUid = vups.value[0]?.uid;
+    if (firstUid) {
+      persistCurrentVup(firstUid);
+    } else {
+      currentVupUid.value = '';
+      localStorage.removeItem(SELECTED_VUP_STORAGE_KEY);
+    }
+  };
+
+  const getVupByUid = (uid?: string | null) => {
+    if (!uid) return undefined;
+    return vups.value.find(vup => vup.uid === uid);
+  };
 
   const themeColor = computed(() => {
-    const colors = currentVup.value.themeColors;
+    const colors = currentVup.value?.themeColors;
     if (!colors || colors.length < 2) return '#409eff';
     return colors[1]; // 第二个通常是主色
   });
@@ -44,21 +94,41 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   });
 
   // Actions
-  const setCurrentVupIndex = (index: number) => {
-    if (index >= 0 && index < VUP_LIST.length) {
-      currentVupIndex.value = index;
-      localStorage.setItem('selectedStreamerIndex', index.toString());
+  const loadVupsAction = async (preferredUid?: string, force: boolean = false) => {
+    if (vupLoadPromise && !force) {
+      await vupLoadPromise;
+      syncCurrentVup(preferredUid);
+      return vups.value;
+    }
+
+    vupLoading.value = true;
+    vupLoadPromise = getVups()
+      .then(list => {
+        vups.value = list;
+        syncCurrentVup(preferredUid);
+        return list;
+      })
+      .finally(() => {
+        vupLoading.value = false;
+        vupLoadPromise = null;
+      });
+
+    return await vupLoadPromise;
+  };
+
+  const setCurrentVup = (uid: string) => {
+    if (vups.value.some(vup => vup.uid === uid)) {
+      persistCurrentVup(uid);
     }
   };
 
-  const initVupSelection = () => {
-    const savedIndex = localStorage.getItem('selectedStreamerIndex');
-    if (savedIndex !== null) {
-      const index = parseInt(savedIndex, 10);
-      if (index >= 0 && index < VUP_LIST.length) {
-        currentVupIndex.value = index;
-      }
+  const initVupSelection = async (preferredUid?: string) => {
+    if (vups.value.length === 0) {
+      await loadVupsAction(preferredUid);
+      return;
     }
+
+    syncCurrentVup(preferredUid);
   };
 
   const setZoomLevel = (val: number) => {
@@ -198,13 +268,17 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     timeDisplayMode,
     
     // Vup State
-    currentVupIndex,
+    vups,
+    vupLoading,
+    currentVupUid,
     currentVup,
     themeColor,
     themeColorAlpha,
+    getVupByUid,
     
     // Actions
-    setCurrentVupIndex,
+    loadVups: loadVupsAction,
+    setCurrentVup,
     initVupSelection,
     setZoomLevel,
     toggleSidebar,

@@ -1,4 +1,11 @@
 import axios from 'axios';
+import {
+  buildAvatarUrl,
+  buildCoverUrl,
+  buildHomepageUrl,
+  buildLivestreamUrl,
+  getVupThemeColors
+} from '../constants/vups';
 
 const normalizeApiBase = (baseUrl: string) => {
   const trimmed = baseUrl.replace(/\/+$/, '');
@@ -116,9 +123,73 @@ export interface StreamerInfo {
   room_id?: string;
 }
 
+export interface VupInfo {
+  id: number;
+  uid: string;
+  name: string;
+  roomId: string;
+  autoRecord: number;
+  hasMonitor: boolean;
+  playlistUrl: string;
+  followers?: number;
+  guardNum?: number;
+  videoCount?: number;
+  lastLiveTime?: number | null;
+  homepageUrl: string;
+  livestreamUrl: string;
+  imageUrl: string;
+  coverUrl: string;
+  avatarUrl: string;
+  themeColors: string[];
+  isLiving: boolean;
+}
+
+const normalizeVup = (vup: any): VupInfo => {
+  const roomIdValue = vup.room_id ?? vup.roomId ?? vup.RoomId;
+  const roomId = roomIdValue == null ? '' : String(roomIdValue);
+  const uid = (vup.uid ?? vup.Uid ?? '').toString();
+  const lastLiveTimeRaw = toNumber(vup.last_live_time ?? vup.lastLiveTime ?? vup.LastLiveTime);
+  const autoRecord = toNumber(vup.auto_record ?? vup.autoRecord ?? vup.AutoRecord) ?? 0;
+  const hasMonitor = Boolean(vup.hasMonitor ?? vup.HasMonitor ?? autoRecord === 1);
+  const playlistUrl = (vup.playlist_url ?? vup.playlistUrl ?? vup.PlaylistUrl ?? '').toString().trim();
+
+  return {
+    id: toNumber(vup.id ?? vup.Id) ?? 0,
+    uid,
+    name: (vup.name ?? vup.Name ?? '').toString(),
+    roomId,
+    autoRecord,
+    hasMonitor,
+    playlistUrl,
+    followers: toNumber(vup.followers ?? vup.Followers),
+    guardNum: toNumber(vup.guard_num ?? vup.guardNum ?? vup.GuardNum),
+    videoCount: toNumber(vup.video_count ?? vup.videoCount ?? vup.VideoCount),
+    lastLiveTime: lastLiveTimeRaw && lastLiveTimeRaw > 0 ? lastLiveTimeRaw : null,
+    homepageUrl: buildHomepageUrl(uid),
+    livestreamUrl: buildLivestreamUrl(roomId),
+    imageUrl: buildAvatarUrl(uid, roomId),
+    coverUrl: buildCoverUrl(uid, roomId),
+    avatarUrl: buildAvatarUrl(uid, roomId),
+    themeColors: getVupThemeColors(uid),
+    isLiving: false
+  };
+};
+
 export const getStreamers = async () => {
   const res = await api.get<any[]>('/streamers');
   return res.data.map(normalizeStreamer);
+};
+
+export const getVups = async (): Promise<VupInfo[]> => {
+  const res = await api.get<any[]>('/vups');
+  return res.data
+    .map(normalizeVup)
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN') || a.id - b.id);
+};
+
+export const getVup = async (uid: string): Promise<VupInfo> => {
+  const res = await api.get<any>(`/vup/${uid}`);
+  return normalizeVup(res.data);
 };
 
 export const getSessions = async (

@@ -1,41 +1,33 @@
 <template>
   <div class="vup-list-page">
-    <!-- 顶部导航栏 -->
     <TopNav />
 
     <div class="vup-list-container">
       <div class="list-container">
-        <!-- 所有分类的主播 -->
-        <div v-for="group in Object.values(GROUPS)" :key="group" class="group-section">
-          <!-- 分类标题 -->
-          <div class="group-header">
-            <h3 class="group-title">{{ group }}</h3>
-            <span class="group-count">{{ groupCount(group) }}</span>
-          </div>
-          
-          <!-- 主播网格 -->
-          <div class="streamer-grid">
-            <div
-              v-for="artist in getArtistsByGroup(group)"
-              :key="artist.uid"
-              class="streamer-item"
-              @click="selectStreamer(artist)"
-            >
-              <img :src="artist.avatarUrl" :alt="artist.name" class="streamer-avatar" />
-              <div class="streamer-info">
-                <span class="streamer-name">{{ artist.name }}</span>
-                <span v-if="artist.hasMonitor" class="monitor-indicator">
-                  <el-icon><DataLine /></el-icon>
-                </span>
-              </div>
-              <span v-if="artist.isLiving" class="live-indicator">
-                <span class="live-dot"></span>
+        <div class="list-header">
+          <h2 class="list-title">VUP 列表</h2>
+          <span class="list-count">{{ vups.length }}</span>
+        </div>
+
+        <div v-if="vups.length > 0" class="streamer-grid">
+          <div
+            v-for="artist in vups"
+            :key="artist.uid"
+            class="streamer-item"
+            @click="selectStreamer(artist.uid)"
+          >
+            <img :src="artist.avatarUrl" :alt="artist.name" class="streamer-avatar" />
+            <div class="streamer-info">
+              <span class="streamer-name">{{ artist.name }}</span>
+              <span v-if="artist.hasMonitor" class="monitor-indicator">
+                <el-icon><DataLine /></el-icon>
               </span>
             </div>
           </div>
-          
-          <!-- 分类分割线（最后一个分类不需要） -->
-          <div v-if="group !== Object.values(GROUPS)[Object.values(GROUPS).length - 1]" class="group-divider"></div>
+        </div>
+
+        <div v-else class="empty-state">
+          <el-empty :description="store.vupLoading ? '正在加载 VUP 列表...' : '暂无可展示的 VUP'" />
         </div>
       </div>
     </div>
@@ -43,29 +35,23 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import TopNav from './TopNav.vue';
-import { VUP_LIST, GROUPS, type VupItem } from '../constants/vups';
 import { DataLine } from '@element-plus/icons-vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
 
 const router = useRouter();
 const store = useDanmakuStore();
+const vups = computed(() => store.vups);
 
-const getArtistsByGroup = (group: string) => {
-  return VUP_LIST.filter((artist: VupItem) => artist.groups.includes(group));
-};
+onMounted(() => {
+  store.loadVups();
+});
 
-const groupCount = (group: string) => {
-  return VUP_LIST.filter((a: VupItem) => a.groups.includes(group)).length;
-};
-
-const selectStreamer = (artist: VupItem) => {
-  const index = VUP_LIST.findIndex(v => v.uid === artist.uid);
-  if (index !== -1) {
-    store.setCurrentVupIndex(index);
-    router.replace('/');
-  }
+const selectStreamer = (uid: string) => {
+  store.setCurrentVup(uid);
+  router.replace('/');
 };
 </script>
 
@@ -99,28 +85,22 @@ const selectStreamer = (artist: VupItem) => {
 }
 
 /* ===== 分类区域 ===== */
-.group-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.group-header {
+.list-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-.group-title {
-  font-size: 18px;
+.list-title {
+  font-size: 20px;
   font-weight: 600;
   color: white;
   margin: 0;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.group-count {
+.list-count {
   font-size: 14px;
   background: rgba(255, 255, 255, 0.12);
   padding: 4px 12px;
@@ -136,6 +116,13 @@ const selectStreamer = (artist: VupItem) => {
   flex-wrap: wrap;
   gap: 12px;
   padding-bottom: 8px;
+}
+
+.empty-state {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .streamer-item {
@@ -239,38 +226,4 @@ const selectStreamer = (artist: VupItem) => {
   }
 }
 
-.live-indicator {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: rgba(245, 108, 108, 0.2);
-  border: 1px solid rgba(245, 108, 108, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.live-indicator .live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f56c6c;
-  animation: livePulse 1.2s infinite;
-}
-
-/* ===== 分类分割线 ===== */
-.group-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  margin-top: 24px;
-  margin-bottom: 8px;
-}
-
-@keyframes livePulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.3); }
-}
 </style>

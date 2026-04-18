@@ -10,9 +10,9 @@ const __dirname = path.dirname(__filename);
 
 // Constants
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const VUPS_FILE = path.resolve(PROJECT_ROOT, 'src/constants/vups.ts');
 const OUTPUT_FILE = path.resolve(PROJECT_ROOT, 'src/constants/vup-colors.json');
 const PUBLIC_DIR = path.resolve(PROJECT_ROOT, 'public');
+const COVER_DIR = path.resolve(PUBLIC_DIR, 'vup-cover');
 
 // Helper: Calculate Euclidean distance between two RGB colors
 function colorDistance(c1: {r: number, g: number, b: number}, c2: {r: number, g: number, b: number}) {
@@ -152,22 +152,18 @@ async function extractColorsForUid(uid: string): Promise<string[] | null> {
 
 async function main() {
   console.log('🎨 Starting VUP Theme Color Extraction...');
-  
-  // Read UIDs from vups.ts
-  if (!fs.existsSync(VUPS_FILE)) {
-    console.error(`[FATAL] vups.ts not found at ${VUPS_FILE}`);
+
+  if (!fs.existsSync(COVER_DIR)) {
+    console.error(`[FATAL] cover directory not found at ${COVER_DIR}`);
     process.exit(1);
   }
-  
-  const vupContent = fs.readFileSync(VUPS_FILE, 'utf-8');
-  const uidRegex = /uid:\s*['"](\d+)['"]/g;
-  let match;
-  const uids: string[] = [];
-  
-  while ((match = uidRegex.exec(vupContent)) !== null) {
-    uids.push(match[1]);
-  }
-  
+
+  const uids = fs.readdirSync(COVER_DIR)
+    .map(filename => path.parse(filename))
+    .filter(file => file.ext.toLowerCase() === '.png' && /^\d+$/.test(file.name))
+    .map(file => file.name)
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
   console.log(`Found ${uids.length} VUPs.`);
   
   const colorMap: Record<string, string[]> = {};

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
-using Danmu.Server.Constants;
+using Danmu.Server.Data;
+using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 
@@ -10,17 +11,19 @@ public class AvatarScheduler : BackgroundService
     private readonly ILogger<AvatarScheduler> _logger;
     private readonly BilibiliService _bilibiliService;
     private readonly ImageService _imageService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly string _bgDir;
     private readonly string _avatarDir;
     private readonly ConcurrentDictionary<string, DateTime> _lastUpdateMap = new();
     private readonly TimeSpan _updateInterval = TimeSpan.FromDays(1);
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(30);
 
-    public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService)
+    public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _bilibiliService = bilibiliService;
         _imageService = imageService;
+        _serviceProvider = serviceProvider;
 
         var root = Directory.GetCurrentDirectory();
         _bgDir = Path.GetFullPath(Path.Combine(root, "../server/data/vup-bg"));
@@ -44,17 +47,22 @@ public class AvatarScheduler : BackgroundService
         try
         {
             var now = DateTime.UtcNow;
-            
-            // Find one VUP that needs update
-            foreach (var vup in VupConstants.Vups)
+
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+            var vups = await db.Rooms
+                .Where(r => !string.IsNullOrEmpty(r.Uid))
+                .OrderBy(r => r.Name ?? string.Empty)
+                .Select(r => new { Uid = r.Uid!, Name = r.Name ?? "Unknown", r.RoomId })
+                .ToListAsync(stoppingToken);
+
+            foreach (var vup in vups)
             {
-                // 1. Check in-memory cache
                 if (_lastUpdateMap.TryGetValue(vup.Uid, out var lastUpdate) && (now - lastUpdate) <= _updateInterval)
                 {
                     continue;
                 }
 
-                // 2. Check file modification time to persist across restarts
                 var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
                 if (File.Exists(bgPath))
                 {
@@ -66,9 +74,9 @@ public class AvatarScheduler : BackgroundService
                     }
                 }
 
-                await UpdateSingleAvatarAsync(vup, stoppingToken);
+                await UpdateSingleAvatarAsync((vup.Uid, vup.Name, vup.RoomId), stoppingToken);
                 _lastUpdateMap[vup.Uid] = DateTime.UtcNow;
-                break; // Process only one per tick
+                break;
             }
         }
         catch (Exception ex)

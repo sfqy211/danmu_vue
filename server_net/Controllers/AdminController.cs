@@ -72,7 +72,9 @@ public class AdminController : ControllerBase
                 live_status = (proc?.Status == "online") ? 1 : 0, 
                 live_start_time = liveStartTime,
                 pid = proc?.Pid,
-                remark = room.Remark
+                remark = room.Remark,
+                playlist_url = room.PlaylistUrl,
+                playlistUrl = room.PlaylistUrl
             });
         }
 
@@ -125,6 +127,7 @@ public class AdminController : ControllerBase
                 Name = name,
                 Uid = uid.ToString(),
                 Remark = dto.Remark,
+                PlaylistUrl = string.IsNullOrWhiteSpace(dto.PlaylistUrl) ? null : dto.PlaylistUrl.Trim(),
                 AutoRecord = 1
             };
 
@@ -165,9 +168,14 @@ public class AdminController : ControllerBase
         var room = await _db.Rooms.FindAsync(id);
         if (room == null) return NotFound(new { error = "Room not found" });
 
-        if (!string.IsNullOrEmpty(dto.Remark))
+        if (dto.Remark != null)
         {
-            room.Remark = dto.Remark;
+            room.Remark = string.IsNullOrWhiteSpace(dto.Remark) ? null : dto.Remark;
+        }
+
+        if (dto.PlaylistUrl != null)
+        {
+            room.PlaylistUrl = string.IsNullOrWhiteSpace(dto.PlaylistUrl) ? null : dto.PlaylistUrl.Trim();
         }
 
         // If Name or Uid update is needed, handle it here.
@@ -617,6 +625,7 @@ public class RoomDto
     public required string Name { get; set; }
     public string? Uid { get; set; }
     public string? Remark { get; set; }
+    public string? PlaylistUrl { get; set; }
 }
 
 public class SessionDto
