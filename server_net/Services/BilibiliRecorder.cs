@@ -69,18 +69,10 @@ public class BilibiliRecorder : IDisposable
         _bilibiliService = bilibiliService;
         _realRoomId = realRoomId > 0 ? realRoomId : _roomId;
 
-        // Fetch Room Info for Title
         try 
         {
-             var (title, userName, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await bilibiliService.GetRoomInfoAsync(_realRoomId);
-             if (!string.IsNullOrEmpty(title)) _title = title;
-             if (!string.IsNullOrEmpty(userName)) _userName = userName;
+             await RefreshRoomInfoAsync(syncCurrentSession: false);
              _logger.LogInformation($"Room Info: {_title} (@{_userName})");
-
-             if (UpdateVupStats != null)
-             {
-                 _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
-             }
         }
         catch (Exception ex)
         {
@@ -155,13 +147,9 @@ public class BilibiliRecorder : IDisposable
             if (_bilibiliService == null) return;
             try
             {
-                var (_, _, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+                var (liveStatus, _, _, _, _) = await RefreshRoomInfoAsync(syncCurrentSession: false);
                 if (liveStatus == 1)
                 {
-                    if (UpdateVupStats != null)
-                    {
-                        _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
-                    }
                     return;
                 }
                 Status = "offline";
@@ -307,7 +295,7 @@ public class BilibiliRecorder : IDisposable
             {
                 try
                 {
-                    var (_, _, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) = await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+                    var (liveStatus, _, _, _, _) = await RefreshRoomInfoAsync(syncCurrentSession: true);
                     if (liveStatus != 1)
                     {
                         _logger.LogInformation($"Detected offline via API check for {_roomId}");
@@ -320,12 +308,6 @@ public class BilibiliRecorder : IDisposable
                             catch {}
                         }
                         break;
-                    }
-
-                    // Update stats during heartbeat
-                    if (UpdateVupStats != null)
-                    {
-                        _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
                     }
                 }
                 catch (Exception ex)
@@ -678,6 +660,15 @@ public class BilibiliRecorder : IDisposable
     {
         try
         {
+            try
+            {
+                await RefreshRoomInfoAsync(syncCurrentSession: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to refresh room title before creating Redis session for uid {Uid}", _uid);
+            }
+
             // Check for existing session via delegate
             if (CheckActiveSession != null)
             {
@@ -685,18 +676,19 @@ public class BilibiliRecorder : IDisposable
                 if (!string.IsNullOrEmpty(existingKey))
                 {
                     _currentSessionKey = existingKey;
+                    await SyncCurrentSessionMetadataAsync(updateFilename: true);
+                    if (OnTitleChanged != null)
+                    {
+                        await OnTitleChanged.Invoke(_uid, _roomId, _title);
+                    }
                     _logger.LogInformation($"Resuming existing Redis session: {_currentSessionKey}");
                     return;
                 }
             }
 
-            var now = DateTime.Now;
-            var dateStr = now.ToString("yyyy-MM-dd HH-mm-ss");
-            var safeTitle = string.Join("_", _title.Split(Path.GetInvalidFileNameChars()));
-            var filename = $"{dateStr} {safeTitle}.jsonl";
-            
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _currentSessionKey = $"danmaku:session:{_uid}:{timestamp}";
+            var filename = BuildSessionFilename(timestamp);
             
             var meta = new Dictionary<string, string>
             {
@@ -743,15 +735,84 @@ public class BilibiliRecorder : IDisposable
         if (string.IsNullOrWhiteSpace(title) || title == _title) return;
         _title = title;
 
-        if (_currentSessionKey != null)
-        {
-            await _redis.SetMetadataFieldAsync(_currentSessionKey + ":meta", "room_title", _title);
-        }
+        await SyncCurrentSessionMetadataAsync(updateFilename: true);
 
         if (OnTitleChanged != null)
         {
             await OnTitleChanged.Invoke(_uid, _roomId, _title);
         }
+    }
+
+    private async Task<(int LiveStatus, long? LiveStartTime, int Followers, int GuardNum, int VideoCount)> RefreshRoomInfoAsync(bool syncCurrentSession)
+    {
+        if (_bilibiliService == null)
+        {
+            return (0, null, 0, 0, 0);
+        }
+
+        var (title, userName, liveStatus, _, _, liveStartTime, followers, guardNum, videoCount) =
+            await _bilibiliService.GetRoomInfoAsync(_realRoomId);
+
+        var titleChanged = !string.IsNullOrWhiteSpace(title) && title != _title;
+        if (titleChanged)
+        {
+            _title = title!;
+        }
+
+        var userNameChanged = !string.IsNullOrWhiteSpace(userName) && userName != _userName;
+        if (userNameChanged)
+        {
+            _userName = userName!;
+        }
+
+        if (syncCurrentSession && _currentSessionKey != null && (titleChanged || userNameChanged))
+        {
+            await SyncCurrentSessionMetadataAsync(updateFilename: titleChanged);
+            if (titleChanged && OnTitleChanged != null)
+            {
+                await OnTitleChanged.Invoke(_uid, _roomId, _title);
+            }
+        }
+
+        if (UpdateVupStats != null)
+        {
+            _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+        }
+
+        return (liveStatus, liveStartTime, followers, guardNum, videoCount);
+    }
+
+    private async Task SyncCurrentSessionMetadataAsync(bool updateFilename)
+    {
+        if (_currentSessionKey == null) return;
+
+        var metaKey = _currentSessionKey + ":meta";
+        await _redis.SetMetadataFieldAsync(metaKey, "room_title", _title);
+        await _redis.SetMetadataFieldAsync(metaKey, "user_name", _userName);
+
+        if (!updateFilename) return;
+
+        var meta = await _redis.GetMetadataAsync(metaKey);
+        if (long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp))
+        {
+            await _redis.SetMetadataFieldAsync(metaKey, "filename", BuildSessionFilename(startTimestamp));
+        }
+    }
+
+    private string BuildSessionFilename(long startTimestamp)
+    {
+        var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
+        return $"{dateStr} {SanitizeFileName(_title)}.jsonl";
+    }
+
+    private static string SanitizeFileName(string title)
+    {
+        var safeTitle = string.IsNullOrWhiteSpace(title) ? "未知直播" : title.Trim();
+        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        {
+            safeTitle = safeTitle.Replace(invalidChar, '_');
+        }
+        return string.IsNullOrWhiteSpace(safeTitle) ? "未知直播" : safeTitle;
     }
     
     private async Task CheckAndCloseStaleSessionAsync()
