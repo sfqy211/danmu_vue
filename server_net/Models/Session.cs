@@ -13,6 +13,9 @@ public class Session
     [Column("room_id")]
     public string? RoomId { get; set; }
 
+    [Column("uid")]
+    public string? Uid { get; set; }
+
     [Column("title")]
     public string? Title { get; set; }
 

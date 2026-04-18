@@ -12,6 +12,12 @@
 - 点歌记录查询与后台维护
 - 主播头像、封面、背景图管理
 
+当前录制数据格式说明：
+
+- 新录制场次主存为 `JSONL` 事件流，按 `server/data/danmaku/{uid}/` 归档
+- 历史 `XML` 场次继续保留并兼容读取
+- 直播中弹幕明细从 Redis 事件队列读取
+
 ## 3. 技术栈
 
 - 前端：Vue 3、TypeScript、Vite、Pinia、Element Plus、ECharts

@@ -40,14 +40,13 @@ public class AdminController : ControllerBase
 
         foreach (var room in rooms)
         {
-            var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
-            var proc = processes.FirstOrDefault(p => p.Name == procName);
+            var proc = processes.FirstOrDefault(p => p.Uid == (room.Uid ?? ""));
 
             // Fallback: If LastLiveTime is 0 or outdated, try to get from Sessions table
             long liveStartTime = room.LastLiveTime;
             var roomIdStr = room.RoomId.ToString();
             var lastSession = await _db.Sessions
-                .Where(s => s.RoomId == roomIdStr)
+                .Where(s => s.Uid == room.Uid || s.RoomId == roomIdStr)
                 .OrderByDescending(s => s.StartTime)
                 .Select(s => s.StartTime)
                 .FirstOrDefaultAsync();
@@ -115,10 +114,10 @@ public class AdminController : ControllerBase
             var realRoomId = await _bilibili.GetRealRoomIdAsync(roomId);
             if (realRoomId <= 0) realRoomId = roomId;
 
-            var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == realRoomId);
+            var existing = await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid.ToString());
             if (existing != null)
             {
-                return BadRequest(new { error = "主播已存在 (真实房间号: " + realRoomId + ")" });
+                return BadRequest(new { error = "主播已存在 (UID: " + uid + ")" });
             }
 
             var room = new Room
@@ -153,8 +152,7 @@ public class AdminController : ControllerBase
         if (room == null) return NotFound(new { error = "Room not found" });
 
         // Stop process first
-        var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
-        await _pm.StopRecorder(procName);
+        await _pm.StopRecorder(room.RoomId);
 
         _db.Rooms.Remove(room);
         await _db.SaveChangesAsync();
@@ -215,8 +213,7 @@ public class AdminController : ControllerBase
             var room = await _db.Rooms.FirstOrDefaultAsync(r => r.RoomId == roomId);
             if (room == null) return NotFound(new { error = "Room not found" });
 
-            var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
-            await _pm.StopRecorder(procName);
+            await _pm.StopRecorder(room.RoomId);
             return Ok(new { success = true });
         }
         return BadRequest(new { error = "Missing roomId" });
@@ -228,10 +225,8 @@ public class AdminController : ControllerBase
         var room = await _db.Rooms.FindAsync(id);
         if (room == null) return NotFound(new { error = "Room not found" });
 
-        var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
-        
         // Stop
-        await _pm.StopRecorder(procName);
+        await _pm.StopRecorder(room.RoomId);
         
         // Wait a bit
         await Task.Delay(1000); 
@@ -273,8 +268,7 @@ public class AdminController : ControllerBase
             // Perform action based on the NEW state in DB
             if (room.AutoRecord == 0)
             {
-                var procName = string.IsNullOrEmpty(room.Name) ? $"danmu-{room.RoomId}" : $"danmu-{room.Name}";
-                await _pm.StopRecorder(procName);
+                await _pm.StopRecorder(room.RoomId);
                 _logger.LogInformation($"Stopped recorder for {room.Name}");
             }
             else
@@ -335,6 +329,7 @@ public class AdminController : ControllerBase
             .Select(s => new
             {
                 s.Id,
+                s.Uid,
                 s.RoomId,
                 s.Title,
                 s.UserName,
@@ -361,6 +356,7 @@ public class AdminController : ControllerBase
         var session = new Session
         {
             RoomId = dto.RoomId,
+            Uid = dto.Uid,
             Title = dto.Title,
             UserName = dto.UserName,
             StartTime = dto.StartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -453,6 +449,7 @@ public class AdminController : ControllerBase
         if (session == null) return NotFound(new { error = "Session not found" });
 
         session.RoomId = dto.RoomId ?? session.RoomId;
+        session.Uid = dto.Uid ?? session.Uid;
         session.Title = dto.Title ?? session.Title;
         session.UserName = dto.UserName ?? session.UserName;
         if (dto.StartTime.HasValue) session.StartTime = dto.StartTime;
@@ -504,6 +501,12 @@ public class AdminController : ControllerBase
         if (System.IO.File.Exists(fullPath)) return fullPath;
 
         var basename = Path.GetFileName(session.FilePath);
+        if (!string.IsNullOrEmpty(session.Uid))
+        {
+            var uidPath = Path.Combine(_danmakuDir, session.Uid, basename);
+            if (System.IO.File.Exists(uidPath)) return uidPath;
+        }
+
         if (!string.IsNullOrEmpty(session.RoomId))
         {
             var roomPath = Path.Combine(_danmakuDir, session.RoomId, basename);
@@ -631,6 +634,7 @@ public class RoomDto
 public class SessionDto
 {
     public string? RoomId { get; set; }
+    public string? Uid { get; set; }
     public string? Title { get; set; }
     public string? UserName { get; set; }
     public long? StartTime { get; set; }

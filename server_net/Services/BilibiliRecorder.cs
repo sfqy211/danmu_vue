@@ -4,12 +4,15 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Danmu.Server.Models;
 
 namespace Danmu.Server.Services;
 
 public class BilibiliRecorder : IDisposable
 {
+    private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly long _roomId;
+    private readonly string _uid;
     private readonly string _name;
     private readonly ILogger _logger;
     private readonly RedisService _redis;
@@ -28,23 +31,28 @@ public class BilibiliRecorder : IDisposable
     private long _realRoomId;
     
     // Delegate to check for active session key
-    public Func<long, Task<string?>>? CheckActiveSession;
+    public Func<string, long, Task<string?>>? CheckActiveSession;
     // Delegate to update last live time and stats in DB
-    public Func<long, long, int, int, int, Task>? UpdateVupStats;
+    public Func<string, long, long, int, int, int, Task>? UpdateVupStats;
     // Delegate to notify session started
-    public event Func<long, string, string, long, string, Task>? OnSessionStarted;
+    public event Func<string, long, string, string, long, string, Task>? OnSessionStarted;
     // Delegate to notify session ended
-    public event Func<long, long, string, Task>? OnSessionEnded;
-    public event Func<long, string, Task>? OnTitleChanged;
+    public event Func<string, long, long, string, Task>? OnSessionEnded;
+    public event Func<string, long, string, Task>? OnTitleChanged;
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
     public string Uptime => Status != "stopped" ? $"{(int)(DateTime.Now - StartTime).TotalMinutes}m" : "0s";
     public int Pid => _receiveTask?.Id ?? 0;
+    public string Uid => _uid;
+    public long RoomId => _roomId;
+    public string DisplayName => _name;
+    public string ProcessName => $"danmu-{_uid}";
 
-    public BilibiliRecorder(long roomId, string? name, ILogger logger, RedisService redis)
+    public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis)
     {
         _roomId = roomId;
+        _uid = string.IsNullOrWhiteSpace(uid) ? roomId.ToString() : uid;
         _name = name ?? roomId.ToString();
         _logger = logger;
         _redis = redis;
@@ -71,7 +79,7 @@ public class BilibiliRecorder : IDisposable
 
              if (UpdateVupStats != null)
              {
-                 _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+                 _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
              }
         }
         catch (Exception ex)
@@ -152,7 +160,7 @@ public class BilibiliRecorder : IDisposable
                 {
                     if (UpdateVupStats != null)
                     {
-                        _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+                        _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
                     }
                     return;
                 }
@@ -317,7 +325,7 @@ public class BilibiliRecorder : IDisposable
                     // Update stats during heartbeat
                     if (UpdateVupStats != null)
                     {
-                        _ = UpdateVupStats(_roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+                        _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
                     }
                 }
                 catch (Exception ex)
@@ -448,58 +456,13 @@ public class BilibiliRecorder : IDisposable
             if (root.TryGetProperty("cmd", out var cmdProp))
             {
                 var cmd = cmdProp.GetString();
-                string xml = "";
 
                 if (cmd == "PREPARING")
                 {
                     throw new EndOfStreamException("Stream ended (PREPARING)");
                 }
 
-                if (cmd != null && cmd.StartsWith("DANMU_MSG"))
-                {
-                    var info = root.GetProperty("info");
-                    var content = info[1].GetString();
-                    var user = info[2][1].GetString();
-                    var uid = info[2][0].ToString();
-                    var timestamp = info[0][4].GetInt64();
-                    xml = $"<d p=\"{timestamp},1,25,16777215,{timestamp},0,{uid},0\" user=\"{user}\" uid=\"{uid}\" timestamp=\"{timestamp}\">{content}</d>\n";
-                }
-                else if (cmd == "SEND_GIFT")
-                {
-                    var data = root.GetProperty("data");
-                    var giftName = data.GetProperty("giftName").GetString();
-                    var num = data.GetProperty("num").GetInt32();
-                    var uname = data.GetProperty("uname").GetString();
-                    var action = data.GetProperty("action").GetString();
-                    var price = data.TryGetProperty("price", out var p) ? p.GetInt32() : 0;
-                    var uid = data.GetProperty("uid").ToString();
-                    var timestamp = data.GetProperty("timestamp").GetInt64() * 1000;
-                    xml = $"<gift ts=\"{timestamp}\" giftname=\"{giftName}\" giftcount=\"{num}\" price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\" />\n";
-                }
-                else if (cmd == "SUPER_CHAT_MESSAGE")
-                {
-                    var data = root.GetProperty("data");
-                    var userInfo = data.GetProperty("user_info");
-                    var uname = userInfo.GetProperty("uname").GetString();
-                    var uid = userInfo.GetProperty("uid").ToString();
-                    var price = data.GetProperty("price").GetInt32();
-                    var message = data.GetProperty("message").GetString();
-                    var timestamp = data.GetProperty("ts").GetInt64() * 1000;
-                    xml = $"<sc price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\">{message}</sc>\n";
-                }
-                else if (cmd == "GUARD_BUY")
-                {
-                    var data = root.GetProperty("data");
-                    var uname = data.GetProperty("username").GetString();
-                    var uid = data.GetProperty("uid").ToString();
-                    var giftName = data.GetProperty("gift_name").GetString();
-                    var num = data.GetProperty("num").GetInt32();
-                    var price = data.GetProperty("price").GetInt32();
-                    var guardLevel = data.GetProperty("guard_level").GetInt32();
-                    var timestamp = data.GetProperty("start_time").GetInt64() * 1000;
-                    xml = $"<guard guard_level=\"{guardLevel}\" guard_name=\"{giftName}\" num=\"{num}\" price=\"{price}\" user=\"{uname}\" uid=\"{uid}\" timestamp=\"{timestamp}\" />\n";
-                }
-                else if (cmd == "ROOM_CHANGE")
+                if (cmd == "ROOM_CHANGE")
                 {
                     if (root.TryGetProperty("data", out var data) && data.TryGetProperty("title", out var titleProp))
                     {
@@ -510,16 +473,205 @@ public class BilibiliRecorder : IDisposable
                         }
                     }
                 }
-
-                if (!string.IsNullOrEmpty(xml))
+                else
                 {
-                    _ = WriteToRedisAsync(xml);
+                    var recordedEvent = CreateRecordedEvent(root, cmd);
+                    if (recordedEvent != null)
+                    {
+                        _ = WriteEventToRedisAsync(recordedEvent);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(cmd))
+                    {
+                        _logger.LogDebug("Ignoring unsupported danmaku command {Command} for uid {Uid}", cmd, _uid);
+                    }
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to handle websocket message for uid {Uid}", _uid);
         }
+    }
+
+    private RecordedDanmakuEvent? CreateRecordedEvent(JsonElement root, string? cmd)
+    {
+        if (string.IsNullOrWhiteSpace(cmd))
+        {
+            return null;
+        }
+
+        if (cmd.StartsWith("DANMU_MSG", StringComparison.Ordinal))
+        {
+            var info = root.GetProperty("info");
+            var timestamp = TryGetInt64(info[0], 4) ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return new RecordedDanmakuEvent
+            {
+                Type = "comment",
+                Timestamp = timestamp,
+                Text = GetString(info, 1) ?? "",
+                User = GetString(info[2], 1) ?? "",
+                Uid = GetString(info[2], 0) ?? "",
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "SEND_GIFT")
+        {
+            var data = root.GetProperty("data");
+            var count = TryGetInt32(data, "num") ?? 1;
+            var priceRaw = TryGetDouble(data, "price") ?? 0;
+            return new RecordedDanmakuEvent
+            {
+                Type = "gift",
+                Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
+                Count = count > 0 ? count : 1,
+                Price = NormalizeMoney(priceRaw),
+                IsPriceTotal = false,
+                User = TryGetString(data, "uname") ?? "",
+                Uid = TryGetString(data, "uid") ?? "",
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd.StartsWith("SUPER_CHAT_MESSAGE", StringComparison.Ordinal))
+        {
+            var data = root.GetProperty("data");
+            var userInfo = data.TryGetProperty("user_info", out var u) ? u : default;
+            return new RecordedDanmakuEvent
+            {
+                Type = "super_chat",
+                Timestamp = (TryGetInt64(data, "ts") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Price = TryGetDouble(data, "price"),
+                IsPriceTotal = true,
+                Text = TryGetString(data, "message") ?? "",
+                User = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uname") ?? "") : "",
+                Uid = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uid") ?? "") : "",
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "GUARD_BUY")
+        {
+            var data = root.GetProperty("data");
+            return new RecordedDanmakuEvent
+            {
+                Type = "guard",
+                Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Name = TryGetString(data, "gift_name") ?? "guard",
+                Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                Price = NormalizeMoney(TryGetDouble(data, "price") ?? 0) * Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                IsPriceTotal = true,
+                GuardLevel = TryGetInt32(data, "guard_level"),
+                User = TryGetString(data, "username") ?? "",
+                Uid = TryGetString(data, "uid") ?? "",
+                RawCommand = cmd
+            };
+        }
+
+        return null;
+    }
+
+    private async Task WriteEventToRedisAsync(RecordedDanmakuEvent recordedEvent)
+    {
+        var content = JsonSerializer.Serialize(recordedEvent, EventJsonOptions);
+        await WriteToRedisAsync(content);
+    }
+
+    private static double NormalizeMoney(double rawPrice)
+    {
+        if (rawPrice <= 0) return 0;
+        return rawPrice >= 1000 ? rawPrice / 1000.0 : rawPrice;
+    }
+
+    private static string? GetString(JsonElement element, int index)
+    {
+        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() <= index)
+        {
+            return null;
+        }
+
+        return element[index].ValueKind switch
+        {
+            JsonValueKind.String => element[index].GetString(),
+            JsonValueKind.Number => element[index].ToString(),
+            _ => element[index].ToString()
+        };
+    }
+
+    private static long? TryGetInt64(JsonElement element, int index)
+    {
+        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() <= index)
+        {
+            return null;
+        }
+
+        return element[index].ValueKind switch
+        {
+            JsonValueKind.Number when element[index].TryGetInt64(out var value) => value,
+            JsonValueKind.String when long.TryParse(element[index].GetString(), out var value) => value,
+            _ => null
+        };
+    }
+
+    private static string? TryGetString(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.ToString(),
+            _ => value.ToString()
+        };
+    }
+
+    private static int? TryGetInt32(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var result) => result,
+            JsonValueKind.String when int.TryParse(value.GetString(), out var result) => result,
+            _ => null
+        };
+    }
+
+    private static long? TryGetInt64(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt64(out var result) => result,
+            JsonValueKind.String when long.TryParse(value.GetString(), out var result) => result,
+            _ => null
+        };
+    }
+
+    private static double? TryGetDouble(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetDouble(out var result) => result,
+            JsonValueKind.String when double.TryParse(value.GetString(), out var result) => result,
+            _ => null
+        };
     }
 
     private async Task StartRedisSessionAsync()
@@ -529,7 +681,7 @@ public class BilibiliRecorder : IDisposable
             // Check for existing session via delegate
             if (CheckActiveSession != null)
             {
-                var existingKey = await CheckActiveSession.Invoke(_roomId);
+                var existingKey = await CheckActiveSession.Invoke(_uid, _roomId);
                 if (!string.IsNullOrEmpty(existingKey))
                 {
                     _currentSessionKey = existingKey;
@@ -541,14 +693,16 @@ public class BilibiliRecorder : IDisposable
             var now = DateTime.Now;
             var dateStr = now.ToString("yyyy-MM-dd HH-mm-ss");
             var safeTitle = string.Join("_", _title.Split(Path.GetInvalidFileNameChars()));
-            var filename = $"{dateStr} {safeTitle}.xml";
+            var filename = $"{dateStr} {safeTitle}.jsonl";
             
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _currentSessionKey = $"danmaku:session:{_roomId}:{timestamp}";
+            _currentSessionKey = $"danmaku:session:{_uid}:{timestamp}";
             
             var meta = new Dictionary<string, string>
             {
+                { "uid", _uid },
                 { "room_id", _roomId.ToString() },
+                { "real_room_id", _realRoomId.ToString() },
                 { "room_title", _title },
                 { "user_name", _userName },
                 { "video_start_time", timestamp.ToString() },
@@ -556,11 +710,11 @@ public class BilibiliRecorder : IDisposable
             };
             
             await _redis.SetMetadataAsync(_currentSessionKey + ":meta", meta);
-            await _redis.SetLiveSessionKeyAsync(_roomId, _currentSessionKey);
+            await _redis.SetLiveSessionKeyAsync(_uid, _currentSessionKey);
             
             if (OnSessionStarted != null)
             {
-                await OnSessionStarted.Invoke(_roomId, _title, _userName, timestamp, _currentSessionKey);
+                await OnSessionStarted.Invoke(_uid, _roomId, _title, _userName, timestamp, _currentSessionKey);
             }
             
             _logger.LogInformation($"Started recording to Redis: {_currentSessionKey}");
@@ -596,7 +750,7 @@ public class BilibiliRecorder : IDisposable
 
         if (OnTitleChanged != null)
         {
-            await OnTitleChanged.Invoke(_roomId, _title);
+            await OnTitleChanged.Invoke(_uid, _roomId, _title);
         }
     }
     
@@ -613,10 +767,10 @@ public class BilibiliRecorder : IDisposable
         {
             try 
             {
-                var sessionKey = await CheckActiveSession(_roomId);
+                var sessionKey = await CheckActiveSession(_uid, _roomId);
                 if (!string.IsNullOrEmpty(sessionKey))
                 {
-                    _logger.LogInformation($"Found stale session {sessionKey} for room {_roomId}. Closing it.");
+                    _logger.LogInformation("Found stale session {SessionKey} for uid {Uid}. Closing it.", sessionKey, _uid);
                     _currentSessionKey = sessionKey;
                     await EndRedisSessionAsync(isFinal: true);
                 }
@@ -639,29 +793,30 @@ public class BilibiliRecorder : IDisposable
             
             var messages = await _redis.GetMessagesAsync(_currentSessionKey + ":list");
             var meta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
-            
-            // if (messages.Count == 0 && meta.Count == 0) return;
-            
-            var sb = new StringBuilder();
-            sb.Append("<xml>\n");
-            if (meta.TryGetValue("room_id", out var rid)) sb.Append($"<room_id>{rid}</room_id>\n");
-            if (meta.TryGetValue("room_title", out var title)) sb.Append($"<room_title>{title}</room_title>\n");
-            if (meta.TryGetValue("user_name", out var uname)) sb.Append($"<user_name>{uname}</user_name>\n");
-            if (meta.TryGetValue("video_start_time", out var time)) sb.Append($"<video_start_time>{time}</video_start_time>\n");
-            
-            foreach (var msg in messages)
-            {
-                sb.Append(msg);
-            }
-            sb.Append("\n</xml>");
-            
-            var filename = meta.ContainsKey("filename") ? meta["filename"] : $"{DateTime.Now:yyyy-MM-dd HH-mm-ss} {_roomId}.xml";
-            var roomDir = Path.Combine(_danmakuDir, _roomId.ToString());
+
+            var filename = meta.ContainsKey("filename") ? meta["filename"] : $"{DateTime.Now:yyyy-MM-dd HH-mm-ss} {_uid}.jsonl";
+            var roomDir = Path.Combine(_danmakuDir, _uid);
             if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
             var filePath = Path.Combine(roomDir, filename);
             var tempPath = filePath + ".tmp";
-            
-            await File.WriteAllTextAsync(tempPath, sb.ToString());
+
+            var lines = new List<string>
+            {
+                JsonSerializer.Serialize(new
+                {
+                    kind = "meta",
+                    version = "danmu-jsonl-v1",
+                    uid = meta.GetValueOrDefault("uid", _uid),
+                    roomId = meta.GetValueOrDefault("room_id", _roomId.ToString()),
+                    realRoomId = meta.GetValueOrDefault("real_room_id", _realRoomId.ToString()),
+                    title = meta.GetValueOrDefault("room_title", _title),
+                    userName = meta.GetValueOrDefault("user_name", _userName),
+                    startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString())
+                }, EventJsonOptions)
+            };
+            lines.AddRange(messages);
+
+            await File.WriteAllLinesAsync(tempPath, lines, Encoding.UTF8);
             
             if (File.Exists(filePath)) File.Delete(filePath);
             File.Move(tempPath, filePath);
@@ -672,17 +827,17 @@ public class BilibiliRecorder : IDisposable
             
             if (OnSessionEnded != null)
             {
-                await OnSessionEnded.Invoke(_roomId, endTime, filePath);
+                await OnSessionEnded.Invoke(_uid, _roomId, endTime, filePath);
             }
 
             await _redis.DeleteKeyAsync(_currentSessionKey + ":list");
             await _redis.DeleteKeyAsync(_currentSessionKey + ":meta");
-            await _redis.ClearLiveSessionKeyAsync(_roomId);
+            await _redis.ClearLiveSessionKeyAsync(_uid);
             _currentSessionKey = null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to dump Redis to XML");
+            _logger.LogError(ex, "Failed to dump Redis to JSONL");
         }
     }
 

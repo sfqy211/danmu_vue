@@ -90,7 +90,7 @@ public class DanmakuController : ControllerBase
         if (endTime.HasValue) query = query.Where(s => s.EndTime <= endTime);
 
         var sessions = await query.OrderByDescending(s => s.StartTime)
-            .Select(s => new { s.Id, s.RoomId, s.Title, s.UserName, s.StartTime, s.EndTime })
+            .Select(s => new { s.Id, s.Uid, s.RoomId, s.Title, s.UserName, s.StartTime, s.EndTime })
             .ToListAsync();
 
         return Ok(sessions);
@@ -126,7 +126,7 @@ public class DanmakuController : ControllerBase
         var streamers = await _db.Sessions
             .Where(s => !string.IsNullOrEmpty(s.UserName))
             .GroupBy(s => s.UserName)
-            .Select(g => new { user_name = g.Key, room_id = g.Max(s => s.RoomId) })
+            .Select(g => new { user_name = g.Key, uid = g.Max(s => s.Uid), room_id = g.Max(s => s.RoomId) })
             .OrderBy(x => x.user_name)
             .ToListAsync();
 

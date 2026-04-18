@@ -26,7 +26,7 @@ public class DanmakuProcessor : BackgroundService
             Directory.CreateDirectory(_danmakuDir);
         }
 
-        _watcher = new FileSystemWatcher(_danmakuDir, "*.xml")
+        _watcher = new FileSystemWatcher(_danmakuDir, "*.*")
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
             IncludeSubdirectories = true,
@@ -59,7 +59,8 @@ public class DanmakuProcessor : BackgroundService
     {
         try
         {
-            var files = Directory.GetFiles(dir, "*.xml", SearchOption.AllDirectories);
+            var files = Directory.GetFiles(dir, "*.*", SearchOption.AllDirectories)
+                .Where(file => IsSupportedDanmakuFile(file));
             foreach (var file in files)
             {
                 await ProcessFileAsync(file);
@@ -73,6 +74,8 @@ public class DanmakuProcessor : BackgroundService
 
     private async Task ProcessFileAsync(string filePath)
     {
+        if (!IsSupportedDanmakuFile(filePath)) return;
+
         try
         {
             _logger.LogDebug($"Processing file: {filePath}");
@@ -82,5 +85,12 @@ public class DanmakuProcessor : BackgroundService
         {
             _logger.LogError(ex, $"Error processing file {filePath}");
         }
+    }
+
+    private static bool IsSupportedDanmakuFile(string filePath)
+    {
+        var extension = Path.GetExtension(filePath);
+        return string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".jsonl", StringComparison.OrdinalIgnoreCase);
     }
 }

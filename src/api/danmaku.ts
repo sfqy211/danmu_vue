@@ -57,6 +57,7 @@ const normalizeSession = (session: any): SessionInfo => {
   const endTime = rawEndTime && rawEndTime < 1_000_000_000_000 ? rawEndTime * 1000 : rawEndTime;
   return {
     id: toNumber(session.id ?? session.Id) ?? 0,
+    uid: (session.uid ?? session.Uid ?? '').toString(),
     room_id: roomId ?? 0,
     start_time: startTime ?? 0,
     end_time: endTime,
@@ -68,6 +69,7 @@ const normalizeSession = (session: any): SessionInfo => {
 const normalizeStreamer = (streamer: any): StreamerInfo => {
   return {
     user_name: streamer.user_name ?? streamer.userName ?? streamer.UserName ?? '',
+    uid: streamer.uid ?? streamer.Uid ?? '',
     room_id: streamer.room_id ?? streamer.roomId ?? streamer.RoomId
   };
 };
@@ -105,6 +107,7 @@ export interface Danmaku {
 
 export interface SessionInfo {
   id: number;
+  uid?: string;
   room_id: number;
   start_time: number;
   end_time?: number;
@@ -119,6 +122,7 @@ export const getFiles = async () => {
 
 export interface StreamerInfo {
   user_name: string;
+  uid?: string;
   room_id?: string;
 }
 

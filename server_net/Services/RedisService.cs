@@ -56,18 +56,18 @@ public class RedisService
         await _db.KeyDeleteAsync(key);
     }
     
-    public async Task SetLiveSessionKeyAsync(long roomId, string sessionKey)
+    public async Task SetLiveSessionKeyAsync(string uid, string sessionKey)
     {
-        await _db.StringSetAsync($"danmu:live:{roomId}", sessionKey);
+        await _db.StringSetAsync($"danmu:live:{uid}", sessionKey);
     }
     
-    public async Task<string?> GetLiveSessionKeyAsync(long roomId)
+    public async Task<string?> GetLiveSessionKeyAsync(string uid)
     {
-        return await _db.StringGetAsync($"danmu:live:{roomId}");
+        return await _db.StringGetAsync($"danmu:live:{uid}");
     }
     
-    public async Task ClearLiveSessionKeyAsync(long roomId)
+    public async Task ClearLiveSessionKeyAsync(string uid)
     {
-        await _db.KeyDeleteAsync($"danmu:live:{roomId}");
+        await _db.KeyDeleteAsync($"danmu:live:{uid}");
     }
 }

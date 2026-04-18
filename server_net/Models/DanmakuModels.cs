@@ -6,10 +6,28 @@ public class DanmakuMessage
     public long Timestamp { get; set; }
     public string? Text { get; set; }
     public double? Price { get; set; }
+    public bool IsPriceTotal { get; set; }
     public string? Name { get; set; } // Gift/Guard name
     public int? Count { get; set; }
     public int? GuardLevel { get; set; }
     public Sender Sender { get; set; } = new();
+}
+
+public class RecordedDanmakuEvent
+{
+    public string Kind { get; set; } = "event";
+    public string Version { get; set; } = "danmu-event-v1";
+    public string Type { get; set; } = "unknown";
+    public long Timestamp { get; set; }
+    public string User { get; set; } = "";
+    public string Uid { get; set; } = "";
+    public string? Text { get; set; }
+    public string? Name { get; set; }
+    public int Count { get; set; } = 1;
+    public double? Price { get; set; }
+    public bool IsPriceTotal { get; set; }
+    public int? GuardLevel { get; set; }
+    public string? RawCommand { get; set; }
 }
 
 public class Sender

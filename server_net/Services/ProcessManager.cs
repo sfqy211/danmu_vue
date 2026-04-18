@@ -5,6 +5,8 @@ namespace Danmu.Server.Services;
 
 public class ProcessInfo
 {
+    public string Uid { get; set; } = "";
+    public long RoomId { get; set; }
     public string Name { get; set; } = "";
     public int Pid { get; set; }
     public string Status { get; set; } = "stopped";
@@ -14,7 +16,7 @@ public class ProcessInfo
 
 public class ProcessManager
 {
-    private readonly Dictionary<string, BilibiliRecorder> _recorders = new();
+    private readonly Dictionary<string, BilibiliRecorder> _recorders = new(StringComparer.Ordinal);
     private readonly ILogger<ProcessManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -38,7 +40,9 @@ public class ProcessManager
                 var recorder = kvp.Value;
                 list.Add(new ProcessInfo
                 {
-                    Name = kvp.Key,
+                    Uid = kvp.Key,
+                    RoomId = recorder.RoomId,
+                    Name = recorder.ProcessName,
                     Pid = recorder.Pid,
                     Status = recorder.Status,
                     Uptime = recorder.Uptime,
@@ -51,33 +55,31 @@ public class ProcessManager
 
     public async Task StartRecorder(long roomId, string? name)
     {
-        string processName = $"danmu-{name}";
-        if (string.IsNullOrEmpty(name)) processName = $"danmu-{roomId}";
-
+        var identity = await ResolveRoomIdentityAsync(roomId, name);
         BilibiliRecorder? recorder;
         lock (_recorders)
         {
-            if (_recorders.TryGetValue(processName, out var existing))
+            if (_recorders.TryGetValue(identity.Uid, out var existing))
             {
                 if (existing.Status == "online")
                 {
-                    _logger.LogInformation($"Recorder {processName} is already running.");
+                    _logger.LogInformation($"Recorder for uid {identity.Uid} is already running.");
                     return;
                 }
-                // If stopped/errored, dispose and remove
+
                 existing.Dispose();
-                _recorders.Remove(processName);
+                _recorders.Remove(identity.Uid);
             }
 
             var logger = _loggerFactory.CreateLogger<BilibiliRecorder>();
-            recorder = new BilibiliRecorder(roomId, name, logger, _redis);
+            recorder = new BilibiliRecorder(identity.RoomId, identity.Uid, identity.Name, logger, _redis);
             
             // Delegate: Check for active session in DB
-            recorder.CheckActiveSession = async (rid) =>
+            recorder.CheckActiveSession = async (uid, rid) =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
-                var session = await svc.GetActiveSessionAsync(rid);
+                var session = await svc.GetActiveSessionAsync(uid, rid);
                 if (session != null && !string.IsNullOrEmpty(session.FilePath) && session.FilePath.StartsWith("redis:"))
                 {
                     return session.FilePath.Substring(6); // Remove "redis:" prefix
@@ -85,14 +87,20 @@ public class ProcessManager
                 return null;
             };
 
-            recorder.UpdateVupStats = async (rid, time, followers, guardNum, videoCount) =>
+            recorder.UpdateVupStats = async (uid, rid, time, followers, guardNum, videoCount) =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
-                var room = await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == rid);
+                var room = await db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid)
+                    ?? await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == rid);
                 if (room != null)
                 {
                     bool changed = false;
+                    if (rid > 0 && room.RoomId != rid)
+                    {
+                        room.RoomId = rid;
+                        changed = true;
+                    }
                     // Only update LastLiveTime if the new time is valid and significantly different or larger
                     if (time > 0 && Math.Abs(time - room.LastLiveTime) > 5000) 
                     { 
@@ -111,44 +119,55 @@ public class ProcessManager
                 }
             };
 
-            recorder.OnSessionStarted += async (rid, title, uname, start, key) =>
+            recorder.OnSessionStarted += async (uid, rid, title, uname, start, key) =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
-                await svc.CreateLiveSessionAsync(rid, title, uname, start, key);
+                await svc.CreateLiveSessionAsync(uid, rid, title, uname, start, key);
             };
 
-            recorder.OnTitleChanged += async (rid, title) =>
+            recorder.OnTitleChanged += async (uid, rid, title) =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
-                await svc.UpdateLiveSessionTitleAsync(rid, title);
+                await svc.UpdateLiveSessionTitleAsync(uid, rid, title);
             };
             
-            recorder.OnSessionEnded += async (rid, endTime, finalPath) =>
+            recorder.OnSessionEnded += async (uid, rid, endTime, finalPath) =>
             {
                 using var scope = _scopeFactory.CreateScope();
                 var svc = scope.ServiceProvider.GetRequiredService<DanmakuService>();
-                await svc.CloseSessionAsync(rid, endTime, finalPath);
+                await svc.CloseSessionAsync(uid, rid, endTime, finalPath);
             };
 
-            _recorders[processName] = recorder;
+            _recorders[identity.Uid] = recorder;
         }
 
         using (var scope = _scopeFactory.CreateScope())
         {
             var bilibili = scope.ServiceProvider.GetRequiredService<BilibiliService>();
-            var (token, host, realRoomId) = await bilibili.GetDanmakuConfAsync(roomId);
+            var (token, host, realRoomId) = await bilibili.GetDanmakuConfAsync(identity.RoomId);
             await recorder.StartAsync(token, host, bilibili, realRoomId);
         }
     }
 
-    public async Task StopRecorder(string processName)
+    public async Task StopRecorder(long roomId)
+    {
+        var uid = await ResolveUidAsync(roomId);
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            return;
+        }
+
+        await StopRecorderByUidAsync(uid);
+    }
+
+    private async Task StopRecorderByUidAsync(string uid)
     {
         BilibiliRecorder? recorder = null;
         lock (_recorders)
         {
-            if (_recorders.TryGetValue(processName, out var r))
+            if (_recorders.TryGetValue(uid, out var r))
             {
                 recorder = r;
             }
@@ -159,7 +178,7 @@ public class ProcessManager
             await recorder.StopAsync();
             lock (_recorders)
             {
-                _recorders.Remove(processName);
+                _recorders.Remove(uid);
             }
             recorder.Dispose();
         }
@@ -176,7 +195,7 @@ public class ProcessManager
         {
             try 
             {
-                _logger.LogInformation($"Restoring recorder for {room.Name} (RoomId: {room.RoomId})...");
+                _logger.LogInformation($"Restoring recorder for {room.Name} (Uid: {room.Uid}, RoomId: {room.RoomId})...");
                 await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
                 // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
                 await Task.Delay(TimeSpan.FromSeconds(5));
@@ -186,5 +205,41 @@ public class ProcessManager
                 _logger.LogError(ex, $"Failed to restore recorder for {room.Name}");
             }
         }
+    }
+
+    private async Task<(string Uid, long RoomId, string Name)> ResolveRoomIdentityAsync(long roomId, string? fallbackName)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+        var room = await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == roomId);
+
+        var uid = room?.Uid;
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            uid = roomId.ToString();
+            _logger.LogWarning("Room {RoomId} has no uid, falling back to roomId as recorder identity.", roomId);
+        }
+
+        var name = room?.Name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = fallbackName;
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = roomId.ToString();
+        }
+
+        var resolvedRoomId = room?.RoomId ?? roomId;
+        return (uid, resolvedRoomId, name);
+    }
+
+    private async Task<string?> ResolveUidAsync(long roomId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+        var room = await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == roomId);
+        return room?.Uid;
     }
 }
