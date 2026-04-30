@@ -82,6 +82,7 @@ builder.Services.AddHttpClient<BilibiliService>(client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 builder.Services.AddSingleton<ImageService>();
+builder.Services.AddSingleton<CosService>();
 builder.Services.AddHostedService<AvatarScheduler>();
 builder.Services.AddHostedService<CoverScheduler>();
 builder.Services.AddHostedService<VupInfoScheduler>();
@@ -130,33 +131,6 @@ if (staticPath != null)
         RequestPath = ""
     });
 }
-
-var dataRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data"));
-var bgPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-bg"));
-var avatarPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-avatar"));
-var coverPath = Path.GetFullPath(Path.Combine(dataRoot, "vup-cover"));
-
-if (!Directory.Exists(bgPath)) Directory.CreateDirectory(bgPath);
-if (!Directory.Exists(avatarPath)) Directory.CreateDirectory(avatarPath);
-if (!Directory.Exists(coverPath)) Directory.CreateDirectory(coverPath);
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(bgPath),
-    RequestPath = "/vup-bg"
-});
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(avatarPath),
-    RequestPath = "/vup-avatar"
-});
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(coverPath),
-    RequestPath = "/vup-cover"
-});
 
 
 app.MapControllers();

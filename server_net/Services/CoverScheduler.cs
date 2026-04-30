@@ -10,17 +10,19 @@ public class CoverScheduler : BackgroundService
     private readonly ILogger<CoverScheduler> _logger;
     private readonly BilibiliService _bilibiliService;
     private readonly ImageService _imageService;
+    private readonly CosService _cosService;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _coverDir;
     private readonly ConcurrentDictionary<long, DateTime> _lastUpdateMap = new();
     private readonly TimeSpan _updateInterval = TimeSpan.FromDays(1);
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(30);
 
-    public CoverScheduler(ILogger<CoverScheduler> logger, BilibiliService bilibiliService, ImageService imageService, IServiceProvider serviceProvider)
+    public CoverScheduler(ILogger<CoverScheduler> logger, BilibiliService bilibiliService, ImageService imageService, CosService cosService, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _bilibiliService = bilibiliService;
         _imageService = imageService;
+        _cosService = cosService;
         _serviceProvider = serviceProvider;
 
         var root = Directory.GetCurrentDirectory();
@@ -119,6 +121,7 @@ public class CoverScheduler : BackgroundService
 
             await _imageService.SavePngAsync(imageBytes, coverPath);
             _logger.LogInformation($"[Cover] Saved cover for {room.Name} to {coverPath}");
+            await _cosService.UploadAsync(coverPath, $"vup-cover/{filename}", "image/png");
         }
         catch (Exception ex)
         {

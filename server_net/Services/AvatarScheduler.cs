@@ -11,6 +11,7 @@ public class AvatarScheduler : BackgroundService
     private readonly ILogger<AvatarScheduler> _logger;
     private readonly BilibiliService _bilibiliService;
     private readonly ImageService _imageService;
+    private readonly CosService _cosService;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _bgDir;
     private readonly string _avatarDir;
@@ -18,11 +19,12 @@ public class AvatarScheduler : BackgroundService
     private readonly TimeSpan _updateInterval = TimeSpan.FromDays(1);
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(30);
 
-    public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService, IServiceProvider serviceProvider)
+    public AvatarScheduler(ILogger<AvatarScheduler> logger, BilibiliService bilibiliService, ImageService imageService, CosService cosService, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _bilibiliService = bilibiliService;
         _imageService = imageService;
+        _cosService = cosService;
         _serviceProvider = serviceProvider;
 
         var root = Directory.GetCurrentDirectory();
@@ -101,11 +103,13 @@ public class AvatarScheduler : BackgroundService
             var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
             await _imageService.SavePngAsync(imageBytes, bgPath);
             _logger.LogInformation($"[Avatar] Saved original for {vup.Name} to {bgPath}");
+            await _cosService.UploadAsync(bgPath, $"vup-bg/{vup.Uid}.png", "image/png");
 
             // Save thumbnail to vup-avatar
             var avatarPath = Path.Combine(_avatarDir, $"{vup.Uid}.webp");
             await _imageService.ResizeAndSaveWebpAsync(imageBytes, avatarPath, 120, 120);
             _logger.LogInformation($"[Avatar] Saved thumbnail for {vup.Name} to {avatarPath}");
+            await _cosService.UploadAsync(avatarPath, $"vup-avatar/{vup.Uid}.webp", "image/webp");
         }
         catch (Exception ex)
         {
