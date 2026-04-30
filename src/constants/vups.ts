@@ -1,4 +1,4 @@
-const IMG_BASE_URL = '';
+const IMG_BASE_URL = import.meta.env.VITE_COS_BASE_URL || '';
 
 export const getVupAssetKey = (uid?: string | null, roomId?: string | number | null) => {
   const resolvedUid = typeof uid === 'string' ? uid.trim() : '';

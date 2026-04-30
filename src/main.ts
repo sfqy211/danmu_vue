@@ -8,6 +8,11 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 
+// Warn if VITE_COS_BASE_URL is not configured
+if (import.meta.env.DEV && !import.meta.env.VITE_COS_BASE_URL) {
+  console.warn('[Dev] VITE_COS_BASE_URL is not set. Images (avatars, covers) will not load. Add it to your .env file, e.g.: VITE_COS_BASE_URL=https://ovodm.top')
+}
+
 const app = createApp(App)
 const pinia = createPinia()
 
