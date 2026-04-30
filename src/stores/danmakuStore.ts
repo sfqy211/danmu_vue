@@ -163,14 +163,39 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     }
   };
 
+  // 去重：基于 user + uid + timestamp + isSC + price 判断（忽略 content，因双语 SC 内容不同）
+  // 如果相邻两条 SC 的 content 不同但其他字段相同，合并为一条并设置 contentJpn
+  const deduplicateDanmaku = (list: Danmaku[]): Danmaku[] => {
+    const result: Danmaku[] = [];
+    for (const d of list) {
+      if (d.isSC && result.length > 0) {
+        const prev = result[result.length - 1];
+        if (prev.isSC
+          && prev.user === d.user
+          && prev.uid === d.uid
+          && Math.abs(prev.timestamp - d.timestamp) <= 2000
+          && prev.price === d.price)
+        {
+          if (prev.content !== d.content && !prev.contentJpn) {
+            prev.contentJpn = d.content;
+          }
+          continue;
+        }
+      }
+      result.push(d);
+    }
+    return result;
+  };
+
   const fetchDanmaku = async () => {
     if (!currentSession.value || danmakuLoading.value || isDanmakuLoaded.value) return;
-    
+
     danmakuLoading.value = true;
     try {
       const res = await getSessionDanmaku(currentSession.value.id, 1, 5000);
-      danmakuList.value = res.danmaku;
-      scList.value = res.danmaku.filter(d => d.isSC);
+      const deduplicated = deduplicateDanmaku(res.danmaku);
+      danmakuList.value = deduplicated;
+      scList.value = deduplicated.filter(d => d.isSC);
       totalDanmaku.value = res.total;
       totalPages.value = res.totalPages;
       currentPage.value = res.page;
@@ -184,13 +209,14 @@ export const useDanmakuStore = defineStore('danmaku', () => {
 
   const loadMore = async () => {
     if (currentPage.value >= totalPages.value || loading.value) return;
-    
+
     loading.value = true;
     try {
       const nextPage = currentPage.value + 1;
       const res = await getSessionDanmaku(currentSession.value!.id, nextPage, 5000);
-      danmakuList.value = [...danmakuList.value, ...res.danmaku];
-      scList.value = [...scList.value, ...res.danmaku.filter(d => d.isSC)];
+      const deduplicated = deduplicateDanmaku([...danmakuList.value, ...res.danmaku]);
+      danmakuList.value = deduplicated;
+      scList.value = deduplicated.filter(d => d.isSC);
       currentPage.value = nextPage;
     } catch (e) {
       console.error(e);

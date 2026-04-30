@@ -5,6 +5,7 @@ public class DanmakuMessage
     public string Type { get; set; } = "comment";
     public long Timestamp { get; set; }
     public string? Text { get; set; }
+    public string? TextJpn { get; set; }
     public double? Price { get; set; }
     public bool IsPriceTotal { get; set; }
     public string? Name { get; set; } // Gift/Guard name
@@ -22,6 +23,7 @@ public class RecordedDanmakuEvent
     public string User { get; set; } = "";
     public string Uid { get; set; } = "";
     public string? Text { get; set; }
+    public string? TextJpn { get; set; }
     public string? Name { get; set; }
     public int Count { get; set; } = 1;
     public double? Price { get; set; }

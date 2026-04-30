@@ -118,7 +118,10 @@
                     </template>
                   </el-dropdown>
                 </div>
-                <div class="danmaku-text" :title="item.content" @click="toggleExpand(item)">{{ item.content }}</div>
+                <div class="danmaku-text" :title="item.content" @click="toggleExpand(item)">
+                  {{ item.content }}
+                  <span v-if="item.contentJpn" class="sc-jpn-text">{{ item.contentJpn }}</span>
+                </div>
                 <div class="danmaku-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(item.timestamp) : item.timeStr }}</div>
               </div>
             </div>
@@ -772,5 +775,13 @@ onUnmounted(() => {
 
 .sc-price {
   font-weight: 700;
+}
+
+.sc-jpn-text {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  opacity: 0.85;
 }
 </style>

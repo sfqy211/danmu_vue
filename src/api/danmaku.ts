@@ -99,6 +99,7 @@ export interface Danmaku {
   user: string;
   uid: string;
   content: string;
+  contentJpn?: string;
   timestamp: number;
   timeStr: string;
   isSC: boolean;
@@ -233,6 +234,7 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
     user: msg.sender,
     uid: msg.uid,
     content: msg.text,
+    contentJpn: msg.textJpn || undefined,
     timestamp: msg.timestamp,
     timeStr: formatTime(toNumber(msg.time) ?? 0),
     isSC: msg.isSC,
