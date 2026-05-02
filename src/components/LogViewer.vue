@@ -1,5 +1,5 @@
 <template>
-  <div class="log-viewer" :class="{ 'light-surround': !isDarkMode }">
+  <div class="log-viewer" :class="{ 'light-theme': !isDarkMode }">
     <!-- Toolbar -->
     <div class="log-toolbar">
       <div class="toolbar-left">
@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Bottom, Delete, Download, Top } from '@element-plus/icons-vue'
 import { getLogFiles, downloadLogFile, type LogFileEntry } from '../api/danmaku'
@@ -419,9 +419,94 @@ onBeforeUnmount(() => { disconnectSSE() })
 :deep(.el-tag--warning) { background-color: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #fbbf24; }
 :deep(.el-tag--danger) { background-color: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.2); color: #f87171; }
 
-/* Light theme surround adjustments */
-.log-viewer.light-surround {
+/* ─── Light Theme Overrides ─────────────────────────────────────── */
+
+.log-viewer.light-theme {
+  background-color: #fafafa;
   border-color: #dcdfe6;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.log-viewer.light-theme .log-toolbar {
+  background-color: #f5f5f5;
+  border-bottom-color: #e0e0e0;
+}
+
+.log-viewer.light-theme .log-file-select :deep(.el-input__wrapper) {
+  background-color: #fff;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+}
+.log-viewer.light-theme .log-file-select :deep(.el-input__inner) {
+  color: #333;
+}
+
+.log-viewer.light-theme .connection-badge {
+  border-color: #dcdfe6;
+}
+
+.log-viewer.light-theme .log-search :deep(.el-input__wrapper) {
+  background-color: #fff;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+}
+.log-viewer.light-theme .log-search :deep(.el-input__inner) {
+  color: #333;
+}
+.log-viewer.light-theme .log-search :deep(.el-input__icon) {
+  color: #999;
+}
+
+.log-viewer.light-theme .terminal-body {
+  background-color: #fafafa;
+}
+
+.log-viewer.light-theme .terminal-body::-webkit-scrollbar-track {
+  background: #fafafa;
+}
+.log-viewer.light-theme .terminal-body::-webkit-scrollbar-thumb {
+  border: 2px solid #fafafa;
+}
+
+.log-viewer.light-theme .empty-state {
+  color: #bbb;
+}
+
+.log-viewer.light-theme .log-line {
+  color: #333;
+}
+.log-viewer.light-theme .log-line:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.log-viewer.light-theme .log-line.level-info {
+  color: #333;
+}
+.log-viewer.light-theme .log-line.level-warn {
+  color: #b45309;
+}
+.log-viewer.light-theme .log-line.level-error {
+  color: #dc2626;
+}
+.log-viewer.light-theme .log-line.level-debug {
+  color: #7c3aed;
+}
+.log-viewer.light-theme .log-line.level-default {
+  color: #666;
+}
+
+.log-viewer.light-theme .line-number {
+  color: #bbb;
+}
+
+.log-viewer.light-theme .terminal-statusbar {
+  background-color: #f5f5f5;
+  border-top-color: #e0e0e0;
+  color: #999;
+}
+
+.log-viewer.light-theme .status-item.clickable {
+  color: #2563eb;
+}
+.log-viewer.light-theme .status-item.clickable:hover {
+  color: #3b82f6;
 }
 </style>
