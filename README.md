@@ -6,10 +6,14 @@
 
 ## 2. 功能特性
 
-- 直播弹幕录制与历史回放
+- 直播弹幕录制与历史回放（多账号轮换 + 故障转移）
 - 弹幕统计、营收统计、时间轴分析与关键词分析
+- 虚拟滚动弹幕流：十万级弹幕 60fps，SC 双语合并与金额配色
 - 多主播管理与历史场次筛选
 - 点歌记录查询与后台维护
+- B 站账户托管：多账号 Cookie 管理、TV 扫码登录、按房间分配
+- 实时系统日志查看器：深色终端风格、SSE 流式推送、搜索与下载
+- Admin 后台深色模式、更新日志管理
 - 主播头像、封面、背景图管理
 
 当前录制数据格式说明：
@@ -21,7 +25,7 @@
 ## 3. 技术栈
 
 - 前端：Vue 3、TypeScript、Vite、Pinia、Element Plus、ECharts
-- 后端：.NET 9、ASP.NET Core、EF Core
+- 后端：.NET 9、ASP.NET Core、EF Core、Serilog
 - 数据库：MySQL
 - 其他：Microsoft Garnet、Docker、1Panel、GitHub Actions、腾讯云 COS/CDN
 
