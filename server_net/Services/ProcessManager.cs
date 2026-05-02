@@ -13,6 +13,8 @@ public class ProcessInfo
     public string Status { get; set; } = "stopped";
     public string Uptime { get; set; } = "0s";
     public DateTime StartTime { get; set; }
+    public int LiveStatus { get; set; }
+    public long? LiveStartTime { get; set; }
 }
 
 public class ProcessManager
@@ -50,7 +52,9 @@ public class ProcessManager
                     Pid = recorder.Pid,
                     Status = recorder.Status,
                     Uptime = recorder.Uptime,
-                    StartTime = recorder.StartTime
+                    StartTime = recorder.StartTime,
+                    LiveStatus = recorder.LiveStatus,
+                    LiveStartTime = recorder.LiveStartTime
                 });
             }
         }

@@ -50,6 +50,10 @@ public class BilibiliRecorder : IDisposable
     public string DisplayName => _name;
     public string ProcessName => $"danmu-{_uid}";
 
+    // Real live status from Bilibili API (updated by WaitForLiveAsync / HeartbeatLoopAsync)
+    public int LiveStatus { get; private set; }
+    public long? LiveStartTime { get; private set; }
+
     public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis, BiliAccountService accountService)
     {
         _roomId = roomId;
@@ -338,19 +342,26 @@ public class BilibiliRecorder : IDisposable
         {
             if (_ws == null || _ws.State != WebSocketState.Open)
             {
-                throw new Exception("WebSocket closed or null");
+                return; // Connection was intentionally closed
             }
 
-            var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-            if (result.MessageType == WebSocketMessageType.Close) 
+            try
             {
-                throw new Exception("WebSocket closed by server");
-            }
+                var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return; // Server closed connection normally
+                }
 
-            var data = new byte[result.Count];
-            Array.Copy(buffer, data, result.Count);
-            
-            ProcessPacket(data);
+                var data = new byte[result.Count];
+                Array.Copy(buffer, data, result.Count);
+                
+                ProcessPacket(data);
+            }
+            catch (System.Net.WebSockets.WebSocketException)
+            {
+                return; // Connection closed
+            }
         }
     }
 
@@ -473,6 +484,7 @@ public class BilibiliRecorder : IDisposable
         }
         catch (Exception ex)
         {
+            if (ex is EndOfStreamException) throw;
             _logger.LogWarning(ex, "Failed to handle websocket message for uid {Uid}", _uid);
         }
     }
@@ -780,6 +792,9 @@ public class BilibiliRecorder : IDisposable
         {
             _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
         }
+
+        LiveStatus = liveStatus;
+        LiveStartTime = liveStartTime;
 
         return (liveStatus, liveStartTime, followers, guardNum, videoCount);
     }
