@@ -76,6 +76,7 @@ builder.Services.AddHostedService<AvatarScheduler>();
 builder.Services.AddHostedService<CoverScheduler>();
 builder.Services.AddHostedService<VupInfoScheduler>();
 builder.Services.AddSingleton<LiveStatusService>();
+builder.Services.AddSingleton<ChangelogService>();
 builder.Services.AddHostedService<LiveStatusService>(sp => sp.GetRequiredService<LiveStatusService>());
 
 // CORS

@@ -20,9 +20,10 @@ public class AdminController : ControllerBase
     private readonly DanmakuService _danmakuService;
     private readonly BiliAccountService _accountService;
     private readonly LiveStatusService _liveStatusService;
+    private readonly ChangelogService _changelogService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ChangelogService changelogService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
@@ -30,6 +31,7 @@ public class AdminController : ControllerBase
         _danmakuService = danmakuService;
         _accountService = accountService;
         _liveStatusService = liveStatusService;
+        _changelogService = changelogService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -538,6 +540,44 @@ public class AdminController : ControllerBase
         return fullPath;
     }
 
+    // ─── Changelog Endpoints ──────────────────────────────────────────
+
+    [HttpGet("changelog")]
+    public async Task<IActionResult> GetAdminChangelog()
+    {
+        var entries = await _changelogService.GetAllAsync();
+        return Ok(entries);
+    }
+
+    [HttpPost("changelog")]
+    public async Task<IActionResult> AddChangelog([FromBody] ChangelogDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Version) || string.IsNullOrWhiteSpace(dto.Content))
+            return BadRequest(new { message = "Version and content are required" });
+
+        var entry = await _changelogService.AddAsync(dto.Version, dto.Date, dto.Content);
+        return Ok(entry);
+    }
+
+    [HttpPut("changelog/{id}")]
+    public async Task<IActionResult> UpdateChangelog(int id, [FromBody] ChangelogDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Version) || string.IsNullOrWhiteSpace(dto.Content))
+            return BadRequest(new { message = "Version and content are required" });
+
+        var entry = await _changelogService.UpdateAsync(id, dto.Version, dto.Date, dto.Content);
+        if (entry == null) return NotFound(new { message = "Entry not found" });
+        return Ok(entry);
+    }
+
+    [HttpDelete("changelog/{id}")]
+    public async Task<IActionResult> DeleteChangelog(int id)
+    {
+        var deleted = await _changelogService.DeleteAsync(id);
+        if (!deleted) return NotFound(new { message = "Entry not found" });
+        return Ok(new { message = "Deleted" });
+    }
+
     // ─── BiliAccount Endpoints ──────────────────────────────────────
 
     [HttpGet("bili-accounts")]
@@ -873,4 +913,11 @@ public class AssignmentItem
     public string? RoomName { get; set; }
     public long AccountUid { get; set; }
     public bool IsRecording { get; set; }
+}
+
+public class ChangelogDto
+{
+    public string Version { get; set; } = "";
+    public DateTime Date { get; set; }
+    public string Content { get; set; } = "";
 }
