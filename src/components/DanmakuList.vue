@@ -87,6 +87,7 @@
                 left: 0,
                 width: '100%',
                 borderLeftColor: getSCStyle(filteredSCList[virtualItem.index].price || 0).main,
+                backgroundColor: getSCStyle(filteredSCList[virtualItem.index].price || 0).bg,
               }"
               class="danmaku-item sc-item"
               :title="`UID: ${filteredSCList[virtualItem.index].uid ?? '未知'}\n金额: ¥${filteredSCList[virtualItem.index].price || 0}`"
@@ -96,7 +97,7 @@
                 <span class="sc-price" :style="{ color: getSCStyle(filteredSCList[virtualItem.index].price || 0).main }">
                   ¥{{ formatPrice(filteredSCList[virtualItem.index].price || 0) }}
                 </span>
-                <span class="dm-user" :style="{ color: getSCStyle(filteredSCList[virtualItem.index].price || 0).main }" @click="openUserMenu($event, filteredSCList[virtualItem.index])">
+                <span class="dm-user" @click="openUserMenu($event, filteredSCList[virtualItem.index])">
                   {{ filteredSCList[virtualItem.index].user }}
                 </span>
               </span>
@@ -262,19 +263,18 @@ const getSCLevel = (price: number) => {
   if (price >= 500) return 4;
   if (price >= 100) return 3;
   if (price >= 50) return 2;
-  if (price >= 30) return 1;
-  return 1;
+  return 1; // <50
 };
 
 const getSCStyle = (price: number) => {
   const level = getSCLevel(price);
-  const styles: Record<number, { main: string }> = {
-    1: { main: '#2A60B2' },
-    2: { main: '#427D9E' },
-    3: { main: '#E2B13C' },
-    4: { main: '#E09443' },
-    5: { main: '#E54D4D' },
-    6: { main: '#AB1A32' }
+  const styles: Record<number, { main: string; bg: string }> = {
+    1: { main: '#2A60B2', bg: 'rgba(42, 96, 178, 0.08)' },
+    2: { main: '#427D9E', bg: 'rgba(66, 125, 158, 0.08)' },
+    3: { main: '#E2B52B', bg: 'rgba(226, 181, 43, 0.08)' },
+    4: { main: '#E09443', bg: 'rgba(224, 148, 67, 0.08)' },
+    5: { main: '#E54D4D', bg: 'rgba(229, 77, 77, 0.08)' },
+    6: { main: '#AB1A32', bg: 'rgba(171, 26, 50, 0.08)' }
   };
   return styles[level] || styles[1];
 };
@@ -598,13 +598,12 @@ onUnmounted(() => {
 .danmaku-item {
   display: flex;
   align-items: baseline;
-  gap: 0;
+  gap: 3px;
   padding: 4px 10px;
   font-size: 0.9rem;
-  line-height: 1.5;
+  line-height: 2;
   /* Override global style.css card styles */
   border: none !important;
-  background: none !important;
   border-radius: 0 !important;
   margin: 0 !important;
   min-height: auto !important;
@@ -617,11 +616,11 @@ onUnmounted(() => {
   border-bottom: none !important;
 }
 
-/* SC: left color bar */
+/* SC: left color bar + taller line height */
 .danmaku-item.sc-item {
   border-left: 3px solid transparent;
   padding-left: 7px;
-  background: none !important;
+  line-height: 2.5;
 }
 
 /* Time: far left, muted */
@@ -643,7 +642,7 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 2px;
   flex-shrink: 0;
-  margin-right: 8px;
+  margin-right: 2px;
 }
 
 /* Username */
