@@ -11,6 +11,7 @@ public class DanmuContext : DbContext
     public required DbSet<SongRequest> SongRequests { get; set; }
     public required DbSet<Room> Rooms { get; set; }
     public required DbSet<BiliAccount> BiliAccounts { get; set; }
+    public required DbSet<ChangelogEntry> ChangelogEntries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

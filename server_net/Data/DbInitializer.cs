@@ -97,6 +97,27 @@ public static class DbInitializer
                 await db.Database.ExecuteSqlRawAsync(createSql);
                 logger.LogInformation("Created bili_accounts table.");
             }
+
+            if (!await TableExistsAsync(db, "changelog_entries"))
+            {
+                var createSql = db.Database.IsMySql()
+                    ? @"CREATE TABLE changelog_entries (
+                        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        version VARCHAR(32) NOT NULL,
+                        date DATETIME NOT NULL,
+                        content LONGTEXT NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )"
+                    : @"CREATE TABLE changelog_entries (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        version TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )";
+                await db.Database.ExecuteSqlRawAsync(createSql);
+                logger.LogInformation("Created changelog_entries table.");
+            }
         }
         catch (Exception ex)
         {
