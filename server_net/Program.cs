@@ -88,6 +88,8 @@ builder.Services.AddSingleton<CosService>();
 builder.Services.AddHostedService<AvatarScheduler>();
 builder.Services.AddHostedService<CoverScheduler>();
 builder.Services.AddHostedService<VupInfoScheduler>();
+builder.Services.AddSingleton<LiveStatusService>();
+builder.Services.AddHostedService<LiveStatusService>(sp => sp.GetRequiredService<LiveStatusService>());
 
 // CORS
 builder.Services.AddCors(options =>
