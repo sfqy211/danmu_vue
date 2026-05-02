@@ -19,15 +19,17 @@ public class AdminController : ControllerBase
     private readonly BilibiliService _bilibili;
     private readonly DanmakuService _danmakuService;
     private readonly BiliAccountService _accountService;
+    private readonly LiveStatusService _liveStatusService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
         _bilibili = bilibili;
         _danmakuService = danmakuService;
         _accountService = accountService;
+        _liveStatusService = liveStatusService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -61,6 +63,21 @@ public class AdminController : ControllerBase
                 await _db.SaveChangesAsync();
             }
 
+            // Layer 1: use recorder's real live status from API if recorder exists
+            // Layer 2: fallback to cached live status from LiveStatusService if no recorder
+            var realLiveStatus = proc?.LiveStatus ?? 0;
+            long realLiveStartTime = proc?.LiveStartTime ?? liveStartTime;
+            if (realLiveStatus == 0)
+            {
+                var cached = _liveStatusService.GetCachedStatus(room.RoomId);
+                if (cached != null)
+                {
+                    realLiveStatus = cached.LiveStatus;
+                    if (cached.LiveStartTime.HasValue)
+                        realLiveStartTime = cached.LiveStartTime.Value;
+                }
+            }
+
             results.Add(new
             {
                 id = room.Id,
@@ -70,8 +87,8 @@ public class AdminController : ControllerBase
                 auto_record = room.AutoRecord,
                 process_status = proc?.Status ?? "stopped",
                 process_uptime = proc?.Uptime ?? "0s",
-                live_status = (proc?.Status == "online") ? 1 : 0, 
-                live_start_time = liveStartTime,
+                live_status = realLiveStatus,
+                live_start_time = realLiveStartTime,
                 pid = proc?.Pid,
                 remark = room.Remark,
                 playlist_url = room.PlaylistUrl,
@@ -642,9 +659,15 @@ public class AdminController : ControllerBase
     {
         var assignments = _accountService.GetRoomAssignments();
         var processes = _pm.GetProcesses();
+        var activeUids = processes
+            .Where(p => p.Status is "online" or "reconnecting")
+            .Select(p => p.Uid)
+            .ToHashSet();
         var rooms = _db.Rooms.AsNoTracking().ToList();
 
-        var result = assignments.Select(kv =>
+        var result = assignments
+            .Where(kv => activeUids.Contains(kv.Key))
+            .Select(kv =>
         {
             var roomUid = kv.Key;
             var accountUid = kv.Value;
