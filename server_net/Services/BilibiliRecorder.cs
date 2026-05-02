@@ -96,11 +96,26 @@ public class BilibiliRecorder : IDisposable
 
     private async Task KeepAliveLoopAsync(CancellationToken token)
     {
+        int rapidFailureCount = 0;
+        long? lastAccountUid = null;
+
         while (!token.IsCancellationRequested)
         {
+            // Check if any account is available before attempting connection
+            var cookie = GetCookie();
+            if (string.IsNullOrEmpty(cookie))
+            {
+                _logger.LogWarning("All accounts exhausted for room {RoomId}, backing off for 5 minutes.", _roomId);
+                Status = "offline";
+                await Task.Delay(TimeSpan.FromMinutes(5), token);
+                continue;
+            }
+
+            DateTime? connectTime = null;
             try
             {
                 await WaitForLiveAsync(token);
+                connectTime = DateTime.Now;
                 await ConnectAsync();
 
                 // Start heartbeat
@@ -111,28 +126,27 @@ public class BilibiliRecorder : IDisposable
             }
             catch (Exception ex)
             {
-                if (ex is EndOfStreamException ||
-                    ex is System.Net.WebSockets.WebSocketException ||
-                    ex is System.OperationCanceledException ||
-                    ex is System.IO.IOException)
+                if (IsAuthFailure(ex))
                 {
-                    // Normal connection closure or transient network issue — not an error
-                    _logger.LogInformation($"Connection closed for {_roomId}: {ex.GetType().Name}");
-                }
-                else if (IsAuthFailure(ex))
-                {
-                    _logger.LogError(ex, $"Auth failure for {_roomId}, will retry with different account.");
-                    var accountUid = GetCurrentAccountUid();
-                    if (accountUid.HasValue)
+                    _logger.LogError(ex, "Auth failure for {RoomId}, will retry with different account.", _roomId);
+                    var currentAccountUid = GetCurrentAccountUid();
+                    if (currentAccountUid.HasValue)
                     {
-                        _accountService.ReportAccountFailure(accountUid.Value);
+                        _accountService.ReportAccountFailure(currentAccountUid.Value);
                         _logger.LogWarning("Reported account {Uid} as failing for room {Room} due to auth failure.",
-                            accountUid.Value, _roomId);
+                            currentAccountUid.Value, _roomId);
                     }
+                    rapidFailureCount = 0;
+                    lastAccountUid = null;
                 }
-                else
+                else if (!(ex is EndOfStreamException ||
+                           ex is System.Net.WebSockets.WebSocketException ||
+                           ex is System.OperationCanceledException ||
+                           ex is System.IO.IOException))
                 {
-                    _logger.LogError(ex, $"Recorder error for {_roomId}, retrying in 5s...");
+                    _logger.LogError(ex, "Recorder error for {RoomId}, retrying in 5s...", _roomId);
+                    rapidFailureCount = 0;
+                    lastAccountUid = null;
                 }
                 Status = "reconnecting";
             }
@@ -147,9 +161,39 @@ public class BilibiliRecorder : IDisposable
                          _ws = null;
                     }
                 } catch { }
+            }
 
-                // In reconnect loop, we don't end session unless explicit stop or error handling logic decides so.
-                // But here we just want to keep session open.
+            // Unified rapid failure detection: works for both normal return and exception
+            if (connectTime.HasValue && (DateTime.Now - connectTime.Value).TotalSeconds < 30)
+            {
+                var currentAccountUid = GetCurrentAccountUid();
+                if (currentAccountUid.HasValue && currentAccountUid.Value == lastAccountUid)
+                    rapidFailureCount++;
+                else
+                {
+                    rapidFailureCount = 1;
+                    lastAccountUid = currentAccountUid;
+                }
+
+                _logger.LogWarning("Rapid disconnect #{Count} for room {RoomId} (lasted {Seconds:F1}s), account={Uid}",
+                    rapidFailureCount, _roomId, (DateTime.Now - connectTime.Value).TotalSeconds, currentAccountUid);
+
+                if (rapidFailureCount >= 2 && currentAccountUid.HasValue)
+                {
+                    _accountService.ReportAccountFailure(currentAccountUid.Value);
+                    _logger.LogWarning("Reported account {Uid} as failing due to rapid disconnections.",
+                        currentAccountUid.Value);
+                    rapidFailureCount = 0;
+                    lastAccountUid = null;
+                    // Skip short delay, retry immediately with new account
+                    continue;
+                }
+            }
+            else
+            {
+                // Sustained connection or no connection attempt — reset tracking
+                rapidFailureCount = 0;
+                lastAccountUid = null;
             }
 
             if (!token.IsCancellationRequested)

@@ -116,11 +116,8 @@ public class BiliAccountService
 
             if (available.Count == 0)
             {
-                // All accounts are failing — clear failures and try again
-                _accountFailures.Clear();
-                available = allAccounts.Where(a => !string.IsNullOrWhiteSpace(a.CookieJson)).ToList();
-                if (available.Count == 0)
-                    return (null, null);
+                // All accounts are currently failing — wait for failures to expire instead of clearing immediately
+                return (null, null);
             }
 
             // Check if room already has a sticky assignment
