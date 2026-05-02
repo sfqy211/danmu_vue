@@ -1,5 +1,5 @@
 <template>
-  <div class="log-viewer">
+  <div class="log-viewer" :class="{ 'light-surround': !isDarkMode }">
     <!-- Toolbar -->
     <div class="log-toolbar">
       <div class="toolbar-left">
@@ -68,10 +68,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Bottom, Delete, Download, Top } from '@element-plus/icons-vue'
 import { getLogFiles, downloadLogFile, type LogFileEntry } from '../api/danmaku'
+
+const adminDarkMode = inject<Ref<boolean>>('adminDarkMode')
+const isDarkMode = computed(() => adminDarkMode?.value ?? false)
 
 interface LogLine {
   raw: string
@@ -415,4 +418,10 @@ onBeforeUnmount(() => { disconnectSSE() })
 :deep(.el-tag--success) { background-color: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.2); color: #4ade80; }
 :deep(.el-tag--warning) { background-color: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #fbbf24; }
 :deep(.el-tag--danger) { background-color: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.2); color: #f87171; }
+
+/* Light theme surround adjustments */
+.log-viewer.light-surround {
+  border-color: #dcdfe6;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
 </style>

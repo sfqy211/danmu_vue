@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   adminApi, getBiliAccounts, getBiliAccountAssignments, reassignBiliRoom,
@@ -12,7 +12,8 @@ import LogViewer from '../components/LogViewer.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, Switch, Plus, VideoPlay, Delete, EditPen, 
-  VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document
+  VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document,
+  Sunny, Moon
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -64,6 +65,8 @@ const router = useRouter();
 const loading = ref(false);
 const error = ref('');
 const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'changelog' | 'logs'>('monitor');
+const isDarkMode = ref(localStorage.getItem('admin_dark_mode') === 'true');
+provide('adminDarkMode', isDarkMode);
 const isMobile = ref(window.innerWidth <= 768);
 const sidebarCollapsed = ref(window.innerWidth <= 768);
 const searchCollapsed = ref(window.innerWidth <= 768);
@@ -455,6 +458,11 @@ const handleMenuSelect = (index: string) => {
   if (isMobile.value) {
     sidebarCollapsed.value = true;
   }
+};
+
+const toggleTheme = () => {
+  isDarkMode.value = !isDarkMode.value;
+  localStorage.setItem('admin_dark_mode', String(isDarkMode.value));
 };
 
 const refreshCurrentSection = async () => {
@@ -1122,7 +1130,7 @@ watch(activeSection, async (val) => {
 </script>
 
 <template>
-  <div class="admin-wrapper">
+  <div class="admin-wrapper" :data-theme="isDarkMode ? 'dark' : 'light'">
     <!-- Login Screen -->
     <div v-if="!isAuthenticated" class="login-page">
       <div class="login-box">
@@ -1235,6 +1243,16 @@ watch(activeSection, async (val) => {
               <el-menu-item index="songRequests">点歌记录</el-menu-item>
             </el-sub-menu>
           </el-menu>
+
+          <!-- Theme Toggle (Bottom Left) -->
+          <div class="theme-toggle-area" @click="toggleTheme">
+            <el-icon :size="16">
+              <component :is="isDarkMode ? 'Sunny' : 'Moon'" />
+            </el-icon>
+            <span v-if="!sidebarCollapsed" class="theme-label">
+              {{ isDarkMode ? '浅色模式' : '深色模式' }}
+            </span>
+          </div>
         </el-aside>
 
         <!-- Sidebar Overlay (Mobile Only) -->
@@ -2367,5 +2385,233 @@ watch(activeSection, async (val) => {
   margin: 0;
   font-size: 16px;
   color: var(--text-primary);
+}
+
+/* Theme Toggle */
+.theme-toggle-area {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border-top: 1px solid #ebeef5;
+  color: #606266;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.theme-toggle-area:hover {
+  background-color: #f5f7fa;
+  color: #409eff;
+}
+
+.theme-label {
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity 0.3s;
+}
+
+/* ─── Dark Theme Overrides ──────────────────────────────────────── */
+
+.admin-wrapper[data-theme="dark"] {
+  background: #0a0a0a;
+}
+
+.admin-wrapper[data-theme="dark"] .login-page {
+  background: #0a0a0a;
+}
+
+.admin-wrapper[data-theme="dark"] .login-box {
+  background: #1e1e1e;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.admin-wrapper[data-theme="dark"] .login-header h2 {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] .top-header {
+  background: #1e1e1e;
+  border-bottom-color: #333;
+}
+
+.admin-wrapper[data-theme="dark"] .system-title {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] .sidebar-container {
+  background-color: #1e1e1e;
+  border-right-color: #333;
+}
+
+.admin-wrapper[data-theme="dark"] .sidebar-toggle {
+  border-bottom-color: #333;
+  color: #a0a0a0;
+}
+
+.admin-wrapper[data-theme="dark"] .sidebar-toggle:hover {
+  background-color: #2a2a2a;
+}
+
+.admin-wrapper[data-theme="dark"] .theme-toggle-area {
+  border-top-color: #333;
+  color: #a0a0a0;
+}
+
+.admin-wrapper[data-theme="dark"] .theme-toggle-area:hover {
+  background-color: #2a2a2a;
+  color: #60a5fa;
+}
+
+.admin-wrapper[data-theme="dark"] .main-content {
+  background-color: #0a0a0a;
+}
+
+.admin-wrapper[data-theme="dark"] .breadcrumb-bar {
+  background: #1e1e1e;
+  border-bottom-color: #333;
+}
+
+.admin-wrapper[data-theme="dark"] .search-section {
+  background: #1e1e1e;
+  border: 1px solid #333;
+}
+
+.admin-wrapper[data-theme="dark"] .search-section.is-mobile {
+  border-color: #333;
+}
+
+.admin-wrapper[data-theme="dark"] .mobile-search-toggle {
+  background: #1e1e1e;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.admin-wrapper[data-theme="dark"] .search-section.is-mobile .search-form {
+  background: #1a1a1a;
+}
+
+.admin-wrapper[data-theme="dark"] .table-section {
+  background: #1e1e1e;
+}
+
+/* Element Plus overrides in dark mode */
+.admin-wrapper[data-theme="dark"] :deep(.el-table) {
+  background-color: #1e1e1e;
+  color: #d0d0d0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-table th.el-table__cell) {
+  background-color: #262626;
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-table tr) {
+  background-color: #1e1e1e;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell) {
+  background-color: #252525;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell) {
+  background-color: #2a2a2a;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-table td.el-table__cell) {
+  border-bottom-color: #333;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-pagination) {
+  color: #d0d0d0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-pagination .el-pagination__total) {
+  color: #a0a0a0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-input__wrapper) {
+  background-color: #262626;
+  box-shadow: 0 0 0 1px #444 inset;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-input__inner) {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-input__inner::placeholder) {
+  color: #666;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-select .el-input__wrapper) {
+  background-color: #262626;
+  box-shadow: 0 0 0 1px #444 inset;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-dialog) {
+  background: #1e1e1e;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-dialog__title) {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-dialog__body) {
+  color: #d0d0d0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-form-item__label) {
+  color: #d0d0d0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-tag) {
+  background-color: #2a2a2a;
+  border-color: #444;
+  color: #d0d0d0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-breadcrumb__inner) {
+  color: #a0a0a0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-breadcrumb__separator) {
+  color: #666;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-menu) {
+  background-color: #1e1e1e;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-menu-item) {
+  color: #b0b0b0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-menu-item:hover) {
+  background-color: #2a2a2a;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-menu-item.is-active) {
+  color: #60a5fa;
+  background-color: #1e3a5f;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-sub-menu__title) {
+  color: #b0b0b0;
+}
+
+.admin-wrapper[data-theme="dark"] :deep(.el-sub-menu__title:hover) {
+  background-color: #2a2a2a;
+}
+
+/* Mobile dark overrides */
+@media (max-width: 768px) {
+  .admin-wrapper[data-theme="dark"] .sidebar-container {
+    box-shadow: 4px 0 10px rgba(0,0,0,0.4);
+  }
+
+  .admin-wrapper[data-theme="dark"] .sidebar-overlay {
+    background: rgba(0, 0, 0, 0.6);
+  }
 }
 </style>
