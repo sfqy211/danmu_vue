@@ -18,14 +18,16 @@ public class AdminController : ControllerBase
     private readonly ILogger<AdminController> _logger;
     private readonly BilibiliService _bilibili;
     private readonly DanmakuService _danmakuService;
+    private readonly BiliAccountService _accountService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
         _bilibili = bilibili;
         _danmakuService = danmakuService;
+        _accountService = accountService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -519,6 +521,157 @@ public class AdminController : ControllerBase
         return fullPath;
     }
 
+    // ─── BiliAccount Endpoints ──────────────────────────────────────
+
+    [HttpGet("bili-accounts")]
+    public async Task<IActionResult> GetBiliAccounts()
+    {
+        var list = await _accountService.GetAllAsync();
+        var results = list.Select(a => new BiliAccountListItem
+        {
+            Uid = a.Uid,
+            Name = a.Name,
+            ExpiresAt = a.ExpiresAt.HasValue ? new DateTimeOffset(a.ExpiresAt.Value).ToUnixTimeMilliseconds() : null,
+            IsActive = a.IsActive,
+            CreatedAt = new DateTimeOffset(a.CreatedAt).ToUnixTimeMilliseconds()
+        }).ToList();
+        return Ok(results);
+    }
+
+    [HttpPost("bili-accounts/import-cookie")]
+    public async Task<IActionResult> ImportCookie([FromBody] ImportCookieDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Cookie))
+            return BadRequest(new { message = "Cookie is required" });
+        try
+        {
+            await _accountService.ImportFromCookieStringAsync(dto.Uid, dto.Cookie);
+            return Ok(new { message = "Imported" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Import cookie failed");
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("bili-accounts/qrcode")]
+    public async Task<IActionResult> StartQrLogin()
+    {
+        try
+        {
+            var (url, id) = await _accountService.StartTvLoginAsync();
+            return Ok(new QrCodeLoginResponse { Url = url, Id = id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Start QR login failed");
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("bili-accounts/qrcode/poll")]
+    public IActionResult PollQrLogin([FromQuery] string id)
+    {
+        var state = _accountService.GetLoginState(id);
+        if (state == null)
+            return BadRequest(new { message = "Login session not found" });
+        return Ok(new QrCodePollResponse
+        {
+            Status = state.Status,
+            FailReason = state.FailReason,
+            Uid = state.Uid
+        });
+    }
+
+    [HttpPost("bili-accounts/qrcode/cancel")]
+    public IActionResult CancelQrLogin([FromBody] Dictionary<string, string> body)
+    {
+        if (!body.TryGetValue("id", out var id))
+            return BadRequest(new { message = "id required" });
+        _accountService.CancelLogin(id);
+        return Ok(new { message = "Cancelled" });
+    }
+
+    [HttpPost("bili-accounts/{uid:long}/activate")]
+    public async Task<IActionResult> ActivateAccount(long uid)
+    {
+        await _accountService.SetActiveAsync(uid);
+        return Ok(new { message = "Activated" });
+    }
+
+    [HttpPost("bili-accounts/{uid:long}/refresh-info")]
+    public async Task<IActionResult> RefreshAccountInfo(long uid)
+    {
+        try
+        {
+            await _accountService.UpdateUserInfoAsync(uid);
+            return Ok(new { message = "Refreshed" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Refresh info failed");
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("bili-accounts/{uid:long}/refresh-auth")]
+    public async Task<IActionResult> RefreshAccountAuth(long uid)
+    {
+        try
+        {
+            await _accountService.RefreshAuthAsync(uid);
+            return Ok(new { message = "Auth refreshed" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Refresh auth failed");
+            return StatusCode(500, new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("bili-accounts/{uid:long}")]
+    public async Task<IActionResult> DeleteAccount(long uid)
+    {
+        await _accountService.DeleteAsync(uid);
+        return Ok(new { message = "Deleted" });
+    }
+
+    [HttpGet("bili-accounts/assignments")]
+    public IActionResult GetAssignments()
+    {
+        var assignments = _accountService.GetRoomAssignments();
+        var processes = _pm.GetProcesses();
+        var rooms = _db.Rooms.AsNoTracking().ToList();
+
+        var result = assignments.Select(kv =>
+        {
+            var roomUid = kv.Key;
+            var accountUid = kv.Value;
+            var proc = processes.FirstOrDefault(p => p.Uid == roomUid);
+            var room = rooms.FirstOrDefault(r => r.Uid == roomUid);
+            return new AssignmentItem
+            {
+                RoomUid = roomUid,
+                RoomId = room?.RoomId ?? proc?.RoomId ?? 0,
+                RoomName = room?.Remark ?? room?.Name ?? proc?.DisplayName ?? $"UID:{roomUid}",
+                AccountUid = accountUid,
+                IsRecording = proc != null && proc.Status is "online" or "reconnecting"
+            };
+        }).ToList();
+
+        return Ok(result);
+    }
+
+    [HttpPost("bili-accounts/{targetUid:long}/reassign/{roomUid}")]
+    public IActionResult ReassignRoom(long targetUid, string roomUid)
+    {
+        var ok = _accountService.ReassignRoom(roomUid, targetUid);
+        if (!ok)
+            return BadRequest(new { message = "目标账户不存在或没有有效 Cookie" });
+        return Ok(new { message = "已重新分配" });
+    }
+
     [HttpGet("song-requests")]
     public async Task<IActionResult> GetSongRequests([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? search = "", [FromQuery] int? sessionId = null, [FromQuery] string? roomId = null, [FromQuery] string? userName = null)
     {
@@ -658,4 +811,43 @@ public class SongRequestDto
     public string? SongName { get; set; }
     public string? Singer { get; set; }
     public long? CreatedAt { get; set; }
+}
+
+// ─── BiliAccount DTOs ───────────────────────────────────────────────
+
+public class BiliAccountListItem
+{
+    public long Uid { get; set; }
+    public string? Name { get; set; }
+    public long? ExpiresAt { get; set; }
+    public bool IsActive { get; set; }
+    public long CreatedAt { get; set; }
+}
+
+public class ImportCookieDto
+{
+    public long Uid { get; set; }
+    public string Cookie { get; set; } = "";
+}
+
+public class QrCodePollResponse
+{
+    public string Status { get; set; } = "scan";
+    public string? FailReason { get; set; }
+    public long? Uid { get; set; }
+}
+
+public class QrCodeLoginResponse
+{
+    public string Url { get; set; } = "";
+    public string Id { get; set; } = "";
+}
+
+public class AssignmentItem
+{
+    public string RoomUid { get; set; } = "";
+    public long RoomId { get; set; }
+    public string? RoomName { get; set; }
+    public long AccountUid { get; set; }
+    public bool IsRecording { get; set; }
 }
