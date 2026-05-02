@@ -6,76 +6,37 @@ public class BilibiliService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<BilibiliService> _logger;
-    private readonly string? _cookie;
+    private readonly BiliAccountService _accountService;
 
-    public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger)
+    public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _accountService = accountService;
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com");
-
-        _cookie = LoadCookie(logger);
-        if (string.IsNullOrEmpty(_cookie))
-        {
-            logger.LogWarning("Bilibili Cookie NOT found in environment or .env files. Some API requests may fail.");
-        }
     }
 
-    private static string? NormalizeCookie(string? cookie)
+    private string? GetCookie()
     {
-        if (string.IsNullOrWhiteSpace(cookie)) return null;
-        var trimmed = cookie.Trim();
-        if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) || (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
-        {
-            trimmed = trimmed.Substring(1, trimmed.Length - 2);
-        }
-        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+        return _accountService.GetActiveCookieString();
     }
 
-    private static string? LoadCookie(ILogger logger)
+    /// <summary>
+    /// Get cookie for a specific room (round-robin + failover).
+    /// </summary>
+    private string? GetCookieForRoom(string roomUid)
     {
-        // Try env var first
-        var envCookie = NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
-        if (!string.IsNullOrEmpty(envCookie)) return envCookie;
-
-        // Try .env files
-        var root = Directory.GetCurrentDirectory();
-        var paths = new[] 
-        { 
-            Path.GetFullPath(Path.Combine(root, ".env")),
-            Path.GetFullPath(Path.Combine(root, "../.env")),
-            Path.GetFullPath(Path.Combine(root, "../server/.env"))
-        };
-
-        foreach (var path in paths)
-        {
-            if (!File.Exists(path)) continue;
-            try 
-            {
-                foreach (var line in File.ReadAllLines(path))
-                {
-                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
-                    var parts = line.Split('=', 2);
-                    if (parts.Length != 2) continue;
-                    if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
-                    
-                    var cookie = NormalizeCookie(parts[1]);
-                    if (!string.IsNullOrEmpty(cookie))
-                    {
-                        return cookie;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning($"Failed to read {path}: {ex.Message}");
-            }
-        }
-        return null;
+        return _accountService.GetCookieForRoom(roomUid);
     }
 
-    private string? GetCookie() => _cookie;
+    /// <summary>
+    /// Report that the current account's cookie has failed, triggering failover.
+    /// </summary>
+    public void ReportCookieFailure(string roomUid)
+    {
+        _accountService.ReportRoomFailure(roomUid);
+    }
 
     public async Task<string?> GetAvatarUrlAsync(string uid)
     {

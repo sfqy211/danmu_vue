@@ -16,6 +16,7 @@ public class BilibiliRecorder : IDisposable
     private readonly string _name;
     private readonly ILogger _logger;
     private readonly RedisService _redis;
+    private readonly BiliAccountService _accountService;
     private BilibiliService? _bilibiliService;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
@@ -49,16 +50,17 @@ public class BilibiliRecorder : IDisposable
     public string DisplayName => _name;
     public string ProcessName => $"danmu-{_uid}";
 
-    public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis)
+    public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis, BiliAccountService accountService)
     {
         _roomId = roomId;
         _uid = string.IsNullOrWhiteSpace(uid) ? roomId.ToString() : uid;
         _name = name ?? roomId.ToString();
         _logger = logger;
         _redis = redis;
-        
+        _accountService = accountService;
+
         var root = Directory.GetCurrentDirectory();
-        _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR") 
+        _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                        ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku"));
     }
 
@@ -96,18 +98,33 @@ public class BilibiliRecorder : IDisposable
             {
                 await WaitForLiveAsync(token);
                 await ConnectAsync();
-                
+
                 // Start heartbeat
                 _heartbeatTask = HeartbeatLoopAsync(token);
-                
+
                 // Receive loop blocks until connection closes
                 await ReceiveLoopAsync(token);
             }
             catch (Exception ex)
             {
-                if (ex is EndOfStreamException)
+                if (ex is EndOfStreamException ||
+                    ex is System.Net.WebSockets.WebSocketException ||
+                    ex is System.OperationCanceledException ||
+                    ex is System.IO.IOException)
                 {
-                    _logger.LogInformation($"Stream ended for {_roomId}.");
+                    // Normal connection closure or transient network issue — not an error
+                    _logger.LogInformation($"Connection closed for {_roomId}: {ex.GetType().Name}");
+                }
+                else if (IsAuthFailure(ex))
+                {
+                    _logger.LogError(ex, $"Auth failure for {_roomId}, will retry with different account.");
+                    var accountUid = GetCurrentAccountUid();
+                    if (accountUid.HasValue)
+                    {
+                        _accountService.ReportAccountFailure(accountUid.Value);
+                        _logger.LogWarning("Reported account {Uid} as failing for room {Room} due to auth failure.",
+                            accountUid.Value, _roomId);
+                    }
                 }
                 else
                 {
@@ -118,15 +135,15 @@ public class BilibiliRecorder : IDisposable
             finally
             {
                 // Cleanup before retry
-                try 
+                try
                 {
-                    if (_ws != null) 
+                    if (_ws != null)
                     {
                          _ws.Dispose();
                          _ws = null;
                     }
                 } catch { }
-                
+
                 // In reconnect loop, we don't end session unless explicit stop or error handling logic decides so.
                 // But here we just want to keep session open.
             }
@@ -136,8 +153,22 @@ public class BilibiliRecorder : IDisposable
                 await Task.Delay(5000, token);
             }
         }
-        
+
         Status = "stopped";
+    }
+
+    private static bool IsAuthFailure(Exception ex)
+    {
+        // HttpRequestException with 403/401 status code
+        if (ex is System.Net.Http.HttpRequestException httpEx && httpEx.StatusCode.HasValue)
+        {
+            var code = (int)httpEx.StatusCode.Value;
+            return code == 403 || code == 401;
+        }
+        // Fallback: check message for auth-related keywords
+        var msg = ex.Message ?? "";
+        return msg.Contains("403") || msg.Contains("401") || msg.Contains("Unauthorized")
+            || msg.Contains("认证") || msg.Contains("鉴权") || msg.Contains("登录");
     }
 
     private async Task WaitForLiveAsync(CancellationToken token)
@@ -243,43 +274,14 @@ public class BilibiliRecorder : IDisposable
         await _ws.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Binary, true, _cts!.Token);
     }
 
-    private static string? NormalizeCookie(string? cookie)
+    private string? GetCookie()
     {
-        if (string.IsNullOrWhiteSpace(cookie)) return null;
-        var trimmed = cookie.Trim();
-        if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) || (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
-        {
-            trimmed = trimmed.Substring(1, trimmed.Length - 2);
-        }
-        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+        return _accountService.GetCookieForRoom(_uid);
     }
 
-    private static string? LoadCookieFromEnvFile()
+    private long? GetCurrentAccountUid()
     {
-        var root = Directory.GetCurrentDirectory();
-        var envPathLocal = Path.GetFullPath(Path.Combine(root, "../server/.env"));
-        var envPathRoot = Path.GetFullPath(Path.Combine(root, "../.env"));
-        var paths = new[] { envPathLocal, envPathRoot };
-        foreach (var path in paths)
-        {
-            if (!File.Exists(path)) continue;
-            foreach (var line in File.ReadAllLines(path))
-            {
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
-                var parts = line.Split('=', 2);
-                if (parts.Length != 2) continue;
-                if (!string.Equals(parts[0].Trim(), "BILI_COOKIE", StringComparison.OrdinalIgnoreCase)) continue;
-                return NormalizeCookie(parts[1]);
-            }
-        }
-        return null;
-    }
-
-    private static string? GetCookie()
-    {
-        var fileCookie = LoadCookieFromEnvFile();
-        if (!string.IsNullOrEmpty(fileCookie)) return fileCookie;
-        return NormalizeCookie(Environment.GetEnvironmentVariable("BILI_COOKIE"));
+        return _accountService.GetAssignedAccountUid(_uid);
     }
 
     private async Task HeartbeatLoopAsync(CancellationToken token)
