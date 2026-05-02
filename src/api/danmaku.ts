@@ -368,3 +368,118 @@ export const getPm2Status = async (): Promise<Pm2StatusResponse> => {
   const res = await api.get<Pm2StatusResponse>('/pm2-status');
   return res.data;
 };
+
+// ─── BiliAccount Admin APIs ───────────────────────────────────────
+
+export interface BiliAccount {
+  uid: number;
+  name?: string;
+  expires_at?: number;
+  is_active: boolean;
+  created_at: number;
+}
+
+export interface QrCodeLoginResponse {
+  url: string;
+  id: string;
+}
+
+export interface QrCodePollResponse {
+  status: 'scan' | 'completed' | 'error';
+  fail_reason?: string;
+  uid?: number;
+}
+
+const normalizeBiliAccount = (account: any): BiliAccount => {
+  return {
+    uid: account.uid ?? account.Uid ?? 0,
+    name: account.name ?? account.Name,
+    expires_at: toNumber(account.expires_at ?? account.expiresAt ?? account.ExpiresAt),
+    is_active: account.is_active ?? account.isActive ?? account.IsActive ?? false,
+    created_at: toNumber(account.created_at ?? account.createdAt ?? account.CreatedAt) ?? 0
+  };
+};
+
+const normalizeQrPoll = (poll: any): QrCodePollResponse => {
+  return {
+    status: poll.status ?? poll.Status ?? 'scan',
+    fail_reason: poll.fail_reason ?? poll.failReason ?? poll.FailReason,
+    uid: toNumber(poll.uid ?? poll.Uid)
+  };
+};
+
+const getAuthConfig = () => {
+  const token = localStorage.getItem('admin_token') || '';
+  return { headers: { Authorization: `Bearer ${token}` } };
+};
+
+export const getBiliAccounts = async (): Promise<BiliAccount[]> => {
+  const res = await adminApi.get<any[]>('/admin/bili-accounts', getAuthConfig());
+  return res.data.map(normalizeBiliAccount);
+};
+
+export const importBiliCookie = async (uid: number, cookie: string) => {
+  const res = await adminApi.post('/admin/bili-accounts/import-cookie', { uid, cookie }, getAuthConfig());
+  return res.data;
+};
+
+export const startBiliQrLogin = async (): Promise<QrCodeLoginResponse> => {
+  const res = await adminApi.post<QrCodeLoginResponse>('/admin/bili-accounts/qrcode', {}, getAuthConfig());
+  return res.data;
+};
+
+export const pollBiliQrLogin = async (id: string): Promise<QrCodePollResponse> => {
+  const res = await adminApi.get<any>('/admin/bili-accounts/qrcode/poll', { params: { id }, ...getAuthConfig() });
+  return normalizeQrPoll(res.data);
+};
+
+export const cancelBiliQrLogin = async (id: string) => {
+  const res = await adminApi.post('/admin/bili-accounts/qrcode/cancel', { id }, getAuthConfig());
+  return res.data;
+};
+
+export const activateBiliAccount = async (uid: number) => {
+  const res = await adminApi.post(`/admin/bili-accounts/${uid}/activate`, {}, getAuthConfig());
+  return res.data;
+};
+
+export const refreshBiliAccountInfo = async (uid: number) => {
+  const res = await adminApi.post(`/admin/bili-accounts/${uid}/refresh-info`, {}, getAuthConfig());
+  return res.data;
+};
+
+export const refreshBiliAccountAuth = async (uid: number) => {
+  const res = await adminApi.post(`/admin/bili-accounts/${uid}/refresh-auth`, {}, getAuthConfig());
+  return res.data;
+};
+
+export const deleteBiliAccount = async (uid: number) => {
+  const res = await adminApi.delete(`/admin/bili-accounts/${uid}`, getAuthConfig());
+  return res.data;
+};
+
+export interface AccountAssignment {
+  room_uid: string;
+  room_id: number;
+  room_name?: string;
+  account_uid: number;
+  is_recording: boolean;
+}
+
+const normalizeAssignment = (row: any): AccountAssignment => ({
+  room_uid: row.room_uid ?? row.roomUid ?? row.RoomUid ?? '',
+  room_id: row.room_id ?? row.roomId ?? row.RoomId ?? 0,
+  room_name: row.room_name ?? row.roomName ?? row.RoomName,
+  account_uid: row.account_uid ?? row.accountUid ?? row.AccountUid ?? 0,
+  is_recording: row.is_recording ?? row.isRecording ?? row.IsRecording ?? false
+});
+
+export const getBiliAccountAssignments = async (): Promise<AccountAssignment[]> => {
+  const res = await adminApi.get<any[]>('/admin/bili-accounts/assignments', getAuthConfig());
+  return res.data.map(normalizeAssignment);
+};
+
+export const reassignBiliRoom = async (roomUid: string, targetUid: number) => {
+  const res = await adminApi.post(`/admin/bili-accounts/${targetUid}/reassign/${roomUid}`, {}, getAuthConfig());
+  return res.data;
+};

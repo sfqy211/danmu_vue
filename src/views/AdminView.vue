@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { adminApi } from '../api/danmaku';
+import {
+  adminApi, getBiliAccounts, getBiliAccountAssignments, reassignBiliRoom,
+  importBiliCookie, startBiliQrLogin, pollBiliQrLogin, cancelBiliQrLogin,
+  activateBiliAccount, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
+  type BiliAccount, type AccountAssignment
+} from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
-  VideoCamera, DataLine, Fold, Expand, ArrowDown, ArrowUp, House
+  VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -56,7 +61,7 @@ const router = useRouter();
 // UI State
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'monitor' | 'sessions' | 'songRequests'>('monitor');
+const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts'>('monitor');
 const isMobile = ref(window.innerWidth <= 768);
 const sidebarCollapsed = ref(window.innerWidth <= 768);
 const searchCollapsed = ref(window.innerWidth <= 768);
@@ -120,6 +125,19 @@ const songForm = ref({
   singer: '',
   createdAt: ''
 });
+
+// BiliAccount Data
+const biliAccounts = ref<BiliAccount[]>([]);
+const accountLoading = ref(false);
+const qrDialogVisible = ref(false);
+const qrUrl = ref('');
+const qrId = ref('');
+const qrPolling = ref(false);
+const importCookieDialogVisible = ref(false);
+const importCookieForm = ref({ uid: '', cookie: '' });
+const assignments = ref<AccountAssignment[]>([]);
+const reassignDialogVisible = ref(false);
+const reassignForm = ref({ roomUid: '', roomName: '', targetUid: 0 });
 
 // --- Selection State & Batch Actions ---
 
@@ -342,9 +360,11 @@ const breadcrumbs = computed(() => {
   } else if (activeSection.value === 'sessions') {
     items.push({ name: '数据库管理', path: '' });
     items.push({ name: '直播回放', path: '' });
-  } else {
+  } else if (activeSection.value === 'songRequests') {
     items.push({ name: '数据库管理', path: '' });
     items.push({ name: '点歌记录', path: '' });
+  } else if (activeSection.value === 'accounts') {
+    items.push({ name: '账户管理', path: '' });
   }
   return items;
 });
@@ -353,6 +373,7 @@ const isRefreshing = computed(() => {
   if (activeSection.value === 'monitor') return loading.value;
   if (activeSection.value === 'sessions') return sessionLoading.value;
   if (activeSection.value === 'songRequests') return songLoading.value;
+  if (activeSection.value === 'accounts') return accountLoading.value;
   return false;
 });
 
@@ -410,7 +431,7 @@ const logout = () => {
 };
 
 const handleMenuSelect = (index: string) => {
-  if (['monitor', 'sessions', 'songRequests'].includes(index)) {
+  if (['monitor', 'sessions', 'songRequests', 'accounts'].includes(index)) {
     activeSection.value = index as any;
   }
   if (isMobile.value) {
@@ -435,6 +456,8 @@ const refreshDatabaseData = async () => {
     await fetchSessions();
   } else if (activeSection.value === 'songRequests') {
     await fetchSongRequests();
+  } else if (activeSection.value === 'accounts') {
+    await fetchAccounts();
   }
 };
 
@@ -499,6 +522,172 @@ const fetchSongRequests = async () => {
   } finally {
     songLoading.value = false;
   }
+};
+
+// --- Methods: BiliAccount ---
+
+const fetchAccounts = async () => {
+  accountLoading.value = true;
+  try {
+    const [accounts, assignList] = await Promise.all([
+      getBiliAccounts(),
+      getBiliAccountAssignments().catch(() => [])
+    ]);
+    biliAccounts.value = accounts;
+    assignments.value = assignList;
+  } catch (e: any) {
+    console.error('Fetch accounts failed:', e);
+    ElMessage.error('加载账户失败: ' + (e.response?.data?.error || e.message));
+  } finally {
+    accountLoading.value = false;
+  }
+};
+
+const openQrLogin = async () => {
+  qrDialogVisible.value = true;
+  qrUrl.value = '';
+  qrId.value = '';
+  qrPolling.value = false;
+  try {
+    const res = await startBiliQrLogin();
+    qrUrl.value = res.url;
+    qrId.value = res.id;
+    qrPolling.value = true;
+    pollQrLogin();
+  } catch (e: any) {
+    ElMessage.error('获取二维码失败: ' + (e.response?.data?.message || e.message));
+    qrDialogVisible.value = false;
+  }
+};
+
+let qrPollInterval: ReturnType<typeof setInterval> | null = null;
+const pollQrLogin = () => {
+  if (qrPollInterval) clearInterval(qrPollInterval);
+  qrPollInterval = setInterval(async () => {
+    if (!qrId.value || !qrDialogVisible.value) {
+      if (qrPollInterval) clearInterval(qrPollInterval);
+      return;
+    }
+    try {
+      const res = await pollBiliQrLogin(qrId.value);
+      if (res.status === 'completed') {
+        if (qrPollInterval) clearInterval(qrPollInterval);
+        qrPolling.value = false;
+        qrDialogVisible.value = false;
+        ElMessage.success('登录成功');
+        fetchAccounts();
+      } else if (res.status === 'error') {
+        if (qrPollInterval) clearInterval(qrPollInterval);
+        qrPolling.value = false;
+        ElMessage.error('登录失败: ' + (res.fail_reason || '未知错误'));
+      }
+    } catch (e) {
+      // ignore poll errors
+    }
+  }, 2000);
+};
+
+const closeQrLogin = () => {
+  if (qrPollInterval) clearInterval(qrPollInterval);
+  if (qrId.value) cancelBiliQrLogin(qrId.value).catch(() => {});
+};
+
+const openImportCookie = () => {
+  importCookieForm.value = { uid: '', cookie: '' };
+  importCookieDialogVisible.value = true;
+};
+
+const submitImportCookie = async () => {
+  if (!importCookieForm.value.uid || !importCookieForm.value.cookie) {
+    ElMessage.warning('请输入 UID 和 Cookie');
+    return;
+  }
+  try {
+    await importBiliCookie(Number(importCookieForm.value.uid), importCookieForm.value.cookie);
+    ElMessage.success('导入成功');
+    importCookieDialogVisible.value = false;
+    fetchAccounts();
+  } catch (e: any) {
+    ElMessage.error('导入失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const activateAccount = async (uid: number) => {
+  try {
+    await activateBiliAccount(uid);
+    ElMessage.success('已切换账户');
+    fetchAccounts();
+  } catch (e: any) {
+    ElMessage.error('切换失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const refreshAccountInfo = async (uid: number) => {
+  try {
+    await refreshBiliAccountInfo(uid);
+    ElMessage.success('已刷新信息');
+    fetchAccounts();
+  } catch (e: any) {
+    ElMessage.error('刷新失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const refreshAccountAuth = async (uid: number) => {
+  try {
+    await refreshBiliAccountAuth(uid);
+    ElMessage.success('已更新授权');
+    fetchAccounts();
+  } catch (e: any) {
+    ElMessage.error('更新授权失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const removeAccount = async (uid: number) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该账户吗？', '删除确认', { type: 'warning' });
+    await deleteBiliAccount(uid);
+    ElMessage.success('已删除');
+    fetchAccounts();
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message));
+    }
+  }
+};
+
+const getAccountRooms = (accountUid: number) => {
+  return assignments.value.filter(a => a.account_uid === accountUid);
+};
+
+const openReassignDialog = (room: AccountAssignment) => {
+  reassignForm.value = { roomUid: room.room_uid, roomName: room.room_name || room.room_uid, targetUid: 0 };
+  reassignDialogVisible.value = true;
+};
+
+const submitReassign = async () => {
+  if (!reassignForm.value.targetUid) {
+    ElMessage.warning('请选择目标账户');
+    return;
+  }
+  try {
+    await reassignBiliRoom(reassignForm.value.roomUid, reassignForm.value.targetUid);
+    ElMessage.success('房间已移动到目标账户');
+    reassignDialogVisible.value = false;
+    fetchAccounts();
+  } catch (e: any) {
+    ElMessage.error('移动失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const isExpiringSoon = (expiresAt: number) => {
+  if (!expiresAt) return false;
+  return expiresAt - Date.now() < 10 * 24 * 60 * 60 * 1000;
+};
+
+const formatDate = (ts: number) => {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 // --- Methods: Data Normalization ---
@@ -843,7 +1032,7 @@ onUnmounted(() => {
 });
 
 watch(activeSection, async (val) => {
-  if (val === 'sessions' || val === 'songRequests') {
+  if (val === 'sessions' || val === 'songRequests' || val === 'accounts') {
     await refreshDatabaseData();
   }
 });
@@ -942,6 +1131,10 @@ watch(activeSection, async (val) => {
               <template #title>监控录制管理</template>
             </el-menu-item>
             
+            <el-menu-item index="accounts">
+              <el-icon><User /></el-icon>
+              <template #title>账户管理</template>
+            </el-menu-item>
             <el-sub-menu index="database">
               <template #title>
                 <el-icon><DataLine /></el-icon>
@@ -1249,7 +1442,7 @@ watch(activeSection, async (val) => {
             </template>
 
             <!-- Song Requests Section -->
-            <template v-else>
+            <template v-else-if="activeSection === 'songRequests'">
               <div class="search-section" :class="{ 'is-mobile': isMobile }">
                 <div v-if="isMobile" class="mobile-search-toggle" @click="searchCollapsed = !searchCollapsed">
                   <div class="toggle-content">
@@ -1360,6 +1553,80 @@ watch(activeSection, async (val) => {
                 </div>
               </div>
             </template>
+
+            <!-- Accounts Section -->
+            <template v-else>
+              <div class="account-section">
+                <div class="account-toolbar">
+                  <el-button type="primary" :icon="Plus" @click="openQrLogin">扫码登录</el-button>
+                  <el-button @click="openImportCookie">导入 Cookie</el-button>
+                  <el-button :icon="Refresh" @click="fetchAccounts">刷新</el-button>
+                </div>
+                <div class="table-section">
+                  <el-table
+                    :data="biliAccounts"
+                    style="width: 100%"
+                    v-loading="accountLoading"
+                    border
+                    stripe
+                  >
+                    <el-table-column prop="name" label="名称" min-width="100" align="center" show-overflow-tooltip>
+                      <template #default="scope">
+                        {{ scope.row.name || '未知用户' }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="uid" label="UID" min-width="120" align="center" show-overflow-tooltip />
+                    <el-table-column label="状态" min-width="80" align="center">
+                      <template #default="scope">
+                        <el-tag
+                          :type="scope.row.is_active ? 'success' : 'info'"
+                          effect="dark"
+                          size="small"
+                        >
+                          {{ scope.row.is_active ? '使用中' : '未激活' }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="过期时间" align="center" min-width="130">
+                      <template #default="scope">
+                        <span v-if="scope.row.expires_at" :class="{ 'expire-warn': isExpiringSoon(scope.row.expires_at) }">
+                          {{ formatDate(scope.row.expires_at) }}
+                        </span>
+                        <span v-else>-</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="录制房间" align="center" min-width="160">
+                      <template #default="scope">
+                        <div v-if="getAccountRooms(scope.row.uid).length === 0" style="color: #909399; font-size: 12px;">-</div>
+                        <div v-else class="account-rooms">
+                          <el-tag
+                            v-for="room in getAccountRooms(scope.row.uid)"
+                            :key="room.room_uid"
+                            size="small"
+                            :type="room.is_recording ? 'success' : 'info'"
+                            style="margin: 2px; cursor: pointer"
+                            @click="openReassignDialog(room)"
+                          >
+                            {{ room.room_name || room.room_uid }}
+                            <el-icon v-if="room.is_recording" style="margin-left: 2px"><VideoPlay /></el-icon>
+                          </el-tag>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" align="center" min-width="280">
+                      <template #default="scope">
+                        <div class="action-btns">
+                          <el-button v-if="!scope.row.is_active" size="small" @click="activateAccount(scope.row.uid)">使用</el-button>
+                          <el-button size="small" :icon="Refresh" @click="refreshAccountInfo(scope.row.uid)">刷新信息</el-button>
+                          <el-button size="small" type="warning" @click="refreshAccountAuth(scope.row.uid)">更新授权</el-button>
+                          <el-button size="small" type="danger" :icon="Delete" @click="removeAccount(scope.row.uid)">删除</el-button>
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+            </template>
           </div>
         </el-main>
       </el-container>
@@ -1405,6 +1672,54 @@ watch(activeSection, async (val) => {
       <template #footer>
         <el-button @click="songDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveSongRequest">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- QR Login Dialog -->
+    <el-dialog v-model="qrDialogVisible" title="Bilibili 扫码登录" width="360px" :close-on-click-modal="false" @close="closeQrLogin">
+      <div class="qr-login-body">
+        <div v-if="qrUrl" class="qr-wrapper">
+          <img :src="`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`" alt="QR Code" />
+          <p class="qr-tip">请使用 Bilibili App 扫码登录</p>
+        </div>
+        <div v-else class="qr-loading">
+          <el-icon class="is-loading"><Refresh /></el-icon>
+          <span>正在获取二维码...</span>
+        </div>
+        <p v-if="qrPolling" class="qr-status">等待扫码...</p>
+      </div>
+    </el-dialog>
+
+    <!-- Import Cookie Dialog -->
+    <el-dialog v-model="importCookieDialogVisible" title="导入 Cookie" width="480px">
+      <div class="dialog-form">
+        <el-input v-model="importCookieForm.uid" placeholder="UID" type="number" />
+        <el-input v-model="importCookieForm.cookie" type="textarea" :rows="4" placeholder="粘贴完整的 Cookie 字符串，例如: SESSDATA=xxx; bili_jct=yyy; DedeUserID=zzz" />
+      </div>
+      <template #footer>
+        <el-button @click="importCookieDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitImportCookie">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Reassign Room Dialog -->
+    <el-dialog v-model="reassignDialogVisible" title="移动录制房间" width="400px">
+      <div class="dialog-form">
+        <p style="margin-bottom: 12px; color: #606266;">
+          房间: <strong>{{ reassignForm.roomName }}</strong>
+        </p>
+        <el-select v-model="reassignForm.targetUid" placeholder="选择目标账户" style="width: 100%">
+          <el-option
+            v-for="acc in biliAccounts"
+            :key="acc.uid"
+            :label="(acc.name || '未知用户') + ' (UID: ' + acc.uid + ')'"
+            :value="acc.uid"
+          />
+        </el-select>
+      </div>
+      <template #footer>
+        <el-button @click="reassignDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitReassign">移动</el-button>
       </template>
     </el-dialog>
   </div>
@@ -1768,5 +2083,69 @@ watch(activeSection, async (val) => {
     width: 100%;
     margin-left: 0 !important;
   }
+}
+
+/* Account Section Styles */
+.account-section {
+  padding: 0;
+}
+
+.account-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.expire-warn {
+  color: #e6a23c;
+}
+
+.account-rooms {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+.account-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.qr-login-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+}
+
+.qr-wrapper img {
+  width: 200px;
+  height: 200px;
+  border-radius: 4px;
+}
+
+.qr-tip {
+  margin-top: 10px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.qr-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #909399;
+  padding: 40px;
+}
+
+.qr-status {
+  margin-top: 8px;
+  color: #409eff;
+  font-size: 13px;
 }
 </style>
