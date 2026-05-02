@@ -525,3 +525,47 @@ export const updateChangelog = async (id: number, version: string, date: string,
 export const deleteChangelog = async (id: number): Promise<void> => {
   await adminApi.delete(`/admin/changelog/${id}`, getAuthConfig());
 };
+
+// ─── Log Files ─────────────────────────────────────────────────────
+
+export interface LogFileEntry {
+  name: string;
+  size: number;
+  lastModified: string;
+}
+
+export const getLogFiles = async (): Promise<LogFileEntry[]> => {
+  const res = await adminApi.get<any[]>('/admin/logs/files', getAuthConfig());
+  return (res.data ?? []).map((row: any) => ({
+    name: row.name ?? row.Name ?? '',
+    size: row.size ?? row.Size ?? 0,
+    lastModified: row.lastModified ?? row.LastModified ?? '',
+  }));
+};
+
+export const getLogContent = async (file?: string, tail = 500): Promise<{
+  fileName: string;
+  size: number;
+  lines: string[];
+  content: string;
+}> => {
+  const params: any = { tail };
+  if (file) params.file = file;
+  const res = await adminApi.get('/admin/logs/content', { params, ...getAuthConfig() });
+  const d = res.data;
+  return {
+    fileName: d.fileName ?? d.FileName ?? '',
+    size: d.size ?? d.Size ?? 0,
+    lines: d.lines ?? d.Lines ?? [],
+    content: d.content ?? d.Content ?? '',
+  };
+};
+
+export const downloadLogFile = async (file: string): Promise<Blob> => {
+  const res = await adminApi.get('/admin/logs/download', {
+    params: { file },
+    responseType: 'blob',
+    ...getAuthConfig(),
+  });
+  return res.data;
+};

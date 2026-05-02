@@ -8,9 +8,10 @@ import {
   type BiliAccount, type AccountAssignment
 } from '../api/danmaku';
 import { getAdminChangelog, addChangelog, updateChangelog, deleteChangelog, type ChangelogEntry } from '../api/danmaku';
+import LogViewer from '../components/LogViewer.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
-  Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
+  Refresh, Switch, Plus, VideoPlay, Delete, EditPen, 
   VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document
 } from '@element-plus/icons-vue';
 
@@ -62,7 +63,7 @@ const router = useRouter();
 // UI State
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'changelog'>('monitor');
+const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'changelog' | 'logs'>('monitor');
 const isMobile = ref(window.innerWidth <= 768);
 const sidebarCollapsed = ref(window.innerWidth <= 768);
 const searchCollapsed = ref(window.innerWidth <= 768);
@@ -448,7 +449,7 @@ const logout = () => {
 };
 
 const handleMenuSelect = (index: string) => {
-  if (['monitor', 'sessions', 'songRequests', 'accounts', 'changelog'].includes(index)) {
+  if (['monitor', 'sessions', 'songRequests', 'accounts', 'changelog', 'logs'].includes(index)) {
     activeSection.value = index as any;
   }
   if (isMobile.value) {
@@ -1221,6 +1222,10 @@ watch(activeSection, async (val) => {
               <el-icon><Document /></el-icon>
               <template #title>更新日志</template>
             </el-menu-item>
+            <el-menu-item index="logs">
+              <el-icon><DataLine /></el-icon>
+              <template #title>系统日志</template>
+            </el-menu-item>
             <el-sub-menu index="database">
               <template #title>
                 <el-icon><DataLine /></el-icon>
@@ -1742,6 +1747,12 @@ watch(activeSection, async (val) => {
                 </el-table>
               </div>
             </template>
+
+            <template v-else-if="activeSection === 'logs'">
+              <div class="logs-fullscreen">
+                <LogViewer />
+              </div>
+            </template>
           </div>
         </el-main>
       </el-container>
@@ -2220,6 +2231,11 @@ watch(activeSection, async (val) => {
     padding: 10px;
   }
 
+  .logs-fullscreen {
+    height: calc(100vh - 90px);
+    margin: -10px;
+  }
+
   .search-section {
     padding: 12px;
   }
@@ -2333,6 +2349,11 @@ watch(activeSection, async (val) => {
 /* Changelog Section Styles */
 .section-card {
   padding: 20px;
+}
+
+.logs-fullscreen {
+  height: calc(100vh - 100px);
+  margin: -20px;
 }
 
 .section-header {
