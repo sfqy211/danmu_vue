@@ -139,6 +139,12 @@ const assignments = ref<AccountAssignment[]>([]);
 const reassignDialogVisible = ref(false);
 const reassignForm = ref({ roomUid: '', roomName: '', targetUid: 0 });
 
+// Account rooms management dialog
+const accountRoomsDialogVisible = ref(false);
+const currentAccountRooms = ref<AccountAssignment[]>([]);
+const currentAccountName = ref('');
+const currentAccountUid = ref(0);
+
 // --- Selection State & Batch Actions ---
 
 const selectedRooms = ref<Room[]>([]);
@@ -677,6 +683,13 @@ const submitReassign = async () => {
   } catch (e: any) {
     ElMessage.error('移动失败: ' + (e.response?.data?.message || e.message));
   }
+};
+
+const openAccountRoomsDialog = (accountUid: number, accountName: string) => {
+  currentAccountUid.value = accountUid;
+  currentAccountName.value = accountName || '未知用户';
+  currentAccountRooms.value = getAccountRooms(accountUid);
+  accountRoomsDialogVisible.value = true;
 };
 
 const isExpiringSoon = (expiresAt: number) => {
@@ -1595,21 +1608,19 @@ watch(activeSection, async (val) => {
                         <span v-else>-</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="录制房间" align="center" min-width="160">
+                    <el-table-column label="录制房间" align="center" min-width="120">
                       <template #default="scope">
                         <div v-if="getAccountRooms(scope.row.uid).length === 0" style="color: #909399; font-size: 12px;">-</div>
-                        <div v-else class="account-rooms">
-                          <el-tag
-                            v-for="room in getAccountRooms(scope.row.uid)"
-                            :key="room.room_uid"
+                        <div v-else>
+                          <el-button
                             size="small"
-                            :type="room.is_recording ? 'success' : 'info'"
-                            style="margin: 2px; cursor: pointer"
-                            @click="openReassignDialog(room)"
+                            link
+                            type="primary"
+                            @click="openAccountRoomsDialog(scope.row.uid, scope.row.name || '')"
                           >
-                            {{ room.room_name || room.room_uid }}
-                            <el-icon v-if="room.is_recording" style="margin-left: 2px"><VideoPlay /></el-icon>
-                          </el-tag>
+                            {{ getAccountRooms(scope.row.uid).filter(r => r.is_recording).length }} 录制中
+                            / {{ getAccountRooms(scope.row.uid).length }} 个房间
+                          </el-button>
                         </div>
                       </template>
                     </el-table-column>
@@ -1702,6 +1713,53 @@ watch(activeSection, async (val) => {
       </template>
     </el-dialog>
 
+    <!-- Account Rooms Management Dialog -->
+    <el-dialog
+      v-model="accountRoomsDialogVisible"
+      :title="currentAccountName + ' 的录制房间'"
+      width="600px"
+    >
+      <div v-if="currentAccountRooms.length === 0" style="text-align: center; color: #909399; padding: 20px;">
+        暂无录制房间
+      </div>
+      <el-table
+        v-else
+        :data="currentAccountRooms"
+        style="width: 100%"
+        border
+        stripe
+        size="small"
+      >
+        <el-table-column prop="room_name" label="房间" align="center" show-overflow-tooltip>
+          <template #default="scope">
+            {{ scope.row.room_name || scope.row.room_uid }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="room_id" label="房间号" width="100" align="center" />
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="scope">
+            <el-tag
+              :type="scope.row.is_recording ? 'success' : 'info'"
+              effect="dark"
+              size="small"
+            >
+              {{ scope.row.is_recording ? '录制中' : '已分配' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="scope">
+            <el-button size="small" link type="primary" @click="openReassignDialog(scope.row)">
+              移动
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="currentAccountRooms.length > 0" style="margin-top: 12px; color: #909399; font-size: 12px; text-align: right;">
+        共 {{ currentAccountRooms.length }} 个房间，{{ currentAccountRooms.filter(r => r.is_recording).length }} 个录制中
+      </div>
+    </el-dialog>
+
     <!-- Reassign Room Dialog -->
     <el-dialog v-model="reassignDialogVisible" title="移动录制房间" width="400px">
       <div class="dialog-form">
@@ -1710,7 +1768,7 @@ watch(activeSection, async (val) => {
         </p>
         <el-select v-model="reassignForm.targetUid" placeholder="选择目标账户" style="width: 100%">
           <el-option
-            v-for="acc in biliAccounts"
+            v-for="acc in biliAccounts.filter(a => a.uid !== currentAccountUid)"
             :key="acc.uid"
             :label="(acc.name || '未知用户') + ' (UID: ' + acc.uid + ')'"
             :value="acc.uid"
