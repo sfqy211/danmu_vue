@@ -4,6 +4,7 @@ using Danmu.Server.Models;
 using Danmu.Server.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 using System.Text.Json;
 
 namespace Danmu.Server.Controllers;
@@ -21,9 +22,10 @@ public class AdminController : ControllerBase
     private readonly BiliAccountService _accountService;
     private readonly LiveStatusService _liveStatusService;
     private readonly ChangelogService _changelogService;
+    private readonly LogService _logService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ChangelogService changelogService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
@@ -32,6 +34,7 @@ public class AdminController : ControllerBase
         _accountService = accountService;
         _liveStatusService = liveStatusService;
         _changelogService = changelogService;
+        _logService = logService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -576,6 +579,31 @@ public class AdminController : ControllerBase
         var deleted = await _changelogService.DeleteAsync(id);
         if (!deleted) return NotFound(new { message = "Entry not found" });
         return Ok(new { message = "Deleted" });
+    }
+
+    // ─── Log File Endpoints ─────────────────────────────────────────────
+
+    [HttpGet("logs/files")]
+    public IActionResult GetLogFiles()
+    {
+        var files = _logService.GetLogFiles();
+        return Ok(files);
+    }
+
+    [HttpGet("logs/content")]
+    public IActionResult GetLogContent([FromQuery] string? file, [FromQuery] int tail = 500)
+    {
+        var content = _logService.GetLogContent(file, tail);
+        if (content == null) return NotFound(new { message = "Log file not found" });
+        return Ok(new { content, file = content.FileName, size = content.Size, lines = content.Lines });
+    }
+
+    [HttpGet("logs/download")]
+    public IActionResult DownloadLogFile([FromQuery] string file)
+    {
+        var filePath = _logService.GetLogFilePath(file);
+        if (filePath == null) return NotFound(new { message = "Log file not found" });
+        return PhysicalFile(filePath, "text/plain", file);
     }
 
     // ─── BiliAccount Endpoints ──────────────────────────────────────
