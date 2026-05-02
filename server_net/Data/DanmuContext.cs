@@ -10,6 +10,7 @@ public class DanmuContext : DbContext
     public required DbSet<Session> Sessions { get; set; }
     public required DbSet<SongRequest> SongRequests { get; set; }
     public required DbSet<Room> Rooms { get; set; }
+    public required DbSet<BiliAccount> BiliAccounts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -66,6 +66,37 @@ public static class DbInitializer
                 await db.Database.ExecuteSqlRawAsync("CREATE INDEX ix_sessions_uid ON sessions(uid)");
                 logger.LogInformation("Created ix_sessions_uid index.");
             }
+
+            if (!await TableExistsAsync(db, "bili_accounts"))
+            {
+                var createSql = db.Database.IsMySql()
+                    ? @"CREATE TABLE bili_accounts (
+                        uid BIGINT NOT NULL PRIMARY KEY,
+                        name VARCHAR(255) NULL,
+                        face VARCHAR(512) NULL,
+                        access_token TEXT NULL,
+                        refresh_token TEXT NULL,
+                        cookie_json LONGTEXT NULL,
+                        expires_at DATETIME NULL,
+                        is_active TINYINT(1) NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    )"
+                    : @"CREATE TABLE bili_accounts (
+                        uid INTEGER NOT NULL PRIMARY KEY,
+                        name TEXT,
+                        face TEXT,
+                        access_token TEXT,
+                        refresh_token TEXT,
+                        cookie_json TEXT,
+                        expires_at TEXT,
+                        is_active INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )";
+                await db.Database.ExecuteSqlRawAsync(createSql);
+                logger.LogInformation("Created bili_accounts table.");
+            }
         }
         catch (Exception ex)
         {
@@ -110,6 +141,23 @@ WHERE TABLE_SCHEMA = DATABASE()
         }
 
         var sqliteSql = $"SELECT COUNT(*) FROM pragma_index_list('{escapedTable}') WHERE name = '{escapedIndex}'";
+        return await ExecuteScalarLongAsync(db, sqliteSql) > 0;
+    }
+
+    private static async Task<bool> TableExistsAsync(DanmuContext db, string tableName)
+    {
+        var escapedTable = EscapeSqlLiteral(tableName);
+        if (db.Database.IsMySql())
+        {
+            var sql = $@"
+SELECT COUNT(*)
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '{escapedTable}'";
+            return await ExecuteScalarLongAsync(db, sql) > 0;
+        }
+
+        var sqliteSql = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{escapedTable}'";
         return await ExecuteScalarLongAsync(db, sqliteSql) > 0;
     }
 
