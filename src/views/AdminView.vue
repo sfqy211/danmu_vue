@@ -7,10 +7,11 @@ import {
   activateBiliAccount, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
   type BiliAccount, type AccountAssignment
 } from '../api/danmaku';
+import { getAdminChangelog, addChangelog, updateChangelog, deleteChangelog, type ChangelogEntry } from '../api/danmaku';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
-  VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User
+  VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -61,7 +62,7 @@ const router = useRouter();
 // UI State
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts'>('monitor');
+const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'changelog'>('monitor');
 const isMobile = ref(window.innerWidth <= 768);
 const sidebarCollapsed = ref(window.innerWidth <= 768);
 const searchCollapsed = ref(window.innerWidth <= 768);
@@ -144,6 +145,13 @@ const accountRoomsDialogVisible = ref(false);
 const currentAccountRooms = ref<AccountAssignment[]>([]);
 const currentAccountName = ref('');
 const currentAccountUid = ref(0);
+
+// Changelog Data
+const changelogLoading = ref(false);
+const changelogList = ref<ChangelogEntry[]>([]);
+const changelogDialogVisible = ref(false);
+const changelogForm = ref({ id: 0, version: '', date: '', content: '' });
+const changelogIsEdit = ref(false);
 
 // --- Selection State & Batch Actions ---
 
@@ -371,6 +379,8 @@ const breadcrumbs = computed(() => {
     items.push({ name: '点歌记录', path: '' });
   } else if (activeSection.value === 'accounts') {
     items.push({ name: '账户管理', path: '' });
+  } else if (activeSection.value === 'changelog') {
+    items.push({ name: '更新日志', path: '' });
   }
   return items;
 });
@@ -380,6 +390,7 @@ const isRefreshing = computed(() => {
   if (activeSection.value === 'sessions') return sessionLoading.value;
   if (activeSection.value === 'songRequests') return songLoading.value;
   if (activeSection.value === 'accounts') return accountLoading.value;
+  if (activeSection.value === 'changelog') return changelogLoading.value;
   return false;
 });
 
@@ -437,7 +448,7 @@ const logout = () => {
 };
 
 const handleMenuSelect = (index: string) => {
-  if (['monitor', 'sessions', 'songRequests', 'accounts'].includes(index)) {
+  if (['monitor', 'sessions', 'songRequests', 'accounts', 'changelog'].includes(index)) {
     activeSection.value = index as any;
   }
   if (isMobile.value) {
@@ -464,6 +475,8 @@ const refreshDatabaseData = async () => {
     await fetchSongRequests();
   } else if (activeSection.value === 'accounts') {
     await fetchAccounts();
+  } else if (activeSection.value === 'changelog') {
+    await loadChangelogList();
   }
 };
 
@@ -1031,6 +1044,62 @@ const formatTimestamp = (value?: number) => {
   }).replace(/\//g, '-');
 };
 
+// --- Changelog Methods ---
+
+const loadChangelogList = async () => {
+  changelogLoading.value = true;
+  try {
+    changelogList.value = await getAdminChangelog();
+  } catch (e: any) {
+    ElMessage.error('加载更新日志失败: ' + (e.response?.data?.error || e.message));
+  } finally {
+    changelogLoading.value = false;
+  }
+};
+
+const openAddChangelog = () => {
+  changelogIsEdit.value = false;
+  changelogForm.value = { id: 0, version: '', date: new Date().toISOString().slice(0, 10), content: '' };
+  changelogDialogVisible.value = true;
+};
+
+const openEditChangelog = (row: ChangelogEntry) => {
+  changelogIsEdit.value = true;
+  changelogForm.value = { id: row.id, version: row.version, date: row.date.slice(0, 10), content: row.content };
+  changelogDialogVisible.value = true;
+};
+
+const saveChangelog = async () => {
+  if (!changelogForm.value.version || !changelogForm.value.content) {
+    ElMessage.warning('版本号和内容不能为空');
+    return;
+  }
+  try {
+    if (changelogIsEdit.value) {
+      await updateChangelog(changelogForm.value.id, changelogForm.value.version, changelogForm.value.date, changelogForm.value.content);
+      ElMessage.success('更新成功');
+    } else {
+      await addChangelog(changelogForm.value.version, changelogForm.value.date, changelogForm.value.content);
+      ElMessage.success('添加成功');
+    }
+    changelogDialogVisible.value = false;
+    await loadChangelogList();
+  } catch (e: any) {
+    ElMessage.error('操作失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
+const deleteChangelogEntry = async (row: ChangelogEntry) => {
+  await ElMessageBox.confirm(`确定要删除 ${row.version} 的更新日志吗？`, '删除确认', { type: 'warning' });
+  try {
+    await deleteChangelog(row.id);
+    ElMessage.success('删除成功');
+    await loadChangelogList();
+  } catch (e: any) {
+    ElMessage.error('删除失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
 // --- Lifecycle ---
 
 onMounted(() => {
@@ -1045,7 +1114,7 @@ onUnmounted(() => {
 });
 
 watch(activeSection, async (val) => {
-  if (val === 'sessions' || val === 'songRequests' || val === 'accounts') {
+  if (val === 'sessions' || val === 'songRequests' || val === 'accounts' || val === 'changelog') {
     await refreshDatabaseData();
   }
 });
@@ -1147,6 +1216,10 @@ watch(activeSection, async (val) => {
             <el-menu-item index="accounts">
               <el-icon><User /></el-icon>
               <template #title>账户管理</template>
+            </el-menu-item>
+            <el-menu-item index="changelog">
+              <el-icon><Document /></el-icon>
+              <template #title>更新日志</template>
             </el-menu-item>
             <el-sub-menu index="database">
               <template #title>
@@ -1568,7 +1641,7 @@ watch(activeSection, async (val) => {
             </template>
 
             <!-- Accounts Section -->
-            <template v-else>
+            <template v-else-if="activeSection === 'accounts'">
               <div class="account-section">
                 <div class="account-toolbar">
                   <el-button type="primary" :icon="Plus" @click="openQrLogin">扫码登录</el-button>
@@ -1636,6 +1709,37 @@ watch(activeSection, async (val) => {
                     </el-table-column>
                   </el-table>
                 </div>
+              </div>
+            </template>
+
+            <!-- 更新日志管理 -->
+            <template v-else-if="activeSection === 'changelog'">
+              <div class="section-card">
+                <div class="section-header">
+                  <h3>更新日志</h3>
+                  <el-button type="primary" @click="openAddChangelog">
+                    <el-icon><Plus /></el-icon> 添加版本
+                  </el-button>
+                </div>
+                <el-table :data="changelogList" v-loading="changelogLoading" stripe>
+                  <el-table-column prop="version" label="版本" width="120" />
+                  <el-table-column prop="date" label="日期" width="140">
+                    <template #default="{ row }">
+                      {{ row.date ? row.date.slice(0, 10) : '' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="content" label="内容" min-width="300">
+                    <template #default="{ row }">
+                      <div style="white-space: pre-line; max-height: 80px; overflow: hidden; text-overflow: ellipsis;">{{ row.content }}</div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="160" fixed="right">
+                    <template #default="{ row }">
+                      <el-button size="small" @click="openEditChangelog(row)">编辑</el-button>
+                      <el-button size="small" type="danger" @click="deleteChangelogEntry(row)">删除</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </div>
             </template>
           </div>
@@ -1778,6 +1882,25 @@ watch(activeSection, async (val) => {
       <template #footer>
         <el-button @click="reassignDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitReassign">移动</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 更新日志编辑弹窗 -->
+    <el-dialog v-model="changelogDialogVisible" :title="changelogIsEdit ? '编辑更新日志' : '添加更新日志'" width="600px" append-to-body>
+      <el-form label-width="80px">
+        <el-form-item label="版本号">
+          <el-input v-model="changelogForm.version" placeholder="例如: v3.1" />
+        </el-form-item>
+        <el-form-item label="日期">
+          <el-input v-model="changelogForm.date" placeholder="2026-05-02" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="changelogForm.content" type="textarea" :rows="8" placeholder="每行一条更新，例如：&#10;虚拟滚动：引入 @tanstack/vue-virtual&#10;shallowRef 优化：消除大数组深度响应式" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="changelogDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveChangelog" :loading="changelogLoading">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -2205,5 +2328,23 @@ watch(activeSection, async (val) => {
   margin-top: 8px;
   color: #409eff;
   font-size: 13px;
+}
+
+/* Changelog Section Styles */
+.section-card {
+  padding: 20px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-primary);
 }
 </style>

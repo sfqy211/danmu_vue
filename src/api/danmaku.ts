@@ -483,3 +483,45 @@ export const reassignBiliRoom = async (roomUid: string, targetUid: number) => {
   const res = await adminApi.post(`/admin/bili-accounts/${targetUid}/reassign/${roomUid}`, {}, getAuthConfig());
   return res.data;
 };
+
+// ─── Changelog ────────────────────────────────────────────────────
+
+export interface ChangelogEntry {
+  id: number;
+  version: string;
+  date: string;
+  content: string;
+  created_at: string;
+}
+
+const normalizeChangelogEntry = (row: any): ChangelogEntry => ({
+  id: row.id ?? row.Id ?? 0,
+  version: row.version ?? row.Version ?? '',
+  date: row.date ?? row.Date ?? '',
+  content: row.content ?? row.Content ?? '',
+  created_at: row.created_at ?? row.createdAt ?? row.CreatedAt ?? ''
+});
+
+export const getChangelog = async (): Promise<ChangelogEntry[]> => {
+  const res = await api.get<any[]>('/changelog');
+  return res.data.map(normalizeChangelogEntry);
+};
+
+export const getAdminChangelog = async (): Promise<ChangelogEntry[]> => {
+  const res = await adminApi.get<any[]>('/admin/changelog', getAuthConfig());
+  return res.data.map(normalizeChangelogEntry);
+};
+
+export const addChangelog = async (version: string, date: string, content: string): Promise<ChangelogEntry> => {
+  const res = await adminApi.post<any>('/admin/changelog', { version, date, content }, getAuthConfig());
+  return normalizeChangelogEntry(res.data);
+};
+
+export const updateChangelog = async (id: number, version: string, date: string, content: string): Promise<ChangelogEntry> => {
+  const res = await adminApi.put<any>(`/admin/changelog/${id}`, { version, date, content }, getAuthConfig());
+  return normalizeChangelogEntry(res.data);
+};
+
+export const deleteChangelog = async (id: number): Promise<void> => {
+  await adminApi.delete(`/admin/changelog/${id}`, getAuthConfig());
+};

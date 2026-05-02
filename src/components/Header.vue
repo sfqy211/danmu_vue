@@ -26,7 +26,7 @@
         <div v-if="store.currentSession" class="session-info">
           <span class="streamer-name">{{ store.currentSession.user_name }}</span>
           <span class="divider">/</span>
-          <span class="session-date">{{ formatDate(store.currentSession.start_time) }}</span>
+          <span class="session-date">{{ formatShortDate(store.currentSession.start_time) }}</span>
           <span class="session-title" :title="store.currentSession.title">{{ store.currentSession.title }}</span>
         </div>
         <h2 v-else class="static-title">{{ currentStreamerName || '请选择回放' }}</h2>
@@ -159,7 +159,7 @@
 
         <!-- About & System -->
         <div class="drawer-section">
-          <div class="drawer-item clickable" @click="aboutDialogVisible = true">
+          <div class="drawer-item clickable" @click="aboutDialogVisible = true; loadChangelog()">
             <div class="item-left">
               <el-icon><InfoFilled /></el-icon>
               <span>关于本工具</span>
@@ -226,136 +226,38 @@
 
 
 
-    <!-- About Dialog -->
+<!-- About Dialog -->
     <el-dialog
       v-model="aboutDialogVisible"
-      title="关于本工具"
-      :width="isMobile ? '90%' : '550px'"
+      title="更新日志"
+      :width="isMobile ? '90%' : '520px'"
       align-center
       append-to-body
       class="about-dialog"
     >
-      <div class="about-content">
-        <div class="about-section">
-          <h3>项目介绍</h3>
-          <p>这是一个专为 Bilibili 直播回放设计的弹幕预览与数据分析系统，通过“弹幕时光机”理念，提供极致的复盘体验。</p>
-          <p><strong>技术栈：</strong></p>
-          <ul>
-            <li><strong>前端</strong>：基于 <strong>Vue 3</strong> + <strong>Vite</strong> + <strong>TypeScript</strong> 构建，状态管理采用 <strong>Pinia</strong>，UI 组件库使用 <strong>Element Plus</strong>，数据可视化依托 <strong>ECharts</strong>。</li>
-            <li><strong>后端</strong>：采用 <strong>ASP.NET Core 9</strong> 驱动，集成 <strong>EF Core</strong> (MySQL) 与后台任务调度，内置 <strong>Garnet</strong> (Redis 兼容) 高效处理弹幕缓冲。</li>
-            <li><strong>数据存储</strong>：结合 <strong>MySQL</strong> 持久化业务数据与 <strong>XML</strong> 存储原始弹幕，确保数据的完整性与高性能检索。</li>
-            <li><strong>部署架构</strong>：全面支持 <strong>Docker</strong> 容器化部署，前端产物通过后端静态资源服务或 <strong>CDN</strong> 极速分发。</li>
-          </ul>
-          <p>B站主页：<a href="https://space.bilibili.com/182587768" target="_blank">朔风秋叶</a></p>
-          <p>项目地址：<a href="https://github.com/sfqy211/danmu_vue" target="_blank">https://github.com/sfqy211/danmu_vue</a></p>
+      <div class="changelog-scroll">
+        <div v-if="changelogLoading" style="text-align: center; padding: 40px 0; color: var(--text-tertiary);">
+          加载中...
         </div>
-        
-        <el-divider />
-
-        <div class="about-section">
-          <h3>更新日志</h3>
-          <el-collapse class="changelog-collapse">
-            <el-collapse-item title="v2.3 - 2026-03-01 (数据同步与体验优化)" name="2.3">
-              <ul class="changelog-list">
-                <li><strong>统计数据自动同步</strong>：录制器在启动与心跳时自动同步 VUP 粉丝数、舰长数及视频数，无需手动触发。</li>
-                <li><strong>直播时长精准化</strong>：优化开播时间抓取逻辑，支持从会话记录自动回填，解决“直播中”状态显示不准的问题。</li>
-                <li><strong>管理端体验优化</strong>：为管理页面搜索栏添加移动端折叠功能，优化小屏幕下的操作空间。</li>
-                <li><strong>后端接口增强</strong>：重构 <code>GetRoomInfoAsync</code> 接口，支持全量 VUP 统计数据并行抓取，提升响应速度。</li>
-                <li><strong>数据库健壮性</strong>：修改种子数据同步策略，防止重启服务时覆盖用户已修改的监控配置。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v2.2 - 2026-02-28 (管理增强与架构优化)" name="2.2">
-              <ul class="changelog-list">
-                <li><strong>管理功能增强</strong>：支持通过 UID 添加主播并提供备注管理功能；管理端新增批量删除功能，扩展房间模型字段以记录更多元数据；优化 VUP 信息调度器，支持同步粉丝数等动态数据。</li>
-                <li><strong>后端架构与性能</strong>：集成嵌入式 Garnet (Redis 兼容) 支持，重构弹幕存储逻辑，提升响应速度；修复并发文件读取时的数据竞争问题，增强数据一致性。</li>
-                <li><strong>CI/CD 与部署优化</strong>：全面重构 CI/CD 流程，升级为 scp 传输与临时目录中转方案，解决部署权限与稳定性问题；引入 Git 代理机制，提升海外服务器部署速度。</li>
-                <li><strong>界面与交互优化</strong>：集成 vtbs.moe API 同步更多 VUP 扩展信息；优化移动端响应式布局，将弹幕列表菜单重构为 dropdown 组件；新增动态背景并增强首页沉浸感。</li>
-                <li><strong>稳定性与修复</strong>：修复了 B 站录播流异常导致的会话清理失效问题；纠正了 SC 价格单位显示错误及弹幕列表样式偏差；解决调度器重复更新及房间 ID 匹配逻辑 bug。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v2.1 - 2026-02-26 (界面优化与功能完善)" name="2.1">
-              <ul class="changelog-list">
-                <li><strong>顶栏重构</strong>：将顶栏抽取为独立组件，确保主页和列表页顶栏效果完全一致，采用透明玻璃样式。</li>
-                <li><strong>列表页重构</strong>：重构列表页布局，所有主播在一个页面中全部显示，不同分类使用长横线分割。</li>
-                <li><strong>主播卡片优化</strong>：列表页主播项改为左边头像、右边名字的小按钮布局，提升视觉效果。</li>
-                <li><strong>弹幕录制标识</strong>：为开启了弹幕录制的 VUP 添加绿色标志，方便用户识别。</li>
-                <li><strong>功能显示优化</strong>：对于没有开启弹幕录制的主播，不再显示弹幕历史和点歌历史入口。</li>
-                <li><strong>交互体验提升</strong>：优化列表页跳转主页的逻辑，确保正确切换到选中的主播。</li>
-                <li><strong>代码质量优化</strong>：删除未使用的代码和函数，提升代码可维护性。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v2.0 - 2026-02-25 (后端迁移与管理增强)" name="1.6">
-              <ul class="changelog-list">
-                <li><strong>后端升级</strong>：移除 Node.js 后端，全面迁移至 .NET 并优化 Docker 构建流程。</li>
-                <li><strong>管理能力增强</strong>：新增直播回放与点歌记录的数据库管理功能。</li>
-                <li><strong>直播间支持</strong>：支持 B 站短房间号，增加开播状态与时长显示。</li>
-                <li><strong>配置与稳定性</strong>：改进环境变量解析、调度器启动、数据路径与空值处理，提升 API 兼容性。</li>
-                <li><strong>安全与跨域</strong>：优化 CORS 与管理端认证流程，修复管理端 API 基础 URL 解析。</li>
-                <li><strong>部署与存储</strong>：集成腾讯云 COS/CDN，完善部署脚本与构建变量传递。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.5 - 2026-02-20 (功能增强与性能优化)" name="1.5">
-              <ul class="changelog-list">
-                <li><strong>侧边栏功能增强</strong>：增加会话总数统计和时间范围筛选功能，添加刷新按钮用于更新主播和回放列表。</li>
-                <li><strong>数据统计优化</strong>：为会话列表接口添加CDN缓存控制，添加航海信息统计功能并优化时间处理。</li>
-                <li><strong>弹幕体验提升</strong>：为弹幕列表项添加唯一ID以支持展开功能，添加弹幕时间显示模式切换功能。</li>
-                <li><strong>头像系统优化</strong>：添加头像缩略图生成功能，转换头像为webp格式以减小尺寸，为直播主头像添加点击跳转直播功能。</li>
-                <li><strong>点歌记录改进</strong>：优化空状态提示并改进房间号获取逻辑，移除点歌历史页侧边栏隐藏条件并优化标题栏布局。</li>
-                <li><strong>系统稳定性</strong>：切换主播时清理之前的会话状态，移除查询会话列表时不必要的字段，修复API基础URL处理并移除未使用的计算属性。</li>
-                <li><strong>代码清理</strong>：移除AI分析功能及相关代码，移除未使用的coverUrl字段并更新头像为webp格式。</li>
-                <li><strong>系统监控</strong>：添加 PM2 状态检查 API 接口。</li>
-                <li><strong>部署优化</strong>：添加CDN缓存刷新并更新.gitignore。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.4 - 2026-02-15 (架构升级)" name="1.4">
-              <ul class="changelog-list">
-                <li><strong>极致性能架构</strong>：前端全面迁移至腾讯云 COS + CDN，彻底解决访问慢与图片加载失败问题，实现秒开体验。</li>
-                <li><strong>全站 HTTPS</strong>：前后端通信升级为 HTTPS，启用 API 加速域名，彻底消除混合内容报错，提升安全性。</li>
-                <li><strong>自动化部署 2.0</strong>：重构 CI/CD 流程，实现构建产物自动上传 COS 与后端服务无缝重启。</li>
-                <li><strong>稳定性修复</strong>：修复了主页图片加载失败可能导致的死循环请求 bug。</li>
-                <li><strong>代码优化</strong>：清理了未使用的静态资源与冗余样式代码，保持项目轻量化。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.3 - 2026-02-09" name="1.3">
-              <ul class="changelog-list">
-                <li><strong>全新沉浸式主页</strong>：重构主页 UI，采用全屏动态模糊背景 + 专辑封面风格，视觉效果大幅提升。</li>
-                <li><strong>交互逻辑重构</strong>：主页轮播图支持垂直滚动切换，新增自动隐藏的右侧悬浮导航栏，操作更加自然流畅。</li>
-                <li><strong>自动化头像更新</strong>：后端新增每日自动获取主播头像功能，并支持防风控与本地缓存，前端图片加载更加稳定。</li>
-                <li><strong>主页图片定制</strong>：主页封面图与头像分离，支持通过 <code>/vup-cover</code> 目录单独配置高清封面，并提供自动降级机制。</li>
-                <li><strong>性能优化</strong>：点歌历史列表改为后端分页，支持海量数据秒级加载，彻底解决卡顿问题。</li>
-                <li><strong>体验修复</strong>：修复了侧边栏回放列表加载、点歌历史数据残留等多个逻辑问题，移除了未完成的AI分析入口。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.2 - 2026-02-03" name="1.2">
-              <ul class="changelog-list">
-                <li><strong>组件重构与复用</strong>：抽象并统一了统计逻辑，封装为通用的数据统计组件，提升代码可维护性。</li>
-                <li><strong>营收统计深度优化</strong>：新增营收统计功能，支持按金额筛选和用户排行，并修复了数据丢失与计算精度问题。</li>
-                <li><strong>交互体验升级</strong>：统计图表标签支持随滑动条实时动态更新，扇形图改为实心样式，视觉效果更扎实。</li>
-                <li><strong>配置灵活性提升</strong>：支持为不同类型的统计设置独立的默认显示项数。</li>
-                <li><strong>准备添加AI分析</strong>：预留接口，未来版本将集成基于弹幕内容的智能分析功能。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.1 - 2026-02-02" name="1.1">
-              <ul class="changelog-list">
-                <li><strong>自动化部署上线</strong>：成功配置 GitHub Actions，实现代码推送后自动编译、上传并重启服务。</li>
-                <li><strong>手机端图表优化</strong>：弹幕时间轴分析图表在手机端支持强制横屏旋转显示，提升观看体验，增加扇形图显示。</li>
-                <li><strong>侧边栏按需加载</strong>：默认不加载回放列表，仅在选择主播后加载，大幅减少初始流量消耗。</li>
-                <li><strong>界面细节优化</strong>：手机端统计弹窗支持全屏显示，优化了 UID 的展示方式。</li>
-                <li><strong>交互修复</strong>：修复了手机端侧边栏宽度调整条无法拖动的问题。</li>
-              </ul>
-            </el-collapse-item>
-            <el-collapse-item title="v1.0 - 2026-01-20" name="1.0">
-              <ul class="changelog-list">
-                <li><strong>基础功能上线</strong>：支持弹幕列表查看、主播筛选、基本的统计分析。</li>
-                <li><strong>可视化集成</strong>：集成 ECharts 实现柱状图统计。</li>
-                <li><strong>导出功能</strong>：支持统计图表导出为图片或复制到剪贴板。</li>
-              </ul>
-            </el-collapse-item>
-          </el-collapse>
+        <div v-else-if="changelogError" style="text-align: center; padding: 40px 0; color: var(--text-tertiary);">
+          {{ changelogError }}
         </div>
-        
-        <el-divider />
-        
+        <div v-else-if="changelogEntries.length === 0" style="text-align: center; padding: 40px 0; color: var(--text-tertiary);">
+          暂无更新日志
+        </div>
+        <template v-else>
+          <div class="changelog-version" v-for="(entry, idx) in changelogEntries" :key="entry.id">
+            <div class="version-header">
+              <span class="version-badge" :class="{ new: idx === 0 }">{{ entry.version }}</span>
+              <span class="version-date">{{ formatDate(entry.date) }}</span>
+            </div>
+            <ul class="changelog-list">
+              <li v-for="(line, lineIdx) in entry.content.split('\n').filter((l: string) => l.trim())" :key="lineIdx">
+                {{ line }}
+              </li>
+            </ul>
+          </div>
+        </template>
       </div>
     </el-dialog>
   </div>
@@ -365,6 +267,7 @@
 import { ref , onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
+import { getChangelog, type ChangelogEntry } from '../api/danmaku';
 import { getPm2Status } from '../api/danmaku';
 import { ElMessage } from 'element-plus';
 import { 
@@ -398,6 +301,29 @@ const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
+const changelogEntries = ref<ChangelogEntry[]>([]);
+const changelogLoading = ref(false);
+const changelogError = ref('');
+
+const loadChangelog = async () => {
+  changelogLoading.value = true;
+  changelogError.value = '';
+  try {
+    changelogEntries.value = await getChangelog();
+  } catch (e: any) {
+    changelogError.value = '加载失败，请稍后重试';
+  } finally {
+    changelogLoading.value = false;
+  }
+};
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
 const isMobile = ref(window.innerWidth <= 768);
@@ -427,7 +353,7 @@ const pageTitle = computed(() => {
   return '';
 });
 
-const formatDate = (timestamp: number) => {
+const formatShortDate = (timestamp: number) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return `${date.getMonth() + 1}-${date.getDate()}`;
@@ -749,76 +675,74 @@ onUnmounted(() => {
     margin: 16px 0;
 }
 
-.about-content {
-    padding: 0 5px;
-}
-.about-section h3 {
-    margin-top: 0;
-    margin-bottom: 12px;
-    font-size: 16px;
-    color: var(--text-primary);
-}
-.about-section p {
-    margin-bottom: 10px;
-    line-height: 1.6;
-    color: var(--text-secondary);
-    font-size: 14px;
-}
-.about-section ul {
-    padding-left: 20px;
-    margin-bottom: 10px;
-    color: var(--text-secondary);
-    font-size: 14px;
-}
-.about-section li {
-    margin-bottom: 5px;
+.about-dialog .el-dialog__body {
+  padding: 0 !important;
 }
 
-.changelog-collapse {
-    border: none;
-    margin-top: 10px;
+.changelog-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 16px 20px;
+  overscroll-behavior: contain;
 }
 
-:deep(.changelog-collapse .el-collapse-item__header) {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-    background-color: transparent;
-    height: 40px;
+.changelog-version {
+  margin-bottom: 20px;
 }
 
-:deep(.changelog-collapse .el-collapse-item__content) {
-    padding-bottom: 10px;
-    color: var(--text-secondary);
+.changelog-version:last-child {
+  margin-bottom: 0;
+}
+
+.version-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  background-color: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+
+.version-badge.new {
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-dark-2));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.version-date {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
 .changelog-list {
-    margin: 0;
-    padding-left: 18px;
-    list-style-type: disc;
-}
-
-.status-icon {
-  font-size: 18px;
-}
-.status-icon.success {
-  color: var(--el-color-success);
-}
-.status-icon.error {
-  color: var(--el-color-danger);
-}
-.status-icon.loading {
-  color: var(--text-tertiary);
-  opacity: 0.5;
+  margin: 0;
+  padding-left: 18px;
+  list-style-type: disc;
 }
 
 .changelog-list li {
-    font-size: 13px;
-    margin-bottom: 6px;
-    line-height: 1.5;
+  font-size: 13px;
+  margin-bottom: 5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .changelog-list li strong {
-    color: var(--text-primary);
+  color: var(--text-primary);
 }
 </style>
