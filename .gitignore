@@ -35,7 +35,7 @@ __pycache__/
 
 # Temporary or archived directories
 example/
-归档/
+test/
 
 # VUP images (stored in COS CDN, not in repo)
 public/vup-avatar/
