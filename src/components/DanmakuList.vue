@@ -30,13 +30,14 @@
           <div :style="{ height: normalVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
             <div
               v-for="virtualItem in normalVirtualizer.getVirtualItems()"
-              :key="filteredNormalList[virtualItem.index].id"
+              :key="String(virtualItem.key)"
+              :ref="(el: any) => normalVirtualizer.measureElement(el as Element)"
+              :data-index="virtualItem.index"
               :style="{
                 position: 'absolute',
                 top: virtualItem.start + 'px',
                 left: 0,
                 width: '100%',
-                height: virtualItem.size + 'px',
               }"
               class="danmaku-item"
               :title="`UID: ${filteredNormalList[virtualItem.index].uid ?? '未知'}\n时间: ${store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredNormalList[virtualItem.index].timestamp) : filteredNormalList[virtualItem.index].timeStr}`"
@@ -77,13 +78,14 @@
           <div :style="{ height: scVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
             <div
               v-for="virtualItem in scVirtualizer.getVirtualItems()"
-              :key="filteredSCList[virtualItem.index].id"
+              :key="String(virtualItem.key)"
+              :ref="(el: any) => scVirtualizer.measureElement(el as Element)"
+              :data-index="virtualItem.index"
               :style="{
                 position: 'absolute',
                 top: virtualItem.start + 'px',
                 left: 0,
                 width: '100%',
-                height: virtualItem.size + 'px',
                 borderLeftColor: getSCStyle(filteredSCList[virtualItem.index].price || 0).main,
               }"
               class="danmaku-item sc-item"
@@ -142,7 +144,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { useVirtualizer } from '@tanstack/vue-virtual';
+import { useVirtualizer, measureElement } from '@tanstack/vue-virtual';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { storeToRefs } from 'pinia';
 import type { Danmaku } from '../api/danmaku';
@@ -197,6 +199,7 @@ const normalVirtualizer = useVirtualizer(computed(() => ({
   getScrollElement: () => leftScroller.value,
   estimateSize: () => ROW_HEIGHT,
   overscan: 10,
+  measureElement,
 })));
 
 const scVirtualizer = useVirtualizer(computed(() => ({
@@ -204,6 +207,7 @@ const scVirtualizer = useVirtualizer(computed(() => ({
   getScrollElement: () => rightScroller.value,
   estimateSize: () => ROW_HEIGHT,
   overscan: 10,
+  measureElement,
 })));
 
 // ==================== Shared User Menu ====================
@@ -594,9 +598,9 @@ onUnmounted(() => {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 0 10px;
+  padding: 4px 10px;
   font-size: 0.9rem;
-  line-height: 32px;
+  line-height: 1.5;
   /* Override global style.css card styles */
   border: none !important;
   background: none !important;
@@ -604,9 +608,6 @@ onUnmounted(() => {
   margin: 0 !important;
   min-height: auto !important;
   box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   /* Light separator */
   border-bottom: 1px solid rgba(128, 128, 128, 0.06) !important;
 }
@@ -663,9 +664,8 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .dm-jpn {
