@@ -12,7 +12,7 @@
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="StackExchange.Redis" Version="2.11.8" />
-    <PackageReference Include="COSXML" Version="5.4.0" />
+    <PackageReference Include="Tencent.QCloud.Cos.Sdk" Version="5.4.51" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
