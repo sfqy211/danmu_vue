@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, shallowRef } from 'vue';
 import { getSessionDanmaku, getSessionSummary, getVups, type Danmaku, type SessionInfo, type VupInfo } from '../api/danmaku';
 
 export const useDanmakuStore = defineStore('danmaku', () => {
@@ -12,8 +12,11 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const vupLoading = ref(false);
   const currentSession = ref<SessionInfo | null>(null);
   const sessionSummary = ref<any>(null);
-  const danmakuList = ref<Danmaku[]>([]);
-  const scList = ref<Danmaku[]>([]);
+  // Use shallowRef to avoid Vue deep reactivity proxy overhead on large arrays.
+  // Items are never mutated in-place — the entire array is always replaced,
+  // so deep reactivity provides zero benefit but costs ~5-10x memory per item.
+  const danmakuList = shallowRef<Danmaku[]>([]);
+  const scList = shallowRef<Danmaku[]>([]);
   const loading = ref(false);
   const danmakuLoading = ref(false);
   const isDanmakuLoaded = ref(false);
