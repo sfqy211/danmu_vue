@@ -8,6 +8,7 @@ public class ProcessInfo
     public string Uid { get; set; } = "";
     public long RoomId { get; set; }
     public string Name { get; set; } = "";
+    public string DisplayName { get; set; } = "";
     public int Pid { get; set; }
     public string Status { get; set; } = "stopped";
     public string Uptime { get; set; } = "0s";
@@ -21,13 +22,15 @@ public class ProcessManager
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly RedisService _redis;
+    private readonly BiliAccountService _accountService;
 
-    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis)
+    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _scopeFactory = scopeFactory;
         _redis = redis;
+        _accountService = accountService;
     }
 
     public List<ProcessInfo> GetProcesses()
@@ -43,6 +46,7 @@ public class ProcessManager
                     Uid = kvp.Key,
                     RoomId = recorder.RoomId,
                     Name = recorder.ProcessName,
+                    DisplayName = recorder.DisplayName,
                     Pid = recorder.Pid,
                     Status = recorder.Status,
                     Uptime = recorder.Uptime,
@@ -72,7 +76,7 @@ public class ProcessManager
             }
 
             var logger = _loggerFactory.CreateLogger<BilibiliRecorder>();
-            recorder = new BilibiliRecorder(identity.RoomId, identity.Uid, identity.Name, logger, _redis);
+            recorder = new BilibiliRecorder(identity.RoomId, identity.Uid, identity.Name, logger, _redis, _accountService);
             
             // Delegate: Check for active session in DB
             recorder.CheckActiveSession = async (uid, rid) =>

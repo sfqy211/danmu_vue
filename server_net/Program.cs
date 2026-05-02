@@ -81,6 +81,8 @@ builder.Services.AddHttpClient<BilibiliService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(5);
 });
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<BiliAccountService>();
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<CosService>();
 builder.Services.AddHostedService<AvatarScheduler>();
@@ -163,5 +165,13 @@ using (var scope = app.Services.CreateScope())
 // Restore recorders
 var pm = app.Services.GetRequiredService<ProcessManager>();
 _ = pm.RestoreRecordersAsync(); // Fire and forget but better to await if possible, but Run() is blocking.
+
+// Start BiliAccount auto-refresh loop
+var biliAccountService = app.Services.GetRequiredService<BiliAccountService>();
+biliAccountService.PreloadCacheAsync().GetAwaiter().GetResult();
+biliAccountService.StartAutoRefreshLoop();
+
+var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+lifetime.ApplicationStopping.Register(() => biliAccountService.StopAutoRefreshLoop());
 
 app.Run();
