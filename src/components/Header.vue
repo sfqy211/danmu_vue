@@ -149,7 +149,7 @@
               <span>页面缩放</span>
             </div>
             <div class="zoom-control">
-              <el-slider v-model="store.zoomLevel" :min="80" :max="150" :step="5" :format-tooltip="(val: number) => val + '%'" @input="(val: number) => handleZoom(val)" style="width: 100px;" />
+              <el-slider v-model="store.zoomLevel" :min="70" :max="160" :step="5" :format-tooltip="(val: number) => val + '%'" @input="(val: number) => handleZoom(val)" style="width: 100px;" />
               <span class="zoom-value">{{ store.zoomLevel }}%</span>
             </div>
           </div>

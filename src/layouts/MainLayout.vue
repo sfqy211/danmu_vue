@@ -97,14 +97,16 @@ const zoomStyle = computed(() => {
   if (route.name !== 'streamer-danmaku') {
     return {
       width: '100%',
-      height: '100%'
+      height: '100%',
     };
   }
   
   const scale = store.zoomLevel / 100;
   return {
-    // 使用 transform 替代 zoom 以获得更好的兼容性和更稳定的渲染效果
     transform: `scale(${scale})`,
+    transformOrigin: '0 0',
+    // Compensate for scale: make layout size larger so visual size fills container.
+    // With position:absolute, percentage resolves against zoom-container's definite height.
     width: `${100 / scale}%`,
     height: `${100 / scale}%`,
   };
@@ -140,15 +142,16 @@ const zoomStyle = computed(() => {
 .zoom-container {
   flex: 1;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  position: relative;
 }
 
 .zoom-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  flex: 1;
   transform-origin: 0 0;
 }
 

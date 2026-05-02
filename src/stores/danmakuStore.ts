@@ -29,7 +29,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const showSC = ref(true);
   const showDanmaku = ref(true);
   const isSidebarCollapsed = ref(true);
-  const zoomLevel = ref(100);
+  const zoomLevel = ref(115);
   const timeDisplayMode = ref<'relative' | 'absolute'>('relative');
 
   // Getters

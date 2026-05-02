@@ -389,7 +389,7 @@ onUnmounted(() => {
 
 <style scoped>
 .danmaku-container {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-primary);
@@ -438,8 +438,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: row;
   overflow: hidden;
-  height: 100%;
   position: relative;
+  min-height: 0;
 }
 
 .split-container.is-mobile {
@@ -488,6 +488,7 @@ onUnmounted(() => {
 /* Scrollable list */
 .scrollable-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   position: relative;
   overscroll-behavior: contain;
@@ -597,7 +598,7 @@ onUnmounted(() => {
 .danmaku-item {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 0;
   padding: 4px 10px;
   font-size: 0.9rem;
   line-height: 1.5;
@@ -626,7 +627,8 @@ onUnmounted(() => {
 /* Time: far left, muted */
 .dm-time {
   flex-shrink: 0;
-  width: 52px;
+  width: 48px;
+  margin-right: 2px;
   font-size: 0.75rem;
   color: var(--text-tertiary);
   opacity: 0.45;
@@ -639,8 +641,9 @@ onUnmounted(() => {
 .dm-meta {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
+  margin-right: 8px;
 }
 
 /* Username */
