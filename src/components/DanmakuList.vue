@@ -43,7 +43,7 @@
             >
               <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredNormalList[virtualItem.index].timestamp) : filteredNormalList[virtualItem.index].timeStr }}</span>
               <span class="dm-meta">
-                <span class="dm-user" @click="openUserMenu(filteredNormalList[virtualItem.index])">{{ filteredNormalList[virtualItem.index].user }}</span>
+                <span class="dm-user" @click="openUserMenu($event, filteredNormalList[virtualItem.index])">{{ filteredNormalList[virtualItem.index].user }}</span>
               </span>
               <span class="dm-message">{{ filteredNormalList[virtualItem.index].content }}</span>
             </div>
@@ -94,7 +94,7 @@
                 <span class="sc-price" :style="{ color: getSCStyle(filteredSCList[virtualItem.index].price || 0).main }">
                   ¥{{ formatPrice(filteredSCList[virtualItem.index].price || 0) }}
                 </span>
-                <span class="dm-user" :style="{ color: getSCStyle(filteredSCList[virtualItem.index].price || 0).main }" @click="openUserMenu(filteredSCList[virtualItem.index])">
+                <span class="dm-user" :style="{ color: getSCStyle(filteredSCList[virtualItem.index].price || 0).main }" @click="openUserMenu($event, filteredSCList[virtualItem.index])">
                   {{ filteredSCList[virtualItem.index].user }}
                 </span>
               </span>
@@ -111,14 +111,15 @@
       </div>
     </div>
 
-    <!-- Shared user menu dropdown (only 1 instance instead of per-row) -->
+    <!-- Shared user menu dropdown with virtual triggering for correct positioning -->
     <el-dropdown
       ref="userMenuDropdown"
+      :virtual-ref="virtualTriggerRef"
+      virtual-triggering
       trigger="click"
       popper-class="user-menu-popover"
       @command="onUserMenuCommand"
     >
-      <span></span>
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item command="filter">
@@ -209,13 +210,17 @@ const scVirtualizer = useVirtualizer(computed(() => ({
 
 const userMenuDropdown = ref<any>(null);
 const activeUser = ref<Danmaku | null>(null);
+const virtualTriggerRef = ref<HTMLElement>({
+  getBoundingClientRect: () => DOMRect.fromRect({ x: 0, y: 0, width: 0, height: 0 }),
+} as any);
 
-const openUserMenu = (item: Danmaku) => {
+const openUserMenu = (event: MouseEvent, item: Danmaku) => {
   activeUser.value = item;
-  // Use nextTick to ensure the dropdown trigger element exists
+  const rect = (event.target as HTMLElement).getBoundingClientRect();
+  virtualTriggerRef.value = {
+    getBoundingClientRect: () => new DOMRect(rect.left, rect.bottom + 4, rect.width, 0),
+  } as any;
   nextTick(() => {
-    // Programmatically open the dropdown at the clicked position
-    // Since we use a hidden trigger, we need to show it via the dropdown API
     if (userMenuDropdown.value) {
       userMenuDropdown.value.handleOpen();
     }
