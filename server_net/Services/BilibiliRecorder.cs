@@ -514,6 +514,11 @@ public class BilibiliRecorder : IDisposable
                 }
                 else
                 {
+                    if (cmd == "LOG_IN_NOTICE")
+                    {
+                        _logger.LogWarning("Received LOG_IN_NOTICE for uid {Uid}. Current cookie/session may be degraded or expired.", _uid);
+                    }
+
                     var recordedEvent = CreateRecordedEvent(root, cmd);
                     if (recordedEvent != null)
                     {
@@ -632,6 +637,63 @@ public class BilibiliRecorder : IDisposable
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "username") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "COMBO_SEND")
+        {
+            var data = root.GetProperty("data");
+            var comboNum = TryGetInt32(data, "combo_num") ?? TryGetInt32(data, "total_num") ?? TryGetInt32(data, "gift_num") ?? 1;
+            var comboTotalCoin = TryGetDouble(data, "combo_total_coin");
+            var coinType = TryGetString(data, "coin_type");
+            var normalizedPrice = comboTotalCoin.HasValue && string.Equals(coinType, "gold", StringComparison.OrdinalIgnoreCase)
+                ? NormalizeMoney(comboTotalCoin.Value)
+                : 0;
+
+            return new RecordedDanmakuEvent
+            {
+                Type = "gift_combo",
+                Timestamp = (TryGetInt64(data, "send_master") ?? TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Name = TryGetString(data, "gift_name") ?? TryGetString(data, "giftName") ?? "combo_gift",
+                Count = Math.Max(1, comboNum),
+                Price = normalizedPrice,
+                IsPriceTotal = true,
+                CoinType = coinType,
+                GuardLevel = TryGetInt32(data, "guard_level"),
+                User = TryGetString(data, "uname") ?? "",
+                Uid = TryGetString(data, "uid") ?? TryGetString(data, "ruid") ?? "",
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "INTERACT_WORD")
+        {
+            var data = root.GetProperty("data");
+            var msgType = TryGetInt32(data, "msg_type");
+            var eventType = msgType switch
+            {
+                1 => "enter",
+                2 => "follow",
+                3 => "share",
+                _ => "interact"
+            };
+
+            var textSuffix = msgType switch
+            {
+                2 => "followed the room",
+                3 => "shared the room",
+                _ => "entered room"
+            };
+
+            return new RecordedDanmakuEvent
+            {
+                Type = eventType,
+                Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Text = TryGetString(data, "uname") is { Length: > 0 } uname ? $"{uname} {textSuffix}" : $"user {textSuffix}",
+                User = TryGetString(data, "uname") ?? "",
+                Uid = TryGetString(data, "uid") ?? "",
+                GuardLevel = TryGetInt32(data, "guard_level"),
                 RawCommand = cmd
             };
         }
