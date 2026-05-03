@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using Danmu.Server.Data;
@@ -9,6 +10,8 @@ namespace Danmu.Server.Services;
 
 public class BiliAccountService
 {
+    private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<BiliAccountService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -366,6 +369,65 @@ public class BiliAccountService
         InvalidateCache();
     }
 
+    public async Task<bool> RefreshWebCookieAsync(long uid)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+        var acc = await db.BiliAccounts.FirstOrDefaultAsync(a => a.Uid == uid);
+        if (acc == null)
+            throw new Exception("Account not found");
+
+        var cookieDict = DeserializeCookieDict(acc.CookieJson);
+        if (cookieDict == null || cookieDict.Count == 0)
+            throw new Exception("No cookie data");
+
+        if (!cookieDict.TryGetValue("bili_jct", out var biliJct) || string.IsNullOrWhiteSpace(biliJct))
+            throw new Exception("Cookie missing bili_jct");
+
+        var refreshToken = acc.RefreshToken;
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            cookieDict.TryGetValue("ac_time_value", out refreshToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            throw new Exception("No refresh token available for web cookie refresh");
+
+        var cookieString = BuildCookieString(acc.CookieJson);
+        if (string.IsNullOrWhiteSpace(cookieString))
+            throw new Exception("Failed to build cookie string");
+
+        var (hash, publicKey) = await GetPassportRsaKeyAsync();
+        var correspondPath = GenerateCorrespondPath(hash, publicKey);
+        var refreshCsrf = await ExtractRefreshCsrfAsync(correspondPath, cookieString);
+        if (string.IsNullOrWhiteSpace(refreshCsrf))
+            throw new Exception("Failed to get refresh_csrf");
+
+        var refreshResult = await PostCookieRefreshAsync(biliJct, refreshCsrf, refreshToken, cookieString);
+
+        var mergedCookies = new Dictionary<string, string>(cookieDict, StringComparer.Ordinal);
+        foreach (var kv in refreshResult.CookieDict)
+        {
+            mergedCookies[kv.Key] = kv.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(refreshResult.RefreshToken))
+        {
+            acc.RefreshToken = refreshResult.RefreshToken;
+            mergedCookies["ac_time_value"] = refreshResult.RefreshToken;
+        }
+
+        acc.CookieJson = JsonSerializer.Serialize(mergedCookies);
+        acc.ExpiresAt = refreshResult.SessdataExpiresAt;
+        acc.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        await PostConfirmRefreshAsync(mergedCookies.GetValueOrDefault("bili_jct") ?? biliJct, acc.RefreshToken ?? string.Empty, BuildCookieString(acc.CookieJson));
+
+        await RefreshActiveCookieCacheAsync();
+        return true;
+    }
+
     // ─── TV QR Code Login ─────────────────────────────────────────────
 
     public async Task<(string url, string id)> StartTvLoginAsync()
@@ -718,6 +780,207 @@ public class BiliAccountService
     /// Generates Bilibili API sign. Matches @renmu/bili-api implementation:
     /// No URL-encoding of parameter values; raw string concatenation with &.
     /// </summary>
+    private async Task<(string Hash, string PublicKeyPem)> GetPassportRsaKeyAsync()
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = CreateBrowserRequest(HttpMethod.Get, "https://passport.bilibili.com/x/passport-login/web/key");
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
+        {
+            var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : "Unknown error";
+            throw new InvalidOperationException($"Failed to get passport RSA key: {message}");
+        }
+
+        var data = root.GetProperty("data");
+        return (
+            data.GetProperty("hash").GetString() ?? string.Empty,
+            data.GetProperty("key").GetString() ?? string.Empty);
+    }
+
+    private static string GenerateCorrespondPath(string hash, string publicKeyPem)
+    {
+        if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(publicKeyPem))
+            throw new InvalidOperationException("Invalid RSA key data");
+
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var plaintext = $"{hash}refresh_{timestamp}";
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(publicKeyPem);
+        var encrypted = rsa.Encrypt(Encoding.UTF8.GetBytes(plaintext), RSAEncryptionPadding.OaepSHA1);
+        return Uri.EscapeDataString(Convert.ToBase64String(encrypted));
+    }
+
+    private async Task<string?> ExtractRefreshCsrfAsync(string correspondPath, string cookieString)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = CreateBrowserRequest(HttpMethod.Get, $"https://www.bilibili.com/correspond/1/{correspondPath}");
+        request.Headers.TryAddWithoutValidation("Cookie", cookieString);
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var html = await response.Content.ReadAsStringAsync();
+        var match = Regex.Match(html, "<div\\s+id=\"1-name\">(?<csrf>[^<]+)</div>", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["csrf"].Value : null;
+    }
+
+    private async Task<WebCookieRefreshResult> PostCookieRefreshAsync(string biliJct, string refreshCsrf, string refreshToken, string cookieString)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = CreateBrowserRequest(HttpMethod.Post, "https://passport.bilibili.com/x/passport-login/web/cookie/refresh");
+        request.Headers.TryAddWithoutValidation("Cookie", cookieString);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["csrf"] = biliJct,
+            ["refresh_csrf"] = refreshCsrf,
+            ["refresh_token"] = refreshToken,
+            ["source"] = "main_web"
+        });
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
+        {
+            var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : "Unknown error";
+            throw new InvalidOperationException($"Failed to refresh web cookie: {message}");
+        }
+
+        var data = root.GetProperty("data");
+        var newRefreshToken = data.TryGetProperty("refresh_token", out var rtEl) ? rtEl.GetString() : null;
+        var cookies = ExtractCookiesFromResponse(response);
+
+        DateTime? sessdataExpiresAt = null;
+        if (TryGetCookieExpiry(response, "SESSDATA", out var expiresAt))
+        {
+            sessdataExpiresAt = expiresAt.UtcDateTime;
+        }
+
+        return new WebCookieRefreshResult(cookies, newRefreshToken, sessdataExpiresAt);
+    }
+
+    private async Task PostConfirmRefreshAsync(string biliJct, string refreshToken, string? cookieString)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            return;
+
+        var client = _httpClientFactory.CreateClient();
+        using var request = CreateBrowserRequest(HttpMethod.Post, "https://passport.bilibili.com/x/passport-login/web/confirm/refresh");
+        if (!string.IsNullOrWhiteSpace(cookieString))
+        {
+            request.Headers.TryAddWithoutValidation("Cookie", cookieString);
+        }
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["csrf"] = biliJct,
+            ["refresh_token"] = refreshToken,
+            ["source"] = "main_web"
+        });
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
+        {
+            var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : "Unknown error";
+            _logger.LogWarning(
+                "Web cookie confirm refresh returned non-zero code for refresh token. Code={Code}, Message={Message}",
+                codeEl.ValueKind == JsonValueKind.Number ? codeEl.GetInt32() : -1,
+                message);
+        }
+    }
+
+    private static HttpRequestMessage CreateBrowserRequest(HttpMethod method, string url)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+        request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
+        return request;
+    }
+
+    internal static Dictionary<string, string>? DeserializeCookieDict(string? cookieJson)
+    {
+        if (string.IsNullOrWhiteSpace(cookieJson))
+            return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(cookieJson);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static Dictionary<string, string> ExtractCookiesFromResponse(HttpResponseMessage response)
+    {
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        {
+            return cookies;
+        }
+
+        foreach (var setCookie in setCookies)
+        {
+            var firstPart = setCookie.Split(';', 2)[0];
+            var eqIndex = firstPart.IndexOf('=');
+            if (eqIndex <= 0)
+                continue;
+
+            var name = firstPart[..eqIndex].Trim();
+            var value = firstPart[(eqIndex + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                cookies[name] = value;
+            }
+        }
+
+        return cookies;
+    }
+
+    internal static bool TryGetCookieExpiry(HttpResponseMessage response, string cookieName, out DateTimeOffset expiresAt)
+    {
+        expiresAt = default;
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        {
+            return false;
+        }
+
+        foreach (var setCookie in setCookies)
+        {
+            var parts = setCookie.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                continue;
+
+            if (!parts[0].StartsWith(cookieName + "=", StringComparison.Ordinal))
+                continue;
+
+            foreach (var part in parts.Skip(1))
+            {
+                if (part.StartsWith("Expires=", StringComparison.OrdinalIgnoreCase)
+                    && DateTimeOffset.TryParse(part[8..], out var parsed))
+                {
+                    expiresAt = parsed;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static string TvSign(SortedDictionary<string, string> paramDict)
     {
         var sb = new StringBuilder();
@@ -734,6 +997,11 @@ public class BiliAccountService
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
+
+internal sealed record WebCookieRefreshResult(
+    Dictionary<string, string> CookieDict,
+    string? RefreshToken,
+    DateTime? SessdataExpiresAt);
 
 public class TvLoginState
 {
