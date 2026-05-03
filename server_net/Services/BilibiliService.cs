@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Danmu.Server.Services;
 
@@ -7,14 +10,260 @@ public class BilibiliService
     private readonly HttpClient _httpClient;
     private readonly ILogger<BilibiliService> _logger;
     private readonly BiliAccountService _accountService;
+    private readonly WbiSigner _wbiSigner;
+
+    private const int MaxWbiRetry = 3;
 
     public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService)
     {
         _httpClient = httpClient;
         _logger = logger;
         _accountService = accountService;
+        _wbiSigner = new WbiSigner(_httpClient, _logger);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        _httpClient.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com");
+    }
+
+    internal sealed class WbiSigner
+    {
+        internal static readonly int[] MixinKeyEncTab = {
+            46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+            33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
+            26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52
+        };
+
+        private readonly HttpClient _httpClient;
+        private readonly ILogger _logger;
+        private readonly SemaphoreSlim _cacheLock = new(1, 1);
+
+        private string? _cachedMixinKey;
+        private DateTimeOffset _cacheExpiresAt = DateTimeOffset.MinValue;
+
+        public WbiSigner(HttpClient httpClient, ILogger logger)
+        {
+            _httpClient = httpClient;
+            _logger = logger;
+        }
+
+        public void Invalidate()
+        {
+            _cachedMixinKey = null;
+            _cacheExpiresAt = DateTimeOffset.MinValue;
+        }
+
+        internal void SetCachedMixinKey(string mixinKey, DateTimeOffset expiresAt)
+        {
+            _cachedMixinKey = mixinKey;
+            _cacheExpiresAt = expiresAt;
+        }
+
+        public async Task<HttpRequestMessage> CreateSignedRequestAsync(
+            string baseUrl,
+            IDictionary<string, string?> parameters,
+            string? cookie = null,
+            string? origin = null)
+        {
+            var signedParams = await SignParamsAsync(parameters);
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildUrl(baseUrl, signedParams));
+            if (!string.IsNullOrWhiteSpace(cookie))
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", cookie);
+            }
+
+            if (!string.IsNullOrWhiteSpace(origin))
+            {
+                request.Headers.TryAddWithoutValidation("Origin", origin);
+            }
+
+            return request;
+        }
+
+        internal async Task<IReadOnlyDictionary<string, string>> SignParamsAsync(IDictionary<string, string?> parameters)
+        {
+            var mixinKey = await GetMixinKeyAsync();
+            var signedParams = parameters
+                .Where(kv => kv.Value != null)
+                .ToDictionary(kv => kv.Key, kv => SanitizeValue(kv.Value ?? string.Empty), StringComparer.Ordinal);
+
+            signedParams["wts"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+
+            var sorted = signedParams
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .ToArray();
+
+            var query = BuildQueryString(sorted);
+            var input = query + mixinKey;
+            var hash = MD5.HashData(Encoding.UTF8.GetBytes(input));
+            signedParams["w_rid"] = Convert.ToHexString(hash).ToLowerInvariant();
+            return signedParams;
+        }
+
+        private async Task<string> GetMixinKeyAsync()
+        {
+            if (!string.IsNullOrWhiteSpace(_cachedMixinKey) && DateTimeOffset.UtcNow < _cacheExpiresAt)
+            {
+                return _cachedMixinKey;
+            }
+
+            await _cacheLock.WaitAsync();
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_cachedMixinKey) && DateTimeOffset.UtcNow < _cacheExpiresAt)
+                {
+                    return _cachedMixinKey;
+                }
+
+                var navRequest = new HttpRequestMessage(HttpMethod.Get, "https://api.bilibili.com/x/web-interface/nav");
+                var navResponse = await _httpClient.SendAsync(navRequest);
+                navResponse.EnsureSuccessStatusCode();
+
+                var json = await navResponse.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var data = doc.RootElement.GetProperty("data");
+                var wbiImg = data.GetProperty("wbi_img");
+
+                var imgUrl = wbiImg.GetProperty("img_url").GetString();
+                var subUrl = wbiImg.GetProperty("sub_url").GetString();
+                var imgKey = ExtractKeyFromUrl(imgUrl);
+                var subKey = ExtractKeyFromUrl(subUrl);
+                var raw = imgKey + subKey;
+                var mixed = new string(MixinKeyEncTab.Where(i => i < raw.Length).Select(i => raw[i]).ToArray());
+
+                _cachedMixinKey = mixed[..Math.Min(32, mixed.Length)];
+                _cacheExpiresAt = DateTimeOffset.UtcNow.AddMinutes(60);
+                return _cachedMixinKey;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to refresh WBI mixin key");
+                throw;
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+        }
+
+        internal static string ExtractKeyFromUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+            var lastSegment = url.Split('/').LastOrDefault() ?? string.Empty;
+            var dotIndex = lastSegment.IndexOf('.');
+            return dotIndex >= 0 ? lastSegment[..dotIndex] : lastSegment;
+        }
+
+        internal static string SanitizeValue(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+
+            var sb = new StringBuilder(value.Length);
+            foreach (var c in value)
+            {
+                if (c != '!' && c != '\'' && c != '(' && c != ')' && c != '*')
+                {
+                    sb.Append(c);
+                }
+            }
+            return sb.ToString();
+        }
+
+        private static string BuildUrl(string baseUrl, IEnumerable<KeyValuePair<string, string>> parameters)
+        {
+            var separator = baseUrl.Contains('?') ? "&" : "?";
+            return baseUrl + separator + BuildQueryString(parameters);
+        }
+
+        internal static string BuildQueryString(IEnumerable<KeyValuePair<string, string>> parameters)
+        {
+            return string.Join("&", parameters.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+        }
+    }
+
+    internal static WbiSigner WbiSignerTests_CreateWithHandler(HttpMessageHandler handler)
+    {
+        return new WbiSigner(new HttpClient(handler), NullLoggerFactory.Instance.CreateLogger("test"));
+    }
+
+    private async Task<string> SendBiliGetAsync(
+        string baseUrl,
+        IDictionary<string, string?> parameters,
+        string? cookie = null,
+        string? referer = null,
+        string? origin = null,
+        bool useWbi = false)
+    {
+        for (var retry = 0; retry < MaxWbiRetry; retry++)
+        {
+            using var request = useWbi
+                ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin)
+                : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin);
+
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            if (useWbi && TryGetApiCode(json, out var code) && code == -403 && retry < MaxWbiRetry - 1)
+            {
+                _logger.LogWarning("WBI request got -403, invalidating mixin key and retrying: {Url}", baseUrl);
+                _wbiSigner.Invalidate();
+                continue;
+            }
+
+            return json;
+        }
+
+        throw new InvalidOperationException($"WBI request failed after {MaxWbiRetry} retries: {baseUrl}");
+    }
+
+    private static HttpRequestMessage CreateStandardGetRequest(
+        string baseUrl,
+        IDictionary<string, string?> parameters,
+        string? cookie = null,
+        string? referer = null,
+        string? origin = null)
+    {
+        var filtered = parameters
+            .Where(kv => kv.Value != null)
+            .Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value ?? string.Empty));
+
+        var separator = baseUrl.Contains('?') ? "&" : "?";
+        var url = baseUrl + separator + string.Join("&", filtered.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrWhiteSpace(cookie))
+        {
+            request.Headers.TryAddWithoutValidation("Cookie", cookie);
+        }
+
+        if (!string.IsNullOrWhiteSpace(referer))
+        {
+            request.Headers.TryAddWithoutValidation("Referer", referer);
+        }
+
+        if (!string.IsNullOrWhiteSpace(origin))
+        {
+            request.Headers.TryAddWithoutValidation("Origin", origin);
+        }
+
+        return request;
+    }
+
+    private static bool TryGetApiCode(string json, out int code)
+    {
+        code = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("code", out var codeEl) && codeEl.ValueKind == JsonValueKind.Number)
+            {
+                code = codeEl.GetInt32();
+                return true;
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private string? GetCookie()
@@ -42,24 +291,19 @@ public class BilibiliService
     {
         try
         {
-            var url = $"https://api.bilibili.com/x/web-interface/card?mid={uid}";
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.bilibili.com/x/web-interface/card",
+                new Dictionary<string, string?> { ["mid"] = uid },
+                cookie,
+                useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             
             if (root.TryGetProperty("code", out var code) && code.GetInt32() != 0)
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "Unknown error";
-                _logger.LogWarning($"Bilibili API Error for UID {uid}: {msg}");
+                _logger.LogWarning("Bilibili API Error for UID {Uid}: {Message}", uid, msg);
                 return null;
             }
 
@@ -72,7 +316,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get avatar for UID {uid}");
+            _logger.LogError(ex, "Failed to get avatar for UID {Uid}", uid);
         }
         return null;
     }
@@ -81,25 +325,19 @@ public class BilibiliService
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={roomId}");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
-
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Room/get_info",
+                new Dictionary<string, string?> { ["room_id"] = roomId.ToString() },
+                cookie,
+                useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
             if (root.TryGetProperty("code", out var code) && code.GetInt32() != 0)
             {
                 var msg = root.TryGetProperty("msg", out var m) ? m.GetString() : "Unknown error";
-                _logger.LogWarning($"Bilibili API Error for Room {roomId}: {msg}");
+                _logger.LogWarning("Bilibili API Error for Room {RoomId}: {Message}", roomId, msg);
                 return (null, null, 0, null, null, null, 0, 0, 0);
             }
 
@@ -142,21 +380,17 @@ public class BilibiliService
                 string? userName = "Unknown";
                 try 
                 {
-                    var userReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room?roomid={roomId}");
-                    if (!string.IsNullOrEmpty(cookie)) userReq.Headers.TryAddWithoutValidation("Cookie", cookie);
-                    userReq.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
-                    
-                    var userRes = await _httpClient.SendAsync(userReq);
-                    if (userRes.IsSuccessStatusCode)
+                    var userJson = await SendBiliGetAsync(
+                        "https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room",
+                        new Dictionary<string, string?> { ["roomid"] = roomId.ToString() },
+                        cookie,
+                        referer: $"https://live.bilibili.com/{roomId}");
+                    using var userDoc = JsonDocument.Parse(userJson);
+                    if (userDoc.RootElement.TryGetProperty("data", out var userData) && userData.ValueKind != JsonValueKind.Null)
                     {
-                        var userJson = await userRes.Content.ReadAsStringAsync();
-                        using var userDoc = JsonDocument.Parse(userJson);
-                        if (userDoc.RootElement.TryGetProperty("data", out var userData) && userData.ValueKind != JsonValueKind.Null)
+                        if (userData.TryGetProperty("info", out var info) && info.TryGetProperty("uname", out var uname))
                         {
-                            if (userData.TryGetProperty("info", out var info) && info.TryGetProperty("uname", out var uname))
-                            {
-                                userName = uname.GetString();
-                            }
+                            userName = uname.GetString();
                         }
                     }
                 }
@@ -177,7 +411,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get room info for Room {roomId}");
+            _logger.LogError(ex, "Failed to get room info for Room {RoomId}", roomId);
         }
         return (null, null, 0, null, null, null, 0, 0, 0);
     }
@@ -186,18 +420,12 @@ public class BilibiliService
     {
         try
         {
-            var initReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                initReq.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            initReq.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
-            
-            var initRes = await _httpClient.SendAsync(initReq);
-            initRes.EnsureSuccessStatusCode();
-
-            var initJson = await initRes.Content.ReadAsStringAsync();
+            var initJson = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                cookie,
+                useWbi: true);
             using var initDoc = JsonDocument.Parse(initJson);
             var initRoot = initDoc.RootElement;
 
@@ -231,17 +459,11 @@ public class BilibiliService
                 return (liveStatus, initLiveTime.Value * 1000);
             }
 
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={realRoomId}");
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
-
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Room/get_info",
+                new Dictionary<string, string?> { ["room_id"] = realRoomId.ToString() },
+                cookie,
+                useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -274,7 +496,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get live status for Room {roomId}");
+            _logger.LogError(ex, "Failed to get live status for Room {RoomId}", roomId);
         }
         return (0, null);
     }
@@ -287,7 +509,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to download image: {url}");
+            _logger.LogError(ex, "Failed to download image: {Url}", url);
             return null;
         }
     }
@@ -299,19 +521,17 @@ public class BilibiliService
         // Try new API first
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id={realRoomId}&type=0");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.Add("Referer", $"https://live.bilibili.com/{realRoomId}");
-            request.Headers.Add("Origin", "https://live.bilibili.com");
-            
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+                new Dictionary<string, string?>
+                {
+                    ["id"] = realRoomId.ToString(),
+                    ["type"] = "0"
+                },
+                cookie,
+                origin: "https://live.bilibili.com",
+                useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -323,31 +543,30 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf for {realRoomId}: host={host}");
+                _logger.LogInformation("Got danmaku conf for {RealRoomId}: host={Host}", realRoomId, host);
                 return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get danmaku conf (new API) for {realRoomId}");
+            _logger.LogError(ex, "Failed to get danmaku conf (new API) for {RealRoomId}", realRoomId);
         }
 
         // Fallback to old API
         try 
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={realRoomId}&platform=pc&player=web");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.Add("Referer", $"https://live.bilibili.com/{realRoomId}");
-            request.Headers.Add("Origin", "https://live.bilibili.com");
-
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Danmu/getConf",
+                new Dictionary<string, string?>
+                {
+                    ["room_id"] = realRoomId.ToString(),
+                    ["platform"] = "pc",
+                    ["player"] = "web"
+                },
+                cookie,
+                referer: $"https://live.bilibili.com/{realRoomId}",
+                origin: "https://live.bilibili.com");
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -359,13 +578,13 @@ public class BilibiliService
                 var host = hostList[0].GetProperty("host").GetString();
                 var port = hostList[0].GetProperty("wss_port").GetInt32();
                 
-                _logger.LogInformation($"Got danmaku conf (old API) for {realRoomId}: host={host}");
+                _logger.LogInformation("Got danmaku conf (old API) for {RealRoomId}: host={Host}", realRoomId, host);
                 return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get danmaku conf (old API) for {realRoomId}");
+            _logger.LogError(ex, "Failed to get danmaku conf (old API) for {RealRoomId}", realRoomId);
         }
         
         // Fallback
@@ -376,18 +595,12 @@ public class BilibiliService
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/live_user/v1/Master/info?uid={uid}");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.TryAddWithoutValidation("Referer", "https://live.bilibili.com/");
-
-            var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/live_user/v1/Master/info",
+                new Dictionary<string, string?> { ["uid"] = uid.ToString() },
+                cookie,
+                referer: "https://live.bilibili.com/");
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -407,12 +620,12 @@ public class BilibiliService
             else 
             {
                 var msg = root.TryGetProperty("msg", out var m) ? m.GetString() : "Unknown error";
-                _logger.LogWarning($"GetRoomInfoByUidAsync failed for UID {uid}: {msg}");
+                _logger.LogWarning("GetRoomInfoByUidAsync failed for UID {Uid}: {Message}", uid, msg);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get room info for UID {uid}");
+            _logger.LogError(ex, "Failed to get room info for UID {Uid}", uid);
         }
         return (0, "");
     }
@@ -421,26 +634,13 @@ public class BilibiliService
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
             var cookie = GetCookie();
-            if (!string.IsNullOrEmpty(cookie))
-            {
-                request.Headers.TryAddWithoutValidation("Cookie", cookie);
-            }
-            request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
-            request.Headers.TryAddWithoutValidation("Origin", "https://live.bilibili.com");
-            
-            var response = await _httpClient.SendAsync(request);
-            if (response.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
-            {
-                return roomId;
-            }
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning($"Failed to resolve real room id for {roomId}: {(int)response.StatusCode} {response.ReasonPhrase}");
-                return roomId;
-            }
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                cookie,
+                origin: "https://live.bilibili.com",
+                useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (root.TryGetProperty("data", out var data) && data.TryGetProperty("room_id", out var rid))
@@ -450,7 +650,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to resolve real room id for {roomId}");
+            _logger.LogError(ex, "Failed to resolve real room id for {RoomId}", roomId);
         }
         return roomId;
     }
@@ -475,7 +675,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning($"Failed to get stats from vtbs.moe for UID {uid}: {ex.Message}");
+            _logger.LogWarning(ex, "Failed to get stats from vtbs.moe for UID {Uid}", uid);
         }
         return (null, null, null);
     }
@@ -495,30 +695,28 @@ public class BilibiliService
             // Followers
             tasks.Add(Task.Run(async () => {
                 try {
-                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/relation/stat?vmid={uid}");
-                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
-                    req.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
-                    var res = await _httpClient.SendAsync(req);
-                    if (res.IsSuccessStatusCode) {
-                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                    var json = await SendBiliGetAsync(
+                        "https://api.bilibili.com/x/relation/stat",
+                        new Dictionary<string, string?> { ["vmid"] = uid },
+                        cookie,
+                        useWbi: true);
+                    using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("follower", out var f))
                             followers = f.GetInt32();
-                    }
                 } catch {}
             }));
 
             // Video Count
             tasks.Add(Task.Run(async () => {
                 try {
-                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/space/navnum?mid={uid}");
-                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
-                    req.Headers.TryAddWithoutValidation("Referer", $"https://space.bilibili.com/{uid}");
-                    var res = await _httpClient.SendAsync(req);
-                    if (res.IsSuccessStatusCode) {
-                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                    var json = await SendBiliGetAsync(
+                        "https://api.bilibili.com/x/space/navnum",
+                        new Dictionary<string, string?> { ["mid"] = uid },
+                        cookie,
+                        useWbi: true);
+                    using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
                             videoCount = v.GetInt32();
-                    }
                 } catch {}
             }));
 
@@ -528,17 +726,22 @@ public class BilibiliService
                     var realRoomId = await GetRealRoomIdAsync(roomId);
                     if (realRoomId <= 0) realRoomId = roomId;
 
-                    var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList?roomid={realRoomId}&page=1&ruid={uid}&page_size=0");
-                    if (!string.IsNullOrEmpty(cookie)) req.Headers.TryAddWithoutValidation("Cookie", cookie);
-                    req.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{realRoomId}");
-                    var res = await _httpClient.SendAsync(req);
-                    if (res.IsSuccessStatusCode) {
-                        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                    var json = await SendBiliGetAsync(
+                        "https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList",
+                        new Dictionary<string, string?>
+                        {
+                            ["roomid"] = realRoomId.ToString(),
+                            ["page"] = "1",
+                            ["ruid"] = uid,
+                            ["page_size"] = "0"
+                        },
+                        cookie,
+                        referer: $"https://live.bilibili.com/{realRoomId}");
+                    using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && 
                             data.TryGetProperty("info", out var info) && 
                             info.TryGetProperty("num", out var n))
                             guardNum = n.GetInt32();
-                    }
                 } catch {}
             }));
 
@@ -555,7 +758,7 @@ public class BilibiliService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to get stats for UID {uid}");
+            _logger.LogError(ex, "Failed to get stats for UID {Uid}", uid);
         }
 
         return (followers, guardNum, videoCount);
