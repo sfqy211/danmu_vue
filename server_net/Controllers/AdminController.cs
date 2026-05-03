@@ -21,11 +21,12 @@ public class AdminController : ControllerBase
     private readonly DanmakuService _danmakuService;
     private readonly BiliAccountService _accountService;
     private readonly LiveStatusService _liveStatusService;
+    private readonly HealthCheckService _healthCheckService;
     private readonly ChangelogService _changelogService;
     private readonly LogService _logService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, HealthCheckService healthCheckService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
@@ -33,11 +34,18 @@ public class AdminController : ControllerBase
         _danmakuService = danmakuService;
         _accountService = accountService;
         _liveStatusService = liveStatusService;
+        _healthCheckService = healthCheckService;
         _changelogService = changelogService;
         _logService = logService;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
+    }
+
+    [HttpGet("health-check")]
+    public IActionResult GetHealthCheckReport()
+    {
+        return Ok(_healthCheckService.GetLatestReport());
     }
 
     [HttpGet("rooms")]

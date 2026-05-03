@@ -5,6 +5,7 @@ import {
   adminApi, getBiliAccounts, getBiliAccountAssignments, reassignBiliRoom,
   importBiliCookie, startBiliQrLogin, pollBiliQrLogin, cancelBiliQrLogin,
   activateBiliAccount, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
+  getHealthCheckReport, type HealthCheckReport,
   type BiliAccount, type AccountAssignment
 } from '../api/danmaku';
 import { getAdminChangelog, addChangelog, updateChangelog, deleteChangelog, type ChangelogEntry } from '../api/danmaku';
@@ -87,6 +88,8 @@ const newRoom = ref({ roomId: '', name: '', uid: '', remark: '', playlistUrl: ''
 const adding = ref(false);
 const editDialogVisible = ref(false);
 const editForm = ref({ id: 0, remark: '', playlistUrl: '' });
+const healthCheckLoading = ref(false);
+const healthCheckReport = ref<HealthCheckReport | null>(null);
 
 // Sessions Data
 const sessions = ref<AdminSession[]>([]);
@@ -492,8 +495,14 @@ const refreshDatabaseData = async () => {
 const fetchRooms = async () => {
   loading.value = true;
   try {
-    const res = await adminApi.get('/admin/rooms', getAuthConfig());
-    rooms.value = Array.isArray(res.data) ? res.data.map(normalizeRoomRow) : [];
+    const [roomsRes, healthReport] = await Promise.all([
+      adminApi.get('/admin/rooms', getAuthConfig()),
+      fetchHealthCheckReport().catch(() => null)
+    ]);
+    rooms.value = Array.isArray(roomsRes.data) ? roomsRes.data.map(normalizeRoomRow) : [];
+    if (healthReport) {
+      healthCheckReport.value = healthReport;
+    }
     error.value = '';
   } catch (e: any) {
     console.error('Fetch rooms failed:', e);
@@ -501,6 +510,29 @@ const fetchRooms = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const fetchHealthCheckReport = async () => {
+  healthCheckLoading.value = true;
+  try {
+    const report = await getHealthCheckReport();
+    healthCheckReport.value = report;
+    return report;
+  } finally {
+    healthCheckLoading.value = false;
+  }
+};
+
+const healthIssueCount = computed(() => {
+  if (!healthCheckReport.value) return 0;
+  return healthCheckReport.value.staleHeartbeats.length + healthCheckReport.value.driftIssues.length;
+});
+
+const formatHealthCheckTime = (value?: string) => {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString();
 };
 
 const fetchSessions = async () => {
@@ -1275,6 +1307,46 @@ watch(activeSection, async (val) => {
           <div class="content-area">
             <!-- Monitor Section -->
             <template v-if="activeSection === 'monitor'">
+              <div class="health-check-panel" v-loading="healthCheckLoading">
+                <div class="health-check-header">
+                  <div>
+                    <div class="health-check-title">健康巡检</div>
+                    <div class="health-check-meta">最近巡检：{{ formatHealthCheckTime(healthCheckReport?.checkedAt) }}</div>
+                  </div>
+                  <el-tag :type="healthIssueCount > 0 ? 'danger' : 'success'" effect="dark">
+                    {{ healthIssueCount > 0 ? `异常 ${healthIssueCount}` : '正常' }}
+                  </el-tag>
+                </div>
+
+                <div class="health-check-stats">
+                  <div class="health-check-stat">
+                    <span class="label">录制器</span>
+                    <strong>{{ healthCheckReport?.recorderCount ?? 0 }}</strong>
+                  </div>
+                  <div class="health-check-stat">
+                    <span class="label">健康</span>
+                    <strong>{{ healthCheckReport?.healthyCount ?? 0 }}</strong>
+                  </div>
+                  <div class="health-check-stat">
+                    <span class="label">心跳异常</span>
+                    <strong>{{ healthCheckReport?.staleHeartbeats.length ?? 0 }}</strong>
+                  </div>
+                  <div class="health-check-stat">
+                    <span class="label">状态漂移</span>
+                    <strong>{{ healthCheckReport?.driftIssues.length ?? 0 }}</strong>
+                  </div>
+                </div>
+
+                <div v-if="healthIssueCount > 0" class="health-check-issues">
+                  <div v-for="issue in healthCheckReport?.staleHeartbeats ?? []" :key="`stale-${issue.uid}-${issue.roomId}-${issue.reason}`" class="health-issue-item danger">
+                    心跳异常：UID {{ issue.uid }} / 房间 {{ issue.roomId }} / {{ issue.reason }}<span v-if="issue.ageSeconds != null"> / {{ issue.ageSeconds.toFixed(1) }}s</span>
+                  </div>
+                  <div v-for="issue in healthCheckReport?.driftIssues ?? []" :key="`drift-${issue.uid}-${issue.roomId}-${issue.reason}`" class="health-issue-item warning">
+                    状态漂移：UID {{ issue.uid }} / 房间 {{ issue.roomId }} / {{ issue.reason }}
+                  </div>
+                </div>
+              </div>
+
               <div class="search-section" :class="{ 'is-mobile': isMobile }">
                 <div v-if="isMobile" class="mobile-search-toggle" @click="searchCollapsed = !searchCollapsed">
                   <div class="toggle-content">
@@ -2087,6 +2159,78 @@ watch(activeSection, async (val) => {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
+}
+
+.health-check-panel {
+  background: #fff;
+  padding: 18px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.health-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.health-check-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.health-check-meta {
+  margin-top: 4px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.health-check-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.health-check-stat {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.health-check-stat .label {
+  display: block;
+  color: #909399;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.health-check-stat strong {
+  font-size: 18px;
+}
+
+.health-check-issues {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.health-issue-item {
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.health-issue-item.danger {
+  background: rgba(245, 108, 108, 0.12);
+  color: #c45656;
+}
+
+.health-issue-item.warning {
+  background: rgba(230, 162, 60, 0.12);
+  color: #b88230;
 }
 
 .search-section {

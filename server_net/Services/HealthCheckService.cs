@@ -9,6 +9,7 @@ public class HealthCheckService : BackgroundService
     private readonly RedisService _redis;
     private readonly TimeSpan _interval;
     private readonly TimeSpan _heartbeatTolerance = TimeSpan.FromSeconds(25);
+    private volatile HealthCheckReport _latestReport = HealthCheckReport.Empty;
 
     public HealthCheckService(
         ILogger<HealthCheckService> logger,
@@ -48,12 +49,21 @@ public class HealthCheckService : BackgroundService
         var processes = _processManager.GetProcesses();
         if (processes.Count == 0)
         {
+            _latestReport = new HealthCheckReport
+            {
+                CheckedAt = DateTimeOffset.UtcNow,
+                RecorderCount = 0,
+                HealthyCount = 0,
+                StaleHeartbeats = new List<HealthCheckIssue>(),
+                DriftIssues = new List<HealthCheckIssue>()
+            };
             _logger.LogDebug("Health check: no active recorders.");
             return;
         }
 
         var now = DateTimeOffset.UtcNow;
-        var staleHeartbeats = new List<string>();
+        var staleHeartbeats = new List<HealthCheckIssue>();
+        var driftIssues = new List<HealthCheckIssue>();
 
         foreach (var process in processes)
         {
@@ -63,20 +73,20 @@ public class HealthCheckService : BackgroundService
                 var heartbeatRaw = await _redis.GetStringAsync(heartbeatKey);
                 if (string.IsNullOrWhiteSpace(heartbeatRaw))
                 {
-                    staleHeartbeats.Add($"uid={process.Uid},room={process.RoomId},reason=missing");
+                    staleHeartbeats.Add(new HealthCheckIssue(process.Uid, process.RoomId, "missing", null));
                     continue;
                 }
 
                 if (!long.TryParse(heartbeatRaw, out var timestampMs))
                 {
-                    staleHeartbeats.Add($"uid={process.Uid},room={process.RoomId},reason=invalid");
+                    staleHeartbeats.Add(new HealthCheckIssue(process.Uid, process.RoomId, "invalid", null));
                     continue;
                 }
 
                 var age = now - DateTimeOffset.FromUnixTimeMilliseconds(timestampMs);
                 if (age > _heartbeatTolerance)
                 {
-                    staleHeartbeats.Add($"uid={process.Uid},room={process.RoomId},age={age.TotalSeconds:F1}s");
+                    staleHeartbeats.Add(new HealthCheckIssue(process.Uid, process.RoomId, "stale", age.TotalSeconds));
                 }
 
                 var liveStatus = await _redis.GetHashAsync($"live:status:{process.RoomId}");
@@ -86,6 +96,7 @@ public class HealthCheckService : BackgroundService
                     && cachedLiveStatus == 0
                     && process.Status == "online")
                 {
+                    driftIssues.Add(new HealthCheckIssue(process.Uid, process.RoomId, "live_status_drift", null));
                     _logger.LogWarning(
                         "Health check detected recorder/live-status drift: recorder online but cached live status is offline. uid={Uid}, room={RoomId}",
                         process.Uid,
@@ -98,6 +109,15 @@ public class HealthCheckService : BackgroundService
             }
         }
 
+        _latestReport = new HealthCheckReport
+        {
+            CheckedAt = now,
+            RecorderCount = processes.Count,
+            HealthyCount = processes.Count - staleHeartbeats.Count,
+            StaleHeartbeats = staleHeartbeats,
+            DriftIssues = driftIssues
+        };
+
         if (staleHeartbeats.Count == 0)
         {
             _logger.LogInformation("Health check OK: {Count} recorder(s) healthy.", processes.Count);
@@ -107,6 +127,28 @@ public class HealthCheckService : BackgroundService
         _logger.LogWarning(
             "Health check found {Count} stale recorder heartbeat(s): {Details}",
             staleHeartbeats.Count,
-            string.Join("; ", staleHeartbeats));
+            string.Join("; ", staleHeartbeats.Select(x => $"uid={x.Uid},room={x.RoomId},reason={x.Reason}{(x.AgeSeconds.HasValue ? $",age={x.AgeSeconds:F1}s" : string.Empty)}")));
     }
+
+    public HealthCheckReport GetLatestReport() => _latestReport;
+}
+
+public record HealthCheckIssue(string Uid, long RoomId, string Reason, double? AgeSeconds);
+
+public class HealthCheckReport
+{
+    public static readonly HealthCheckReport Empty = new()
+    {
+        CheckedAt = DateTimeOffset.MinValue,
+        RecorderCount = 0,
+        HealthyCount = 0,
+        StaleHeartbeats = new List<HealthCheckIssue>(),
+        DriftIssues = new List<HealthCheckIssue>()
+    };
+
+    public DateTimeOffset CheckedAt { get; set; }
+    public int RecorderCount { get; set; }
+    public int HealthyCount { get; set; }
+    public List<HealthCheckIssue> StaleHeartbeats { get; set; } = new();
+    public List<HealthCheckIssue> DriftIssues { get; set; } = new();
 }

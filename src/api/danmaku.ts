@@ -484,6 +484,44 @@ export const reassignBiliRoom = async (roomUid: string, targetUid: number) => {
   return res.data;
 };
 
+export interface HealthCheckIssue {
+  uid: string;
+  roomId: number;
+  reason: string;
+  ageSeconds?: number | null;
+}
+
+export interface HealthCheckReport {
+  checkedAt: string;
+  recorderCount: number;
+  healthyCount: number;
+  staleHeartbeats: HealthCheckIssue[];
+  driftIssues: HealthCheckIssue[];
+}
+
+const normalizeHealthIssue = (row: any): HealthCheckIssue => ({
+  uid: row.uid ?? row.Uid ?? '',
+  roomId: Number(row.roomId ?? row.RoomId ?? row.room_id ?? 0),
+  reason: row.reason ?? row.Reason ?? '',
+  ageSeconds: row.ageSeconds ?? row.AgeSeconds ?? row.age_seconds ?? null
+});
+
+export const getHealthCheckReport = async (): Promise<HealthCheckReport> => {
+  const res = await adminApi.get<any>('/admin/health-check', getAuthConfig());
+  const data = res.data ?? {};
+  return {
+    checkedAt: data.checkedAt ?? data.CheckedAt ?? '',
+    recorderCount: Number(data.recorderCount ?? data.RecorderCount ?? 0),
+    healthyCount: Number(data.healthyCount ?? data.HealthyCount ?? 0),
+    staleHeartbeats: Array.isArray(data.staleHeartbeats ?? data.StaleHeartbeats)
+      ? (data.staleHeartbeats ?? data.StaleHeartbeats).map(normalizeHealthIssue)
+      : [],
+    driftIssues: Array.isArray(data.driftIssues ?? data.DriftIssues)
+      ? (data.driftIssues ?? data.DriftIssues).map(normalizeHealthIssue)
+      : []
+  };
+};
+
 // ─── Changelog ────────────────────────────────────────────────────
 
 export interface ChangelogEntry {
