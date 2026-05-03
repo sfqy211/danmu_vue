@@ -7,12 +7,21 @@ namespace Danmu.Server.Services;
 
 public class BilibiliService
 {
+    private const string BiliTicketApi = "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket";
+    private const string BiliTicketKeyId = "ec02";
+    private const string BiliTicketHmacKey = "XgwSnGZ1p";
+    private const int BiliTicketRefreshBufferSeconds = 3600;
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<BilibiliService> _logger;
     private readonly BiliAccountService _accountService;
     private readonly WbiSigner _wbiSigner;
+    private readonly SemaphoreSlim _biliTicketLock = new(1, 1);
 
     private const int MaxWbiRetry = 3;
+
+    private volatile string? _biliTicket;
+    private long _biliTicketExpiresAtUnix;
 
     public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService)
     {
@@ -60,7 +69,8 @@ public class BilibiliService
             string baseUrl,
             IDictionary<string, string?> parameters,
             string? cookie = null,
-            string? origin = null)
+            string? origin = null,
+            string? biliTicket = null)
         {
             var signedParams = await SignParamsAsync(parameters);
             var request = new HttpRequestMessage(HttpMethod.Get, BuildUrl(baseUrl, signedParams));
@@ -72,6 +82,12 @@ public class BilibiliService
             if (!string.IsNullOrWhiteSpace(origin))
             {
                 request.Headers.TryAddWithoutValidation("Origin", origin);
+            }
+
+            if (!string.IsNullOrWhiteSpace(biliTicket))
+            {
+                request.Headers.TryAddWithoutValidation("bili_ticket", biliTicket);
+                request.Headers.TryAddWithoutValidation("x-bili-ticket", biliTicket);
             }
 
             return request;
@@ -193,9 +209,10 @@ public class BilibiliService
     {
         for (var retry = 0; retry < MaxWbiRetry; retry++)
         {
+            var biliTicket = await GetBiliTicketAsync();
             using var request = useWbi
-                ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin)
-                : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin);
+                ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin, biliTicket)
+                : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin, biliTicket);
 
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -205,6 +222,7 @@ public class BilibiliService
             {
                 _logger.LogWarning("WBI request got -403, invalidating mixin key and retrying: {Url}", baseUrl);
                 _wbiSigner.Invalidate();
+                InvalidateBiliTicket();
                 continue;
             }
 
@@ -219,7 +237,8 @@ public class BilibiliService
         IDictionary<string, string?> parameters,
         string? cookie = null,
         string? referer = null,
-        string? origin = null)
+        string? origin = null,
+        string? biliTicket = null)
     {
         var filtered = parameters
             .Where(kv => kv.Value != null)
@@ -244,7 +263,86 @@ public class BilibiliService
             request.Headers.TryAddWithoutValidation("Origin", origin);
         }
 
+        if (!string.IsNullOrWhiteSpace(biliTicket))
+        {
+            request.Headers.TryAddWithoutValidation("bili_ticket", biliTicket);
+            request.Headers.TryAddWithoutValidation("x-bili-ticket", biliTicket);
+        }
+
         return request;
+    }
+
+    private void InvalidateBiliTicket()
+    {
+        _biliTicket = null;
+        _biliTicketExpiresAtUnix = 0;
+    }
+
+    private async Task<string> GetBiliTicketAsync()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!string.IsNullOrWhiteSpace(_biliTicket) && now < _biliTicketExpiresAtUnix - BiliTicketRefreshBufferSeconds)
+        {
+            return _biliTicket;
+        }
+
+        await _biliTicketLock.WaitAsync();
+        try
+        {
+            now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (!string.IsNullOrWhiteSpace(_biliTicket) && now < _biliTicketExpiresAtUnix - BiliTicketRefreshBufferSeconds)
+            {
+                return _biliTicket;
+            }
+
+            var timestamp = now;
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["key_id"] = BiliTicketKeyId,
+                ["hexsign"] = GenerateBiliTicketSign(timestamp),
+                ["context[ts]"] = timestamp.ToString(),
+                ["csrf"] = string.Empty,
+            });
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, BiliTicketApi)
+            {
+                Content = content,
+            };
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
+            {
+                var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : "Unknown error";
+                throw new InvalidOperationException($"Failed to get bili_ticket: {message}");
+            }
+
+            var data = root.GetProperty("data");
+            var ticket = data.GetProperty("ticket").GetString();
+            var ttl = data.TryGetProperty("ttl", out var ttlEl) ? ttlEl.GetInt64() : 259200;
+            if (string.IsNullOrWhiteSpace(ticket))
+            {
+                throw new InvalidOperationException("Failed to get bili_ticket: empty ticket");
+            }
+
+            _biliTicket = ticket;
+            _biliTicketExpiresAtUnix = timestamp + ttl;
+            return ticket;
+        }
+        finally
+        {
+            _biliTicketLock.Release();
+        }
+    }
+
+    internal static string GenerateBiliTicketSign(long timestamp)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(BiliTicketHmacKey));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes($"ts{timestamp}"));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static bool TryGetApiCode(string json, out int code)
