@@ -136,9 +136,23 @@ public class BiliAccountService
                 // Assigned account is failing or missing — fall through to reassign
             }
 
-            // Round-robin: pick the next account
-            var idx = Math.Abs(roomUid.GetHashCode()) % available.Count;
-            var selected = available[idx];
+            // Least-loaded: pick the account with the fewest currently assigned rooms.
+            // Keep stable tie-break behavior using roomUid hash so equal-load accounts do not all collapse to the first one.
+            var assignmentCounts = _roomAccountMap
+                .GroupBy(kv => kv.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            var selected = available
+                .Select(account => new
+                {
+                    Account = account,
+                    Load = assignmentCounts.TryGetValue(account.Uid, out var count) ? count : 0,
+                    TieBreaker = Math.Abs(HashCode.Combine(roomUid, account.Uid))
+                })
+                .OrderBy(x => x.Load)
+                .ThenBy(x => x.TieBreaker)
+                .Select(x => x.Account)
+                .First();
             _roomAccountMap[roomUid] = selected.Uid;
             _ = PersistRoomAssignmentAsync(roomUid, selected.Uid);
             return (BuildCookieString(selected.CookieJson), selected.Uid);
