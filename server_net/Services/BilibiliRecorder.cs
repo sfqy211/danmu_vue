@@ -601,10 +601,7 @@ public class BilibiliRecorder : IDisposable
             }
             else if (op == 3) // HEARTBEAT_REPLY
             {
-                if (body.Length >= 4)
-                {
-                    var popularity = BinaryPrimitives.ReadUInt32BigEndian(body);
-                }
+                // Popularity payload currently not persisted.
             }
 
             offset += (int)packetLen;

@@ -16,8 +16,6 @@ public class DanmakuMessage
 
 public class RecordedDanmakuEvent
 {
-    public string Kind { get; set; } = "event";
-    public string Version { get; set; } = "danmu-event-v1";
     public string Type { get; set; } = "unknown";
     public long Timestamp { get; set; }
     public string User { get; set; } = "";
