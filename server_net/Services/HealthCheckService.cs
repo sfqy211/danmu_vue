@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 
 namespace Danmu.Server.Services;
 
@@ -7,19 +8,23 @@ public class HealthCheckService : BackgroundService
     private readonly ILogger<HealthCheckService> _logger;
     private readonly ProcessManager _processManager;
     private readonly RedisService _redis;
+    private readonly AlertService _alertService;
     private readonly TimeSpan _interval;
     private readonly TimeSpan _heartbeatTolerance = TimeSpan.FromSeconds(25);
     private volatile HealthCheckReport _latestReport = HealthCheckReport.Empty;
+    private string? _lastAlertSignature;
 
     public HealthCheckService(
         ILogger<HealthCheckService> logger,
         ProcessManager processManager,
         RedisService redis,
+        AlertService alertService,
         IConfiguration configuration)
     {
         _logger = logger;
         _processManager = processManager;
         _redis = redis;
+        _alertService = alertService;
 
         var intervalSeconds = configuration.GetValue<int?>("HealthCheck:IntervalSeconds") ?? 30;
         _interval = TimeSpan.FromSeconds(Math.Max(10, intervalSeconds));
@@ -128,6 +133,30 @@ public class HealthCheckService : BackgroundService
             "Health check found {Count} stale recorder heartbeat(s): {Details}",
             staleHeartbeats.Count,
             string.Join("; ", staleHeartbeats.Select(x => $"uid={x.Uid},room={x.RoomId},reason={x.Reason}{(x.AgeSeconds.HasValue ? $",age={x.AgeSeconds:F1}s" : string.Empty)}")));
+
+        await SendAlertIfChangedAsync(_latestReport);
+    }
+
+    private async Task SendAlertIfChangedAsync(HealthCheckReport report)
+    {
+        if (!_alertService.IsEnabled)
+        {
+            return;
+        }
+
+        var signature = JsonSerializer.Serialize(new
+        {
+            stale = report.StaleHeartbeats.Select(x => new { x.Uid, x.RoomId, x.Reason }).OrderBy(x => x.Uid).ThenBy(x => x.RoomId).ThenBy(x => x.Reason),
+            drift = report.DriftIssues.Select(x => new { x.Uid, x.RoomId, x.Reason }).OrderBy(x => x.Uid).ThenBy(x => x.RoomId).ThenBy(x => x.Reason)
+        });
+
+        if (signature == _lastAlertSignature)
+        {
+            return;
+        }
+
+        _lastAlertSignature = signature;
+        await _alertService.SendHealthCheckAlertAsync(report);
     }
 
     public HealthCheckReport GetLatestReport() => _latestReport;
