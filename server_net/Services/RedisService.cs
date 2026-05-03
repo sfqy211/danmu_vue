@@ -60,6 +60,17 @@ public class RedisService
         var values = await _db.ListRangeAsync(key);
         return values.Select(v => v.ToString()).ToList();
     }
+
+    public async Task<long> GetListLengthAsync(string key)
+    {
+        return await _db.ListLengthAsync(key);
+    }
+
+    public async Task<List<string>> GetListRangeAsync(string key, long start, long stop)
+    {
+        var values = await _db.ListRangeAsync(key, start, stop);
+        return values.Select(v => v.ToString()).ToList();
+    }
     
     public async Task<Dictionary<string, string>> GetMetadataAsync(string key)
     {

@@ -13,6 +13,7 @@ public class BilibiliRecorder : IDisposable
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan RecorderHeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RecorderHeartbeatTtl = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan RedisIncrementalDumpInterval = TimeSpan.FromMinutes(5);
 
     private readonly long _roomId;
     private readonly string _uid;
@@ -31,6 +32,8 @@ public class BilibiliRecorder : IDisposable
     private string? _host;
     private string? _currentSessionKey;
     private Task? _recorderHeartbeatTask;
+    private Task? _redisDumpTask;
+    private long _dumpOffset;
     private string _title = "未知直播";
     private string _userName = "未知主播";
     private long _realRoomId;
@@ -97,6 +100,7 @@ public class BilibiliRecorder : IDisposable
         _cts = new CancellationTokenSource();
 
         _recorderHeartbeatTask = Task.Run(async () => await RecorderHeartbeatLoopAsync(_cts.Token));
+        _redisDumpTask = Task.Run(async () => await RedisIncrementalDumpLoopAsync(_cts.Token));
         _receiveTask = Task.Run(async () => await KeepAliveLoopAsync(_cts.Token));
     }
 
@@ -257,7 +261,18 @@ public class BilibiliRecorder : IDisposable
 
         Status = "stopped";
         _cts?.Cancel();
-        
+
+        if (_redisDumpTask != null)
+        {
+            try
+            {
+                await _redisDumpTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+         
         if (_ws != null)
         {
             try
@@ -273,6 +288,71 @@ public class BilibiliRecorder : IDisposable
 
         // Only on explicit Stop do we finalize the session
         await EndRedisSessionAsync(isFinal: true);
+    }
+
+    private async Task RedisIncrementalDumpLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(RedisIncrementalDumpInterval, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                break;
+            }
+
+            await FlushRedisIncrementallyAsync();
+        }
+    }
+
+    private async Task FlushRedisIncrementallyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentSessionKey)) return;
+
+        try
+        {
+            var listKey = _currentSessionKey + ":list";
+            var metaKey = _currentSessionKey + ":meta";
+            var totalCount = await _redis.GetListLengthAsync(listKey);
+            if (totalCount <= _dumpOffset)
+            {
+                return;
+            }
+
+            var start = _dumpOffset;
+            var stop = totalCount - 1;
+            var messages = await _redis.GetListRangeAsync(listKey, start, stop);
+            if (messages.Count == 0)
+            {
+                _dumpOffset = totalCount;
+                await _redis.SetMetadataFieldAsync(metaKey, "dump_offset", _dumpOffset.ToString());
+                return;
+            }
+
+            var roomDir = Path.Combine(_danmakuDir, _uid);
+            if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
+
+            var meta = await _redis.GetMetadataAsync(metaKey);
+            var filename = meta.ContainsKey("filename") ? meta["filename"] : $"{DateTime.Now:yyyy-MM-dd HH-mm-ss} {_uid}.jsonl";
+            var filePath = Path.Combine(roomDir, filename);
+
+            await File.AppendAllLinesAsync(filePath, messages, Encoding.UTF8);
+
+            _dumpOffset = totalCount;
+            await _redis.SetMetadataFieldAsync(metaKey, "dump_offset", _dumpOffset.ToString());
+            _logger.LogInformation("Incrementally dumped {Count} messages to {FilePath} (offset={Offset})", messages.Count, filePath, _dumpOffset);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to incrementally dump Redis session for uid {Uid}, room {RoomId}", _uid, _roomId);
+        }
     }
 
     private async Task RecorderHeartbeatLoopAsync(CancellationToken token)
@@ -895,6 +975,11 @@ public class BilibiliRecorder : IDisposable
                 if (!string.IsNullOrEmpty(existingKey))
                 {
                     _currentSessionKey = existingKey;
+                    var existingMeta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
+                    if (existingMeta.TryGetValue("dump_offset", out var dumpOffsetText) && long.TryParse(dumpOffsetText, out var dumpOffset))
+                    {
+                        _dumpOffset = dumpOffset;
+                    }
                     await SyncCurrentSessionMetadataAsync(updateFilename: true);
                     if (OnTitleChanged != null)
                     {
@@ -917,7 +1002,8 @@ public class BilibiliRecorder : IDisposable
                 { "room_title", _title },
                 { "user_name", _userName },
                 { "video_start_time", timestamp.ToString() },
-                { "filename", filename }
+                { "filename", filename },
+                { "dump_offset", "0" }
             };
             
             await _redis.SetMetadataAsync(_currentSessionKey + ":meta", meta);
@@ -1074,7 +1160,7 @@ public class BilibiliRecorder : IDisposable
         {
             _logger.LogInformation($"Finalizing session {_currentSessionKey}...");
             
-            var messages = await _redis.GetMessagesAsync(_currentSessionKey + ":list");
+            var listKey = _currentSessionKey + ":list";
             var meta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
 
             var filename = meta.ContainsKey("filename") ? meta["filename"] : $"{DateTime.Now:yyyy-MM-dd HH-mm-ss} {_uid}.jsonl";
@@ -1097,7 +1183,13 @@ public class BilibiliRecorder : IDisposable
                     startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString())
                 }, EventJsonOptions)
             };
-            lines.AddRange(messages);
+            var totalCount = await _redis.GetListLengthAsync(listKey);
+            var remainingCount = totalCount - _dumpOffset;
+            if (remainingCount > 0)
+            {
+                var remaining = await _redis.GetListRangeAsync(listKey, _dumpOffset, totalCount - 1);
+                lines.AddRange(remaining);
+            }
 
             await File.WriteAllLinesAsync(tempPath, lines, Encoding.UTF8);
             
@@ -1117,6 +1209,7 @@ public class BilibiliRecorder : IDisposable
             await _redis.DeleteKeyAsync(_currentSessionKey + ":meta");
             await _redis.ClearLiveSessionKeyAsync(_uid);
             _currentSessionKey = null;
+            _dumpOffset = 0;
         }
         catch (Exception ex)
         {
