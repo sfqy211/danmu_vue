@@ -76,6 +76,11 @@ public class RedisService
     {
         await _db.StringSetAsync($"danmu:live:{uid}", sessionKey);
     }
+
+    public async Task SetStringWithExpiryAsync(string key, string value, TimeSpan expiry)
+    {
+        await _db.StringSetAsync(key, value, expiry);
+    }
     
     public async Task<string?> GetLiveSessionKeyAsync(string uid)
     {

@@ -11,6 +11,9 @@ namespace Danmu.Server.Services;
 public class BilibiliRecorder : IDisposable
 {
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan RecorderHeartbeatInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RecorderHeartbeatTtl = TimeSpan.FromSeconds(20);
+
     private readonly long _roomId;
     private readonly string _uid;
     private readonly string _name;
@@ -27,6 +30,7 @@ public class BilibiliRecorder : IDisposable
     private string? _token;
     private string? _host;
     private string? _currentSessionKey;
+    private Task? _recorderHeartbeatTask;
     private string _title = "未知直播";
     private string _userName = "未知主播";
     private long _realRoomId;
@@ -49,6 +53,7 @@ public class BilibiliRecorder : IDisposable
     public long RoomId => _roomId;
     public string DisplayName => _name;
     public string ProcessName => $"danmu-{_uid}";
+    public string RecorderHeartbeatKey => $"recorder:heartbeat:{_uid}:{_roomId}";
 
     // Real live status from Bilibili API (updated by WaitForLiveAsync / HeartbeatLoopAsync)
     public int LiveStatus { get; private set; }
@@ -91,6 +96,7 @@ public class BilibiliRecorder : IDisposable
         StartTime = DateTime.Now;
         _cts = new CancellationTokenSource();
 
+        _recorderHeartbeatTask = Task.Run(async () => await RecorderHeartbeatLoopAsync(_cts.Token));
         _receiveTask = Task.Run(async () => await KeepAliveLoopAsync(_cts.Token));
     }
 
@@ -263,8 +269,49 @@ public class BilibiliRecorder : IDisposable
             _ws = null;
         }
 
+        await ClearRecorderHeartbeatAsync();
+
         // Only on explicit Stop do we finalize the session
         await EndRedisSessionAsync(isFinal: true);
+    }
+
+    private async Task RecorderHeartbeatLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await _redis.SetStringWithExpiryAsync(
+                    RecorderHeartbeatKey,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
+                    RecorderHeartbeatTtl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to write recorder heartbeat for uid {Uid}, room {RoomId}", _uid, _roomId);
+            }
+
+            try
+            {
+                await Task.Delay(RecorderHeartbeatInterval, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task ClearRecorderHeartbeatAsync()
+    {
+        try
+        {
+            await _redis.DeleteKeyAsync(RecorderHeartbeatKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to clear recorder heartbeat for uid {Uid}, room {RoomId}", _uid, _roomId);
+        }
     }
 
     private async Task ConnectAsync()
