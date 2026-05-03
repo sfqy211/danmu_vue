@@ -39,6 +39,22 @@ public class RedisService
         await _db.HashSetAsync(key, new HashEntry[] { new HashEntry(field, value) });
     }
 
+    public async Task SetHashFieldAsync(string key, string field, string value)
+    {
+        await _db.HashSetAsync(key, field, value);
+    }
+
+    public async Task<Dictionary<string, string>> GetHashAsync(string key)
+    {
+        var entries = await _db.HashGetAllAsync(key);
+        return entries.ToDictionary(e => e.Name.ToString(), e => e.Value.ToString());
+    }
+
+    public async Task DeleteHashFieldAsync(string key, string field)
+    {
+        await _db.HashDeleteAsync(key, field);
+    }
+
     public async Task<List<string>> GetMessagesAsync(string key)
     {
         var values = await _db.ListRangeAsync(key);

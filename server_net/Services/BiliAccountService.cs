@@ -11,10 +11,12 @@ namespace Danmu.Server.Services;
 public class BiliAccountService
 {
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private const string RecordingAllocRedisKey = "recording:alloc";
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<BiliAccountService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly RedisService _redis;
 
     // Bilibili TV client credentials (commonly used open-source values)
     private const string AppKey = "4409e2ce8ffd12b8";
@@ -36,11 +38,12 @@ public class BiliAccountService
     // Login state tracking
     private readonly Dictionary<string, TvLoginState> _loginStates = new();
 
-    public BiliAccountService(IServiceProvider serviceProvider, ILogger<BiliAccountService> logger, IHttpClientFactory httpClientFactory)
+    public BiliAccountService(IServiceProvider serviceProvider, ILogger<BiliAccountService> logger, IHttpClientFactory httpClientFactory, RedisService redis)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _redis = redis;
     }
 
     // ─── Lifecycle ────────────────────────────────────────────────────
@@ -49,6 +52,7 @@ public class BiliAccountService
 
     public async Task PreloadCacheAsync()
     {
+        await RestoreRoomAssignmentsFromRedisAsync();
         await RefreshActiveCookieCacheAsync();
     }
 
@@ -136,6 +140,7 @@ public class BiliAccountService
             var idx = Math.Abs(roomUid.GetHashCode()) % available.Count;
             var selected = available[idx];
             _roomAccountMap[roomUid] = selected.Uid;
+            _ = PersistRoomAssignmentAsync(roomUid, selected.Uid);
             return (BuildCookieString(selected.CookieJson), selected.Uid);
         }
     }
@@ -171,6 +176,7 @@ public class BiliAccountService
                 _accountFailures[oldUid] = DateTime.UtcNow.AddMinutes(10);
             }
             _roomAccountMap[roomUid] = targetAccountUid;
+            _ = PersistRoomAssignmentAsync(roomUid, targetAccountUid);
         }
         return true;
     }
@@ -212,8 +218,65 @@ public class BiliAccountService
             // Remove room assignments that pointed to this account
             var affectedRooms = _roomAccountMap.Where(kv => kv.Value == accountUid).Select(kv => kv.Key).ToList();
             foreach (var room in affectedRooms)
+            {
                 _roomAccountMap.Remove(room);
+                _ = RemoveRoomAssignmentAsync(room);
+            }
             _logger.LogWarning("Account {Uid} reported as failing, marked unavailable for 10 minutes. {Count} rooms will be reassigned.", accountUid, affectedRooms.Count);
+        }
+    }
+
+    private async Task RestoreRoomAssignmentsFromRedisAsync()
+    {
+        try
+        {
+            var stored = await _redis.GetHashAsync(RecordingAllocRedisKey);
+            if (stored.Count == 0)
+            {
+                return;
+            }
+
+            lock (_rotationLock)
+            {
+                _roomAccountMap.Clear();
+                foreach (var kv in stored)
+                {
+                    if (long.TryParse(kv.Value, out var accountUid))
+                    {
+                        _roomAccountMap[kv.Key] = accountUid;
+                    }
+                }
+            }
+
+            _logger.LogInformation("Restored {Count} room-account assignments from Redis.", stored.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to restore room-account assignments from Redis.");
+        }
+    }
+
+    private async Task PersistRoomAssignmentAsync(string roomUid, long accountUid)
+    {
+        try
+        {
+            await _redis.SetHashFieldAsync(RecordingAllocRedisKey, roomUid, accountUid.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist room assignment for room {RoomUid} to Redis.", roomUid);
+        }
+    }
+
+    private async Task RemoveRoomAssignmentAsync(string roomUid)
+    {
+        try
+        {
+            await _redis.DeleteHashFieldAsync(RecordingAllocRedisKey, roomUid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove room assignment for room {RoomUid} from Redis.", roomUid);
         }
     }
 
