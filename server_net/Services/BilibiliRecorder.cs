@@ -544,6 +544,11 @@ public class BilibiliRecorder : IDisposable
         {
             var info = root.GetProperty("info");
             var timestamp = TryGetInt64(info[0], 4) ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var medalInfo = GetArrayElement(info, 3);
+            var userLevelInfo = GetArrayElement(info, 4);
+            var guardLevel = TryGetInt32(info, 7);
+            var wealthInfo = GetArrayElement(info, 16);
+
             return new RecordedDanmakuEvent
             {
                 Type = "comment",
@@ -551,6 +556,16 @@ public class BilibiliRecorder : IDisposable
                 Text = GetString(info, 1) ?? "",
                 User = GetString(info[2], 1) ?? "",
                 Uid = GetString(info[2], 0) ?? "",
+                GuardLevel = guardLevel,
+                MedalLevel = TryGetInt32(medalInfo, 0),
+                MedalName = GetString(medalInfo, 1),
+                MedalAnchor = GetString(medalInfo, 2),
+                MedalRoomId = TryGetInt32(medalInfo, 3),
+                MedalGuardLevel = TryGetInt32(medalInfo, 10),
+                MedalIsLight = TryGetInt32(medalInfo, 11) is int isLight ? isLight == 1 : null,
+                MedalAnchorUid = TryGetInt64(medalInfo, 12),
+                UlLevel = TryGetInt32(userLevelInfo, 0),
+                WealthLevel = TryGetInt32(wealthInfo, 0),
                 RawCommand = cmd
             };
         }
@@ -568,6 +583,8 @@ public class BilibiliRecorder : IDisposable
                 Count = count > 0 ? count : 1,
                 Price = NormalizeMoney(priceRaw),
                 IsPriceTotal = false,
+                CoinType = TryGetString(data, "coin_type"),
+                GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "uname") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
                 RawCommand = cmd
@@ -578,6 +595,7 @@ public class BilibiliRecorder : IDisposable
         {
             var data = root.GetProperty("data");
             var userInfo = data.TryGetProperty("user_info", out var u) ? u : default;
+            var medalInfo = data.TryGetProperty("medal_info", out var m) ? m : default;
             return new RecordedDanmakuEvent
             {
                 Type = "super_chat",
@@ -585,6 +603,15 @@ public class BilibiliRecorder : IDisposable
                 Price = TryGetDouble(data, "price"),
                 IsPriceTotal = true,
                 Text = TryGetString(data, "message") ?? "",
+                MessageJpn = TryGetString(data, "message_jpn"),
+                Duration = TryGetInt32(data, "time"),
+                MedalLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "medal_level") : null,
+                MedalName = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "medal_name") : null,
+                MedalAnchor = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "anchor_uname") : null,
+                MedalRoomId = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "anchor_roomid") : null,
+                MedalGuardLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "guard_level") : null,
+                MedalIsLight = medalInfo.ValueKind != JsonValueKind.Undefined ? (TryGetInt32(medalInfo, "is_lighted") is int isLight ? isLight == 1 : null) : null,
+                MedalAnchorUid = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt64(medalInfo, "target_id") : null,
                 User = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uname") ?? "") : "",
                 Uid = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uid") ?? "") : "",
                 RawCommand = cmd
@@ -624,9 +651,9 @@ public class BilibiliRecorder : IDisposable
         return rawPrice >= 1000 ? rawPrice / 1000.0 : rawPrice;
     }
 
-    private static string? GetString(JsonElement element, int index)
+    internal static string? GetString(JsonElement element, int index)
     {
-        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() <= index)
+        if (element.ValueKind != JsonValueKind.Array || index < 0 || element.GetArrayLength() <= index)
         {
             return null;
         }
@@ -639,9 +666,19 @@ public class BilibiliRecorder : IDisposable
         };
     }
 
-    private static long? TryGetInt64(JsonElement element, int index)
+    internal static JsonElement GetArrayElement(JsonElement element, int index)
     {
-        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() <= index)
+        if (element.ValueKind != JsonValueKind.Array || index < 0 || element.GetArrayLength() <= index)
+        {
+            return default;
+        }
+
+        return element[index];
+    }
+
+    internal static long? TryGetInt64(JsonElement element, int index)
+    {
+        if (element.ValueKind != JsonValueKind.Array || index < 0 || element.GetArrayLength() <= index)
         {
             return null;
         }
@@ -650,6 +687,21 @@ public class BilibiliRecorder : IDisposable
         {
             JsonValueKind.Number when element[index].TryGetInt64(out var value) => value,
             JsonValueKind.String when long.TryParse(element[index].GetString(), out var value) => value,
+            _ => null
+        };
+    }
+
+    internal static int? TryGetInt32(JsonElement element, int index)
+    {
+        if (element.ValueKind != JsonValueKind.Array || index < 0 || element.GetArrayLength() <= index)
+        {
+            return null;
+        }
+
+        return element[index].ValueKind switch
+        {
+            JsonValueKind.Number when element[index].TryGetInt32(out var value) => value,
+            JsonValueKind.String when int.TryParse(element[index].GetString(), out var value) => value,
             _ => null
         };
     }

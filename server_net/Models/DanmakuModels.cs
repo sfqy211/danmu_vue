@@ -29,6 +29,18 @@ public class RecordedDanmakuEvent
     public double? Price { get; set; }
     public bool IsPriceTotal { get; set; }
     public int? GuardLevel { get; set; }
+    public int? MedalLevel { get; set; }
+    public string? MedalName { get; set; }
+    public string? MedalAnchor { get; set; }
+    public int? MedalRoomId { get; set; }
+    public int? MedalGuardLevel { get; set; }
+    public bool? MedalIsLight { get; set; }
+    public long? MedalAnchorUid { get; set; }
+    public int? UlLevel { get; set; }
+    public int? WealthLevel { get; set; }
+    public string? CoinType { get; set; }
+    public string? MessageJpn { get; set; }
+    public int? Duration { get; set; }
     public string? RawCommand { get; set; }
 }
 
