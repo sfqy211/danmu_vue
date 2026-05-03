@@ -853,8 +853,7 @@ public class BilibiliService
                 "https://api.live.bilibili.com/room/v1/Room/room_init",
                 new Dictionary<string, string?> { ["id"] = roomId.ToString() },
                 cookie,
-                origin: "https://live.bilibili.com",
-                useWbi: true);
+                origin: "https://live.bilibili.com");
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (root.TryGetProperty("data", out var data) && data.TryGetProperty("room_id", out var rid))
@@ -877,7 +876,6 @@ public class BilibiliService
                 "https://api.live.bilibili.com/room/v1/Room/room_init",
                 new Dictionary<string, string?> { ["id"] = roomId.ToString() },
                 origin: "https://live.bilibili.com",
-                useWbi: true,
                 cancellationToken: cancellationToken);
 
             using var doc = JsonDocument.Parse(json);
@@ -934,7 +932,7 @@ public class BilibiliService
                         "https://api.bilibili.com/x/relation/stat",
                         new Dictionary<string, string?> { ["vmid"] = uid },
                         cookie,
-                        useWbi: true);
+                        useWbi: false);
                     using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("follower", out var f))
                             followers = f.GetInt32();
@@ -948,7 +946,7 @@ public class BilibiliService
                         "https://api.bilibili.com/x/space/navnum",
                         new Dictionary<string, string?> { ["mid"] = uid },
                         cookie,
-                        useWbi: true);
+                        referer: $"https://space.bilibili.com/{uid}/");
                     using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
                             videoCount = v.GetInt32();
