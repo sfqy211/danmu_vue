@@ -417,6 +417,13 @@ public class BiliAccountService
                 dict[kv[0].Trim()] = kv[1].Trim();
         }
 
+        var importedCookieJson = JsonSerializer.Serialize(dict);
+        var importedCookie = BuildCookieString(importedCookieJson);
+        if (string.IsNullOrWhiteSpace(importedCookie) || !await ValidateCookieAsync(importedCookie))
+        {
+            throw new InvalidOperationException("Imported cookie is invalid or expired.");
+        }
+
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
         var acc = await db.BiliAccounts.FirstOrDefaultAsync(a => a.Uid == uid);
@@ -425,11 +432,28 @@ public class BiliAccountService
             acc = new BiliAccount { Uid = uid };
             db.BiliAccounts.Add(acc);
         }
-        acc.CookieJson = JsonSerializer.Serialize(dict);
+        acc.CookieJson = importedCookieJson;
         acc.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         await UpdateUserInfoAsync(uid);
         InvalidateCache();
+    }
+
+    public async Task<bool> ValidateCookieAsync(long uid)
+    {
+        var account = await GetAsync(uid);
+        if (account == null)
+        {
+            return false;
+        }
+
+        var cookie = BuildCookieString(account.CookieJson);
+        if (string.IsNullOrWhiteSpace(cookie))
+        {
+            return false;
+        }
+
+        return await ValidateCookieAsync(cookie);
     }
 
     public async Task<bool> RefreshWebCookieAsync(long uid)
@@ -805,12 +829,27 @@ public class BiliAccountService
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromHours(24), _loopCts.Token);
+                    await Task.Delay(TimeSpan.FromHours(1), _loopCts.Token);
                     using var scope = _serviceProvider.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
                     var list = await db.BiliAccounts.AsNoTracking().ToListAsync();
                     foreach (var acc in list)
                     {
+                        try
+                        {
+                            var isHealthy = await ValidateCookieAsync(acc.Uid);
+                            if (!isHealthy)
+                            {
+                                _logger.LogWarning("Cookie health check failed for {Uid}; reporting account failure.", acc.Uid);
+                                ReportAccountFailure(acc.Uid);
+                                continue;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Cookie health check threw for {Uid}", acc.Uid);
+                        }
+
                         if (acc.ExpiresAt.HasValue && acc.ExpiresAt.Value - DateTime.UtcNow < TimeSpan.FromDays(10))
                         {
                             try
@@ -843,6 +882,31 @@ public class BiliAccountService
     /// Generates Bilibili API sign. Matches @renmu/bili-api implementation:
     /// No URL-encoding of parameter values; raw string concatenation with &.
     /// </summary>
+    private async Task<bool> ValidateCookieAsync(string cookieString)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = CreateBrowserRequest(HttpMethod.Get, "https://api.bilibili.com/x/web-interface/nav");
+        request.Headers.TryAddWithoutValidation("Cookie", cookieString);
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
+        {
+            return false;
+        }
+
+        if (!root.TryGetProperty("data", out var data))
+        {
+            return false;
+        }
+
+        return data.TryGetProperty("isLogin", out var isLoginEl) && isLoginEl.ValueKind == JsonValueKind.True;
+    }
+
     private async Task<(string Hash, string PublicKeyPem)> GetPassportRsaKeyAsync()
     {
         var client = _httpClientFactory.CreateClient();
