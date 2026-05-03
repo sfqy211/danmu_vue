@@ -7,7 +7,7 @@ namespace Danmu.Server.Services;
 
 public class BilibiliService
 {
-    private const string BiliTicketApi = "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket";
+    private const string BiliTicketApi = BilibiliApiUrls.BiliTicket;
     private const string BiliTicketKeyId = "ec02";
     private const string BiliTicketHmacKey = "XgwSnGZ1p";
     private const int BiliTicketRefreshBufferSeconds = 3600;
@@ -152,7 +152,7 @@ public class BilibiliService
                     return _cachedMixinKey;
                 }
 
-                var navRequest = new HttpRequestMessage(HttpMethod.Get, "https://api.bilibili.com/x/web-interface/nav");
+                var navRequest = new HttpRequestMessage(HttpMethod.Get, BilibiliApiUrls.WebNav);
                 var navResponse = await _httpClient.SendAsync(navRequest);
                 navResponse.EnsureSuccessStatusCode();
 
@@ -507,7 +507,7 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.bilibili.com/x/web-interface/card",
+                BilibiliApiUrls.WebCard,
                 new Dictionary<string, string?> { ["mid"] = uid },
                 cookie,
                 useWbi: true);
@@ -541,7 +541,7 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Room/get_info",
+                BilibiliApiUrls.RoomInfo,
                 new Dictionary<string, string?> { ["room_id"] = roomId.ToString() },
                 cookie,
                 useWbi: true);
@@ -595,10 +595,10 @@ public class BilibiliService
                 try 
                 {
                     var userJson = await SendBiliGetAsync(
-                        "https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room",
+                        BilibiliApiUrls.AnchorInRoom,
                         new Dictionary<string, string?> { ["roomid"] = roomId.ToString() },
                         cookie,
-                        referer: $"https://live.bilibili.com/{roomId}");
+                        referer: $"{BilibiliApiUrls.LiveBase}/{roomId}");
                     using var userDoc = JsonDocument.Parse(userJson);
                     if (userDoc.RootElement.TryGetProperty("data", out var userData) && userData.ValueKind != JsonValueKind.Null)
                     {
@@ -636,10 +636,10 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var initJson = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                BilibiliApiUrls.RoomInit,
                 new Dictionary<string, string?> { ["id"] = roomId.ToString() },
                 cookie,
-                useWbi: true);
+                useWbi: false);
             using var initDoc = JsonDocument.Parse(initJson);
             var initRoot = initDoc.RootElement;
 
@@ -674,10 +674,10 @@ public class BilibiliService
             }
 
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Room/get_info",
+                BilibiliApiUrls.RoomInfo,
                 new Dictionary<string, string?> { ["room_id"] = realRoomId.ToString() },
                 cookie,
-                useWbi: true);
+                useWbi: false);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -737,14 +737,14 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+                BilibiliApiUrls.DanmuInfo,
                 new Dictionary<string, string?>
                 {
                     ["id"] = realRoomId.ToString(),
                     ["type"] = "0"
                 },
                 cookie,
-                origin: "https://live.bilibili.com",
+                origin: BilibiliApiUrls.LiveBase,
                 useWbi: true);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -771,7 +771,7 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Danmu/getConf",
+                BilibiliApiUrls.DanmuConf,
                 new Dictionary<string, string?>
                 {
                     ["room_id"] = realRoomId.ToString(),
@@ -779,8 +779,8 @@ public class BilibiliService
                     ["player"] = "web"
                 },
                 cookie,
-                referer: $"https://live.bilibili.com/{realRoomId}",
-                origin: "https://live.bilibili.com");
+                referer: $"{BilibiliApiUrls.LiveBase}/{realRoomId}",
+                origin: BilibiliApiUrls.LiveBase);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -811,10 +811,10 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/live_user/v1/Master/info",
+                BilibiliApiUrls.MasterInfo,
                 new Dictionary<string, string?> { ["uid"] = uid.ToString() },
                 cookie,
-                referer: "https://live.bilibili.com/");
+                referer: BilibiliApiUrls.LiveBase + "/");
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -850,10 +850,10 @@ public class BilibiliService
         {
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                BilibiliApiUrls.RoomInit,
                 new Dictionary<string, string?> { ["id"] = roomId.ToString() },
                 cookie,
-                origin: "https://live.bilibili.com");
+                origin: BilibiliApiUrls.LiveBase);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (root.TryGetProperty("data", out var data) && data.TryGetProperty("room_id", out var rid))
@@ -873,9 +873,9 @@ public class BilibiliService
         try
         {
             var json = await SendBiliGetAsync(
-                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                BilibiliApiUrls.RoomInit,
                 new Dictionary<string, string?> { ["id"] = roomId.ToString() },
-                origin: "https://live.bilibili.com",
+                origin: BilibiliApiUrls.LiveBase,
                 cancellationToken: cancellationToken);
 
             using var doc = JsonDocument.Parse(json);
@@ -929,7 +929,7 @@ public class BilibiliService
             tasks.Add(Task.Run(async () => {
                 try {
                     var json = await SendBiliGetAsync(
-                        "https://api.bilibili.com/x/relation/stat",
+                        BilibiliApiUrls.RelationStat,
                         new Dictionary<string, string?> { ["vmid"] = uid },
                         cookie,
                         useWbi: false);
@@ -943,10 +943,10 @@ public class BilibiliService
             tasks.Add(Task.Run(async () => {
                 try {
                     var json = await SendBiliGetAsync(
-                        "https://api.bilibili.com/x/space/navnum",
+                        BilibiliApiUrls.SpaceNavNum,
                         new Dictionary<string, string?> { ["mid"] = uid },
                         cookie,
-                        referer: $"https://space.bilibili.com/{uid}/");
+                        referer: $"{BilibiliApiUrls.SpaceBase}/{uid}/");
                     using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("video", out var v))
                             videoCount = v.GetInt32();
@@ -960,7 +960,7 @@ public class BilibiliService
                     if (realRoomId <= 0) realRoomId = roomId;
 
                     var json = await SendBiliGetAsync(
-                        "https://api.live.bilibili.com/xlive/app-room/v1/guardTab/topList",
+                        BilibiliApiUrls.GuardTopList,
                         new Dictionary<string, string?>
                         {
                             ["roomid"] = realRoomId.ToString(),
@@ -969,7 +969,7 @@ public class BilibiliService
                             ["page_size"] = "0"
                         },
                         cookie,
-                        referer: $"https://live.bilibili.com/{realRoomId}");
+                        referer: $"{BilibiliApiUrls.LiveBase}/{realRoomId}");
                     using var doc = JsonDocument.Parse(json);
                         if (doc.RootElement.TryGetProperty("data", out var data) && 
                             data.TryGetProperty("info", out var info) && 

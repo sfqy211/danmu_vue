@@ -404,9 +404,9 @@ public class BiliAccountService
         {
             var client = _httpClientFactory.CreateClient();
             // Use public card API first (no cookie required)
-            var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.bilibili.com/x/web-interface/card?mid={uid}");
+            var req = new HttpRequestMessage(HttpMethod.Get, $"{BilibiliApiUrls.WebCard}?mid={uid}");
             req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            req.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
+            req.Headers.TryAddWithoutValidation("Referer", BilibiliApiUrls.BilibiliBase);
             var res = await client.SendAsync(req);
             res.EnsureSuccessStatusCode();
             var json = await res.Content.ReadAsStringAsync();
@@ -608,7 +608,7 @@ public class BiliAccountService
         var client = _httpClientFactory.CreateClient();
         var content = new FormUrlEncodedContent(paramDict);
         // Reference uses http:// not https:// for passport API
-        var res = await client.PostAsync("http://passport.bilibili.com/x/passport-tv-login/qrcode/auth_code", content);
+        var res = await client.PostAsync(BilibiliApiUrls.PassportTvAuthCode, content);
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
@@ -728,7 +728,7 @@ public class BiliAccountService
 
         var client = _httpClientFactory.CreateClient();
         var content = new FormUrlEncodedContent(paramDict);
-        var res = await client.PostAsync("http://passport.bilibili.com/x/passport-tv-login/qrcode/poll", content);
+        var res = await client.PostAsync(BilibiliApiUrls.PassportTvPoll, content);
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync();
 
@@ -795,7 +795,7 @@ public class BiliAccountService
 
         var client = _httpClientFactory.CreateClient();
         var content = new FormUrlEncodedContent(paramDict);
-        var res = await client.PostAsync("https://passport.bilibili.com/x/passport-login/oauth2/refresh_token", content);
+        var res = await client.PostAsync(BilibiliApiUrls.PassportOauthRefresh, content);
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
@@ -952,7 +952,7 @@ public class BiliAccountService
     private async Task<bool> ValidateCookieAsync(string cookieString)
     {
         var client = _httpClientFactory.CreateClient();
-        using var request = CreateBrowserRequest(HttpMethod.Get, "https://api.bilibili.com/x/web-interface/nav");
+        using var request = CreateBrowserRequest(HttpMethod.Get, BilibiliApiUrls.WebNav);
         request.Headers.TryAddWithoutValidation("Cookie", cookieString);
 
         using var response = await client.SendAsync(request);
@@ -977,7 +977,7 @@ public class BiliAccountService
     private async Task<(string Hash, string PublicKeyPem)> GetPassportRsaKeyAsync()
     {
         var client = _httpClientFactory.CreateClient();
-        using var request = CreateBrowserRequest(HttpMethod.Get, "https://passport.bilibili.com/x/passport-login/web/key");
+        using var request = CreateBrowserRequest(HttpMethod.Get, BilibiliApiUrls.PassportWebKey);
         using var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
 
@@ -1012,7 +1012,7 @@ public class BiliAccountService
     private async Task<string?> ExtractRefreshCsrfAsync(string correspondPath, string cookieString)
     {
         var client = _httpClientFactory.CreateClient();
-        using var request = CreateBrowserRequest(HttpMethod.Get, $"https://www.bilibili.com/correspond/1/{correspondPath}");
+        using var request = CreateBrowserRequest(HttpMethod.Get, $"{BilibiliApiUrls.BilibiliBase}/correspond/1/{correspondPath}");
         request.Headers.TryAddWithoutValidation("Cookie", cookieString);
 
         using var response = await client.SendAsync(request);
@@ -1026,7 +1026,7 @@ public class BiliAccountService
     private async Task<WebCookieRefreshResult> PostCookieRefreshAsync(string biliJct, string refreshCsrf, string refreshToken, string cookieString)
     {
         var client = _httpClientFactory.CreateClient();
-        using var request = CreateBrowserRequest(HttpMethod.Post, "https://passport.bilibili.com/x/passport-login/web/cookie/refresh");
+        using var request = CreateBrowserRequest(HttpMethod.Post, BilibiliApiUrls.PassportWebCookieRefresh);
         request.Headers.TryAddWithoutValidation("Cookie", cookieString);
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -1067,7 +1067,7 @@ public class BiliAccountService
             return;
 
         var client = _httpClientFactory.CreateClient();
-        using var request = CreateBrowserRequest(HttpMethod.Post, "https://passport.bilibili.com/x/passport-login/web/confirm/refresh");
+        using var request = CreateBrowserRequest(HttpMethod.Post, BilibiliApiUrls.PassportWebConfirmRefresh);
         if (!string.IsNullOrWhiteSpace(cookieString))
         {
             request.Headers.TryAddWithoutValidation("Cookie", cookieString);
@@ -1099,7 +1099,7 @@ public class BiliAccountService
     {
         var request = new HttpRequestMessage(method, url);
         request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
-        request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
+        request.Headers.TryAddWithoutValidation("Referer", BilibiliApiUrls.BilibiliBase);
         return request;
     }
 
