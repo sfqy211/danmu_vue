@@ -44,8 +44,8 @@ public class DanmakuController : ControllerBase
         };
     }
 
-    [HttpGet("pm2-status")]
-    public IActionResult GetProcessStatus()
+    [HttpGet("recorders/status")]
+    public IActionResult GetRecorderStatus()
     {
         var processes = _pm.GetProcesses();
         var hasError = processes.Any(p => p.Status == "errored");

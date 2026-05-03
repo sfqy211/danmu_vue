@@ -352,20 +352,20 @@ export const getSongRequests = async (params: { id?: number; roomId?: string; pa
   };
 };
 
-export interface Pm2Process {
+export interface RecorderProcess {
   name: string;
   status: string;
   id: number;
 }
 
-export interface Pm2StatusResponse {
+export interface RecorderStatusResponse {
   status: 'success' | 'error';
-  processes?: Pm2Process[];
+  processes?: RecorderProcess[];
   error?: string;
 }
 
-export const getPm2Status = async (): Promise<Pm2StatusResponse> => {
-  const res = await api.get<Pm2StatusResponse>('/pm2-status');
+export const getRecorderStatus = async (): Promise<RecorderStatusResponse> => {
+  const res = await api.get<RecorderStatusResponse>('/recorders/status');
   return res.data;
 };
 

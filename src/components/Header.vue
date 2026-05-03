@@ -171,8 +171,8 @@
               <el-icon><Monitor /></el-icon>
               <span>后端服务状态</span>
             </div>
-            <el-icon class="status-icon" :class="pm2Status">
-              <component :is="pm2Status === 'error' ? WarningFilled : CircleCheckFilled" />
+            <el-icon class="status-icon" :class="recorderStatus">
+              <component :is="recorderStatus === 'error' ? WarningFilled : CircleCheckFilled" />
             </el-icon>
           </div>
         </div>
@@ -268,7 +268,7 @@ import { ref , onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { getChangelog, type ChangelogEntry } from '../api/danmaku';
-import { getPm2Status } from '../api/danmaku';
+import { getRecorderStatus } from '../api/danmaku';
 import { ElMessage } from 'element-plus';
 import { 
   Search, 
@@ -327,7 +327,7 @@ const formatDate = (dateStr: string) => {
 const drawerVisible = ref(false);
 const isDarkMode = ref(false);
 const isMobile = ref(window.innerWidth <= 768);
-const pm2Status = ref<'success' | 'error' | 'loading'>('loading');
+const recorderStatus = ref<'success' | 'error' | 'loading'>('loading');
 
 const isHome = computed(() => route.name === 'home'); // 首页是 VupList
 const isStreamerPage = computed(() => route.path.startsWith('/vup/')); // 主播页
@@ -359,20 +359,20 @@ const formatShortDate = (timestamp: number) => {
   return `${date.getMonth() + 1}-${date.getDate()}`;
 };
 
-const checkPm2Status = async () => {
-  pm2Status.value = 'loading';
+const checkRecorderStatus = async () => {
+  recorderStatus.value = 'loading';
   try {
-    const data = await getPm2Status();
-    pm2Status.value = data.status === 'success' ? 'success' : 'error';
+    const data = await getRecorderStatus();
+    recorderStatus.value = data.status === 'success' ? 'success' : 'error';
   } catch (e) {
-    console.error('Failed to check PM2 status:', e);
-    pm2Status.value = 'error';
+    console.error('Failed to check recorder status:', e);
+    recorderStatus.value = 'error';
   }
 };
 
 watch(drawerVisible, (val) => {
   if (val) {
-    checkPm2Status();
+    checkRecorderStatus();
   }
 });
 
