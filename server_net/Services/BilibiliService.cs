@@ -395,7 +395,7 @@ public class BilibiliService
 
             var timestamp = now;
             var hexsign = GenerateBiliTicketSign(timestamp);
-            var ticketUrl = $"{BiliTicketApi}?key_id={Uri.EscapeDataString(BiliTicketKeyId)}&hexsign={Uri.EscapeDataString(hexsign)}&context%5Bts%5D={timestamp}&csrf=";
+            var ticketUrl = $"{BiliTicketApi}?key_id={Uri.EscapeDataString(BiliTicketKeyId)}&hexsign={Uri.EscapeDataString(hexsign)}&context[ts]={timestamp}&csrf=";
             using var request = new HttpRequestMessage(HttpMethod.Post, ticketUrl);
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
