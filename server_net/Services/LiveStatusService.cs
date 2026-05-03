@@ -152,7 +152,7 @@ public class LiveStatusService : BackgroundService
         }
     }
 
-    private static bool TryParseLiveState(long roomId, Dictionary<string, string> data, out LiveState state)
+    internal static bool TryParseLiveState(long roomId, Dictionary<string, string> data, out LiveState state)
     {
         state = null!;
         if (!data.TryGetValue("live_status", out var liveStatusText) || !int.TryParse(liveStatusText, out var liveStatus))

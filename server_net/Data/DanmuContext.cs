@@ -7,11 +7,11 @@ public class DanmuContext : DbContext
 {
     public DanmuContext(DbContextOptions<DanmuContext> options) : base(options) { }
 
-    public required DbSet<Session> Sessions { get; set; }
-    public required DbSet<SongRequest> SongRequests { get; set; }
-    public required DbSet<Room> Rooms { get; set; }
-    public required DbSet<BiliAccount> BiliAccounts { get; set; }
-    public required DbSet<ChangelogEntry> ChangelogEntries { get; set; }
+    public DbSet<Session> Sessions { get; set; } = null!;
+    public DbSet<SongRequest> SongRequests { get; set; } = null!;
+    public DbSet<Room> Rooms { get; set; } = null!;
+    public DbSet<BiliAccount> BiliAccounts { get; set; } = null!;
+    public DbSet<ChangelogEntry> ChangelogEntries { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -215,7 +215,7 @@ public class BilibiliRecorder : IDisposable
         Status = "stopped";
     }
 
-    private static bool IsAuthFailure(Exception ex)
+    internal static bool IsAuthFailure(Exception ex)
     {
         // HttpRequestException with 403/401 status code
         if (ex is System.Net.Http.HttpRequestException httpEx && httpEx.StatusCode.HasValue)
@@ -1113,7 +1113,7 @@ public class BilibiliRecorder : IDisposable
         return $"{dateStr} {SanitizeFileName(_title)}.jsonl";
     }
 
-    private static string SanitizeFileName(string title)
+    internal static string SanitizeFileName(string title)
     {
         var safeTitle = string.IsNullOrWhiteSpace(title) ? "未知直播" : title.Trim();
         foreach (var invalidChar in Path.GetInvalidFileNameChars())

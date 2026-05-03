@@ -12,6 +12,8 @@ public class BiliAccountService
 {
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private const string RecordingAllocRedisKey = "recording:alloc";
+    private const int RestoreRoomAssignmentsMaxAttempts = 10;
+    private static readonly TimeSpan RestoreRoomAssignmentsRetryDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan CookieHealthCheckInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan WebCookieRefreshInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan WebCookieRefreshAheadWindow = TimeSpan.FromHours(24);
@@ -245,31 +247,48 @@ public class BiliAccountService
 
     private async Task RestoreRoomAssignmentsFromRedisAsync()
     {
-        try
+        for (var attempt = 1; attempt <= RestoreRoomAssignmentsMaxAttempts; attempt++)
         {
-            var stored = await _redis.GetHashAsync(RecordingAllocRedisKey);
-            if (stored.Count == 0)
+            try
             {
-                return;
-            }
-
-            lock (_rotationLock)
-            {
-                _roomAccountMap.Clear();
-                foreach (var kv in stored)
+                var stored = await _redis.GetHashAsync(RecordingAllocRedisKey);
+                if (stored.Count == 0)
                 {
-                    if (long.TryParse(kv.Value, out var accountUid))
+                    return;
+                }
+
+                lock (_rotationLock)
+                {
+                    _roomAccountMap.Clear();
+                    foreach (var kv in stored)
                     {
-                        _roomAccountMap[kv.Key] = accountUid;
+                        if (long.TryParse(kv.Value, out var accountUid))
+                        {
+                            _roomAccountMap[kv.Key] = accountUid;
+                        }
                     }
                 }
-            }
 
-            _logger.LogInformation("Restored {Count} room-account assignments from Redis.", stored.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to restore room-account assignments from Redis.");
+                _logger.LogInformation("Restored {Count} room-account assignments from Redis.", stored.Count);
+                return;
+            }
+            catch (Exception ex) when (attempt < RestoreRoomAssignmentsMaxAttempts)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to restore room-account assignments from Redis on attempt {Attempt}/{MaxAttempts}; will retry in {DelaySeconds}s.",
+                    attempt,
+                    RestoreRoomAssignmentsMaxAttempts,
+                    RestoreRoomAssignmentsRetryDelay.TotalSeconds);
+
+                await Task.Delay(RestoreRoomAssignmentsRetryDelay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to restore room-account assignments from Redis after {MaxAttempts} attempts.",
+                    RestoreRoomAssignmentsMaxAttempts);
+                return;
+            }
         }
     }
 
@@ -315,7 +334,7 @@ public class BiliAccountService
         lock (_cacheLock) { _activeCookieCache = null; }
     }
 
-    private static string? BuildCookieString(string? cookieJson)
+    internal static string? BuildCookieString(string? cookieJson)
     {
         if (string.IsNullOrWhiteSpace(cookieJson)) return null;
         try

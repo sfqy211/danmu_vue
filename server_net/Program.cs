@@ -83,6 +83,7 @@ builder.Services.AddDbContext<DanmuContext>(options =>
 // Services
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<DanmakuService>();
+builder.Services.AddSingleton<RedisReadiness>();
 // Start embedded Redis (Garnet) before connecting
 builder.Services.AddHostedService<EmbeddedRedisService>();
 builder.Services.AddSingleton<RedisService>();
@@ -102,6 +103,7 @@ builder.Services.AddHostedService<VupInfoScheduler>();
 builder.Services.AddSingleton<LiveStatusService>();
 builder.Services.AddSingleton<ChangelogService>();
 builder.Services.AddSingleton<LogService>();
+builder.Services.AddHostedService<BiliAccountBootstrapService>();
 builder.Services.AddHostedService<LiveStatusService>(sp => sp.GetRequiredService<LiveStatusService>());
 
 // CORS
@@ -281,13 +283,5 @@ using (var scope = app.Services.CreateScope())
 // Restore recorders
 var pm = app.Services.GetRequiredService<ProcessManager>();
 _ = pm.RestoreRecordersAsync(); // Fire and forget but better to await if possible, but Run() is blocking.
-
-// Start BiliAccount auto-refresh loop
-var biliAccountService = app.Services.GetRequiredService<BiliAccountService>();
-biliAccountService.PreloadCacheAsync().GetAwaiter().GetResult();
-biliAccountService.StartAutoRefreshLoop();
-
-var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-lifetime.ApplicationStopping.Register(() => biliAccountService.StopAutoRefreshLoop());
 
 app.Run();
