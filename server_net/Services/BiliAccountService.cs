@@ -12,6 +12,9 @@ public class BiliAccountService
 {
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private const string RecordingAllocRedisKey = "recording:alloc";
+    private static readonly TimeSpan CookieHealthCheckInterval = TimeSpan.FromHours(1);
+    private static readonly TimeSpan WebCookieRefreshInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan WebCookieRefreshAheadWindow = TimeSpan.FromHours(24);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<BiliAccountService> _logger;
@@ -839,14 +842,19 @@ public class BiliAccountService
     {
         _ = Task.Run(async () =>
         {
+            var lastWebCookieRefreshSweepAt = DateTime.UtcNow - WebCookieRefreshInterval;
+
             while (!_loopCts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromHours(1), _loopCts.Token);
+                    await Task.Delay(CookieHealthCheckInterval, _loopCts.Token);
                     using var scope = _serviceProvider.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
                     var list = await db.BiliAccounts.AsNoTracking().ToListAsync();
+                    var now = DateTime.UtcNow;
+                    var runWebCookieRefreshSweep = now - lastWebCookieRefreshSweepAt >= WebCookieRefreshInterval;
+
                     foreach (var acc in list)
                     {
                         try
@@ -854,8 +862,24 @@ public class BiliAccountService
                             var isHealthy = await ValidateCookieAsync(acc.Uid);
                             if (!isHealthy)
                             {
-                                _logger.LogWarning("Cookie health check failed for {Uid}; reporting account failure.", acc.Uid);
-                                ReportAccountFailure(acc.Uid);
+                                _logger.LogWarning("Cookie health check failed for {Uid}; attempting web cookie refresh.", acc.Uid);
+
+                                var refreshed = false;
+                                try
+                                {
+                                    refreshed = await RefreshWebCookieAsync(acc.Uid);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Web cookie refresh failed after health check failure for {Uid}", acc.Uid);
+                                }
+
+                                if (!refreshed || !await ValidateCookieAsync(acc.Uid))
+                                {
+                                    _logger.LogWarning("Account {Uid} remains unhealthy after refresh attempt; reporting account failure.", acc.Uid);
+                                    ReportAccountFailure(acc.Uid);
+                                }
+
                                 continue;
                             }
                         }
@@ -864,18 +888,28 @@ public class BiliAccountService
                             _logger.LogWarning(ex, "Cookie health check threw for {Uid}", acc.Uid);
                         }
 
-                        if (acc.ExpiresAt.HasValue && acc.ExpiresAt.Value - DateTime.UtcNow < TimeSpan.FromDays(10))
+                        if (runWebCookieRefreshSweep)
                         {
-                            try
+                            var needsWebRefresh = !acc.ExpiresAt.HasValue || acc.ExpiresAt.Value - now <= WebCookieRefreshAheadWindow;
+                            if (needsWebRefresh)
                             {
-                                await RefreshAuthAsync(acc.Uid);
-                                _logger.LogInformation("Auto-refreshed auth for {Uid}", acc.Uid);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Auto-refresh failed for {Uid}", acc.Uid);
+                                try
+                                {
+                                    await RefreshWebCookieAsync(acc.Uid);
+                                    _logger.LogInformation("Auto-refreshed web cookie for {Uid}", acc.Uid);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Scheduled web cookie refresh failed for {Uid}; reporting account failure.", acc.Uid);
+                                    ReportAccountFailure(acc.Uid);
+                                }
                             }
                         }
+                    }
+
+                    if (runWebCookieRefreshSweep)
+                    {
+                        lastWebCookieRefreshSweepAt = now;
                     }
                 }
                 catch (OperationCanceledException)
