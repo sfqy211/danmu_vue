@@ -376,7 +376,7 @@ public class BilibiliService
         _biliTicketExpiresAtUnix = 0;
     }
 
-    private async Task<string> GetBiliTicketAsync()
+    private async Task<string?> GetBiliTicketAsync()
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (!string.IsNullOrWhiteSpace(_biliTicket) && now < _biliTicketExpiresAtUnix - BiliTicketRefreshBufferSeconds)
@@ -394,37 +394,55 @@ public class BilibiliService
             }
 
             var timestamp = now;
-            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["key_id"] = BiliTicketKeyId,
-                ["hexsign"] = GenerateBiliTicketSign(timestamp),
-                ["context[ts]"] = timestamp.ToString(),
-                ["csrf"] = string.Empty,
-            });
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, BiliTicketApi)
-            {
-                Content = content,
-            };
+            var hexsign = GenerateBiliTicketSign(timestamp);
+            var ticketUrl = $"{BiliTicketApi}?key_id={Uri.EscapeDataString(BiliTicketKeyId)}&hexsign={Uri.EscapeDataString(hexsign)}&context%5Bts%5D={timestamp}&csrf=";
+            using var request = new HttpRequestMessage(HttpMethod.Post, ticketUrl);
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
+
+            // Handle non-zero code responses gracefully (e.g. "empty ts field")
             if (!root.TryGetProperty("code", out var codeEl) || codeEl.GetInt32() != 0)
             {
                 var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : "Unknown error";
-                throw new InvalidOperationException($"Failed to get bili_ticket: {message}");
+                _logger.LogWarning("Failed to refresh bili_ticket (code != 0): {Message}", message);
+                // Return stale ticket with backoff to avoid hammering the API
+                if (!string.IsNullOrWhiteSpace(_biliTicket))
+                {
+                    _biliTicketExpiresAtUnix = timestamp + 300; // retry in 5 minutes
+                    return _biliTicket;
+                }
+                return null;
             }
 
-            var data = root.GetProperty("data");
-            var ticket = data.GetProperty("ticket").GetString();
-            var ttl = data.TryGetProperty("ttl", out var ttlEl) ? ttlEl.GetInt64() : 259200;
+            // Safely parse data/ticket — the response shape may vary
+            if (!root.TryGetProperty("data", out var data))
+            {
+                _logger.LogWarning("Failed to refresh bili_ticket: response missing 'data' field");
+                if (!string.IsNullOrWhiteSpace(_biliTicket))
+                {
+                    _biliTicketExpiresAtUnix = timestamp + 300;
+                    return _biliTicket;
+                }
+                return null;
+            }
+
+            var ticket = data.TryGetProperty("ticket", out var ticketEl) ? ticketEl.GetString() : null;
             if (string.IsNullOrWhiteSpace(ticket))
             {
-                throw new InvalidOperationException("Failed to get bili_ticket: empty ticket");
+                _logger.LogWarning("Failed to refresh bili_ticket: empty or missing ticket");
+                if (!string.IsNullOrWhiteSpace(_biliTicket))
+                {
+                    _biliTicketExpiresAtUnix = timestamp + 300;
+                    return _biliTicket;
+                }
+                return null;
             }
+
+            var ttl = data.TryGetProperty("ttl", out var ttlEl) ? ttlEl.GetInt64() : 259200;
 
             _biliTicket = ticket;
             _biliTicketExpiresAtUnix = timestamp + ttl;
@@ -914,6 +932,10 @@ public class BilibiliService
                 
                 return (followers, guardNum, videoCount);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout/cancellation is expected for this non-critical fallback — degrade silently
         }
         catch (Exception ex)
         {

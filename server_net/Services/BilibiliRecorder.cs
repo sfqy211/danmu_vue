@@ -538,7 +538,7 @@ public class BilibiliRecorder : IDisposable
         }
     }
 
-    private RecordedDanmakuEvent? CreateRecordedEvent(JsonElement root, string? cmd)
+    internal static RecordedDanmakuEvent? CreateRecordedEvent(JsonElement root, string? cmd)
     {
         if (string.IsNullOrWhiteSpace(cmd))
         {
@@ -707,7 +707,7 @@ public class BilibiliRecorder : IDisposable
         await WriteToRedisAsync(content);
     }
 
-    private static double NormalizeMoney(double rawPrice)
+    internal static double NormalizeMoney(double rawPrice)
     {
         if (rawPrice <= 0) return 0;
         return rawPrice >= 1000 ? rawPrice / 1000.0 : rawPrice;
