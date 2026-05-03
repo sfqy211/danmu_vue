@@ -8,19 +8,20 @@ public class LiveStatusService : BackgroundService
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<LiveStatusService> _logger;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly BilibiliService _bilibiliService;
     private readonly ProcessManager _pm;
 
     // Cache: room_id → (liveStatus, liveStartTime, updatedAt)
     private readonly ConcurrentDictionary<long, LiveState> _cache = new();
+    private readonly ConcurrentDictionary<long, Task<LiveState?>> _pendingRequests = new();
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(2);
 
     public LiveStatusService(IServiceProvider services, ILogger<LiveStatusService> logger,
-        IHttpClientFactory httpClientFactory, ProcessManager pm)
+        BilibiliService bilibiliService, ProcessManager pm)
     {
         _services = services;
         _logger = logger;
-        _httpClientFactory = httpClientFactory;
+        _bilibiliService = bilibiliService;
         _pm = pm;
     }
 
@@ -73,14 +74,11 @@ public class LiveStatusService : BackgroundService
 
         _logger.LogInformation("LiveStatusService checking {Count} rooms without active recorder", roomsToCheck.Count);
 
-        // Batch parallel requests (max 10 concurrent)
-        var semaphore = new SemaphoreSlim(10);
         var tasks = roomsToCheck.Select(async room =>
         {
-            await semaphore.WaitAsync(token);
             try
             {
-                var state = await FetchRoomStatusAsync(room.RoomId, token);
+                var state = await FetchRoomStatusWithDedupAsync(room.RoomId, token);
                 if (state != null)
                     _cache[room.RoomId] = state;
             }
@@ -88,63 +86,32 @@ public class LiveStatusService : BackgroundService
             {
                 _logger.LogDebug(ex, "Failed to fetch live status for room {RoomId}", room.RoomId);
             }
-            finally
-            {
-                semaphore.Release();
-            }
         }).ToList();
 
         await Task.WhenAll(tasks);
     }
 
-    private async Task<LiveState?> FetchRoomStatusAsync(long roomId, CancellationToken token)
+    private Task<LiveState?> FetchRoomStatusWithDedupAsync(long roomId, CancellationToken token)
     {
-        var client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(5);
+        return _pendingRequests.GetOrAdd(roomId, _ => FetchRoomStatusInternalAsync(roomId, token));
+    }
 
-        // Use room_init as a lightweight endpoint (no cookie needed)
-        var request = new HttpRequestMessage(HttpMethod.Get,
-            $"https://api.live.bilibili.com/room/v1/Room/room_init?id={roomId}");
-        request.Headers.TryAddWithoutValidation("User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        request.Headers.TryAddWithoutValidation("Referer", $"https://live.bilibili.com/{roomId}");
-
-        var response = await client.SendAsync(request, token);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(token);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        if (!root.TryGetProperty("code", out var code) || code.GetInt32() != 0)
-            return null;
-
-        if (!root.TryGetProperty("data", out var data))
-            return null;
-
-        int liveStatus = 0;
-        if (data.TryGetProperty("live_status", out var ls))
-            liveStatus = ls.GetInt32();
-
-        long? liveStartTime = null;
-        if (data.TryGetProperty("live_time", out var lt))
+    private async Task<LiveState?> FetchRoomStatusInternalAsync(long roomId, CancellationToken token)
+    {
+        try
         {
-            if (lt.ValueKind == JsonValueKind.Number)
-                liveStartTime = lt.GetInt64();
-            else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed))
-                liveStartTime = parsed;
+            var jitterMs = Random.Shared.Next(-3000, 3001);
+            if (jitterMs > 0)
+            {
+                await Task.Delay(jitterMs, token);
+            }
+
+            return await _bilibiliService.GetRoomInitAsync(roomId, token);
         }
-
-        if (liveStartTime.HasValue && liveStartTime.Value > 0 && liveStartTime.Value < 1_000_000_000_000)
-            liveStartTime = liveStartTime.Value * 1000;
-
-        return new LiveState
+        finally
         {
-            RoomId = roomId,
-            LiveStatus = liveStatus,
-            LiveStartTime = liveStartTime,
-            UpdatedAt = DateTime.UtcNow
-        };
+            _pendingRequests.TryRemove(roomId, out _);
+        }
     }
 }
 

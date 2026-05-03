@@ -92,6 +92,7 @@ builder.Services.AddHttpClient<BilibiliService>(client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<BiliRateLimiter>();
 builder.Services.AddSingleton<BiliAccountService>();
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<CosService>();

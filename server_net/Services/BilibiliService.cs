@@ -15,6 +15,7 @@ public class BilibiliService
     private readonly HttpClient _httpClient;
     private readonly ILogger<BilibiliService> _logger;
     private readonly BiliAccountService _accountService;
+    private readonly BiliRateLimiter _rateLimiter;
     private readonly WbiSigner _wbiSigner;
     private readonly SemaphoreSlim _biliTicketLock = new(1, 1);
     private readonly object _deviceFingerprintLock = new();
@@ -29,11 +30,12 @@ public class BilibiliService
     private volatile string? _bLsid;
     private long _bLsidExpiresAtUnix;
 
-    public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService)
+    public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService, BiliRateLimiter rateLimiter)
     {
         _httpClient = httpClient;
         _logger = logger;
         _accountService = accountService;
+        _rateLimiter = rateLimiter;
         _wbiSigner = new WbiSigner(_httpClient, _logger);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     }
@@ -227,20 +229,22 @@ public class BilibiliService
         string? cookie = null,
         string? referer = null,
         string? origin = null,
-        bool useWbi = false)
+        bool useWbi = false,
+        CancellationToken cancellationToken = default)
     {
         for (var retry = 0; retry < MaxWbiRetry; retry++)
         {
+            await _rateLimiter.WaitForAsync(cancellationToken);
             var biliTicket = await GetBiliTicketAsync();
             var deviceFingerprint = GetOrCreateDeviceFingerprintHeaders();
             using var request = useWbi
                 ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin, biliTicket, deviceFingerprint)
                 : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin, biliTicket, deviceFingerprint);
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (useWbi && TryGetApiCode(json, out var code) && code == -403 && retry < MaxWbiRetry - 1)
             {
                 _logger.LogWarning("WBI request got -403, invalidating mixin key and retrying: {Url}", baseUrl);
@@ -845,6 +849,52 @@ public class BilibiliService
             _logger.LogError(ex, "Failed to resolve real room id for {RoomId}", roomId);
         }
         return roomId;
+    }
+
+    public async Task<LiveState?> GetRoomInitAsync(long roomId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/room/v1/Room/room_init",
+                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                origin: "https://live.bilibili.com",
+                useWbi: true,
+                cancellationToken: cancellationToken);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("code", out var code) || code.GetInt32() != 0)
+                return null;
+            if (!root.TryGetProperty("data", out var data))
+                return null;
+
+            var liveStatus = data.TryGetProperty("live_status", out var ls) ? ls.GetInt32() : 0;
+            long? liveStartTime = null;
+            if (data.TryGetProperty("live_time", out var lt))
+            {
+                if (lt.ValueKind == JsonValueKind.Number)
+                    liveStartTime = lt.GetInt64();
+                else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed))
+                    liveStartTime = parsed;
+            }
+
+            if (liveStartTime.HasValue && liveStartTime.Value > 0 && liveStartTime.Value < 1_000_000_000_000)
+                liveStartTime = liveStartTime.Value * 1000;
+
+            return new LiveState
+            {
+                RoomId = roomId,
+                LiveStatus = liveStatus,
+                LiveStartTime = liveStartTime,
+                UpdatedAt = DateTime.UtcNow
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get room init for Room {RoomId}", roomId);
+            return null;
+        }
     }
 
     public async Task<(int? Followers, int? GuardNum, int? VideoCount)> GetVupStatsFromVtbsAsync(string uid)
