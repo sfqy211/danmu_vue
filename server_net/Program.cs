@@ -105,6 +105,7 @@ builder.Services.AddSingleton<ChangelogService>();
 builder.Services.AddSingleton<LogService>();
 builder.Services.AddHostedService<BiliAccountBootstrapService>();
 builder.Services.AddHostedService<LiveStatusService>(sp => sp.GetRequiredService<LiveStatusService>());
+builder.Services.AddHostedService<HealthCheckService>();
 
 // CORS
 builder.Services.AddCors(options =>

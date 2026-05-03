@@ -107,6 +107,11 @@ public class RedisService
     {
         return await _db.StringGetAsync($"danmu:live:{uid}");
     }
+
+    public virtual async Task<string?> GetStringAsync(string key)
+    {
+        return await _db.StringGetAsync(key);
+    }
     
     public virtual async Task ClearLiveSessionKeyAsync(string uid)
     {
