@@ -17,11 +17,17 @@ public class BilibiliService
     private readonly BiliAccountService _accountService;
     private readonly WbiSigner _wbiSigner;
     private readonly SemaphoreSlim _biliTicketLock = new(1, 1);
+    private readonly object _deviceFingerprintLock = new();
 
     private const int MaxWbiRetry = 3;
 
     private volatile string? _biliTicket;
     private long _biliTicketExpiresAtUnix;
+    private volatile string? _buvid3;
+    private volatile string? _buvid4;
+    private volatile string? _bNut;
+    private volatile string? _bLsid;
+    private long _bLsidExpiresAtUnix;
 
     public BilibiliService(HttpClient httpClient, ILogger<BilibiliService> logger, BiliAccountService accountService)
     {
@@ -70,7 +76,8 @@ public class BilibiliService
             IDictionary<string, string?> parameters,
             string? cookie = null,
             string? origin = null,
-            string? biliTicket = null)
+            string? biliTicket = null,
+            DeviceFingerprintHeaders? deviceFingerprint = null)
         {
             var signedParams = await SignParamsAsync(parameters);
             var request = new HttpRequestMessage(HttpMethod.Get, BuildUrl(baseUrl, signedParams));
@@ -90,7 +97,22 @@ public class BilibiliService
                 request.Headers.TryAddWithoutValidation("x-bili-ticket", biliTicket);
             }
 
+            ApplyDeviceFingerprintHeaders(request, deviceFingerprint);
+
             return request;
+        }
+
+        private static void ApplyDeviceFingerprintHeaders(HttpRequestMessage request, DeviceFingerprintHeaders? deviceFingerprint)
+        {
+            if (deviceFingerprint == null)
+            {
+                return;
+            }
+
+            request.Headers.TryAddWithoutValidation("buvid3", deviceFingerprint.Buvid3);
+            request.Headers.TryAddWithoutValidation("buvid4", deviceFingerprint.Buvid4);
+            request.Headers.TryAddWithoutValidation("b_nut", deviceFingerprint.BNut);
+            request.Headers.TryAddWithoutValidation("b_lsid", deviceFingerprint.BLsid);
         }
 
         internal async Task<IReadOnlyDictionary<string, string>> SignParamsAsync(IDictionary<string, string?> parameters)
@@ -210,9 +232,10 @@ public class BilibiliService
         for (var retry = 0; retry < MaxWbiRetry; retry++)
         {
             var biliTicket = await GetBiliTicketAsync();
+            var deviceFingerprint = GetOrCreateDeviceFingerprintHeaders();
             using var request = useWbi
-                ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin, biliTicket)
-                : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin, biliTicket);
+                ? await _wbiSigner.CreateSignedRequestAsync(baseUrl, parameters, cookie, origin, biliTicket, deviceFingerprint)
+                : CreateStandardGetRequest(baseUrl, parameters, cookie, referer, origin, biliTicket, deviceFingerprint);
 
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -238,7 +261,8 @@ public class BilibiliService
         string? cookie = null,
         string? referer = null,
         string? origin = null,
-        string? biliTicket = null)
+        string? biliTicket = null,
+        DeviceFingerprintHeaders? deviceFingerprint = null)
     {
         var filtered = parameters
             .Where(kv => kv.Value != null)
@@ -269,7 +293,77 @@ public class BilibiliService
             request.Headers.TryAddWithoutValidation("x-bili-ticket", biliTicket);
         }
 
+        if (deviceFingerprint != null)
+        {
+            request.Headers.TryAddWithoutValidation("buvid3", deviceFingerprint.Buvid3);
+            request.Headers.TryAddWithoutValidation("buvid4", deviceFingerprint.Buvid4);
+            request.Headers.TryAddWithoutValidation("b_nut", deviceFingerprint.BNut);
+            request.Headers.TryAddWithoutValidation("b_lsid", deviceFingerprint.BLsid);
+        }
+
         return request;
+    }
+
+    internal sealed record DeviceFingerprintHeaders(string Buvid3, string Buvid4, string BNut, string BLsid);
+
+    private DeviceFingerprintHeaders GetOrCreateDeviceFingerprintHeaders()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!string.IsNullOrWhiteSpace(_buvid3)
+            && !string.IsNullOrWhiteSpace(_buvid4)
+            && !string.IsNullOrWhiteSpace(_bNut)
+            && !string.IsNullOrWhiteSpace(_bLsid)
+            && now < _bLsidExpiresAtUnix)
+        {
+            return new DeviceFingerprintHeaders(_buvid3, _buvid4, _bNut, _bLsid);
+        }
+
+        lock (_deviceFingerprintLock)
+        {
+            now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (string.IsNullOrWhiteSpace(_buvid3))
+            {
+                _buvid3 = GenerateBuvid3();
+            }
+
+            if (string.IsNullOrWhiteSpace(_buvid4))
+            {
+                _buvid4 = GenerateBuvid4();
+            }
+
+            if (string.IsNullOrWhiteSpace(_bNut))
+            {
+                _bNut = now.ToString();
+            }
+
+            if (string.IsNullOrWhiteSpace(_bLsid) || now >= _bLsidExpiresAtUnix)
+            {
+                _bLsid = GenerateBLsid();
+                _bLsidExpiresAtUnix = now + 1800;
+            }
+
+            return new DeviceFingerprintHeaders(_buvid3!, _buvid4!, _bNut!, _bLsid!);
+        }
+    }
+
+    internal static string GenerateBuvid3()
+    {
+        var uuid = Guid.NewGuid().ToString("D");
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return $"{uuid}{ts}infoc";
+    }
+
+    internal static string GenerateBuvid4()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(16);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    internal static string GenerateBLsid()
+    {
+        var timestampHex = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString("X");
+        var randomHex = Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+        return $"{timestampHex}_{randomHex}";
     }
 
     private void InvalidateBiliTicket()
