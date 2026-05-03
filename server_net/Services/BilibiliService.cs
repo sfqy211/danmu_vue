@@ -915,35 +915,6 @@ public class BilibiliService
         }
     }
 
-    public async Task<(int? Followers, int? GuardNum, int? VideoCount)> GetVupStatsFromVtbsAsync(string uid)
-    {
-        try
-        {
-            var response = await _httpClient.GetAsync($"https://api.vtbs.moe/v1/detail/{uid}");
-            if (response.IsSuccessStatusCode)
-            {
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                
-                int? followers = root.TryGetProperty("follower", out var f) ? f.GetInt32() : null;
-                int? guardNum = root.TryGetProperty("guardNum", out var g) ? g.GetInt32() : null;
-                int? videoCount = root.TryGetProperty("video", out var v) ? v.GetInt32() : null;
-                
-                return (followers, guardNum, videoCount);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout/cancellation is expected for this non-critical fallback — degrade silently
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get stats from vtbs.moe for UID {Uid}", uid);
-        }
-        return (null, null, null);
-    }
-
     public async Task<(int Followers, int GuardNum, int VideoCount)> GetVupStatsAsync(long roomId, string uid)
     {
         int followers = 0;
@@ -1011,14 +982,6 @@ public class BilibiliService
 
             await Task.WhenAll(tasks);
 
-            // 2. Fallback to vtbs.moe ONLY if official data is missing
-            if (followers == 0 || guardNum == 0 || videoCount == 0)
-            {
-                var (vFollowers, vGuardNum, vVideoCount) = await GetVupStatsFromVtbsAsync(uid);
-                if (followers == 0) followers = vFollowers ?? 0;
-                if (guardNum == 0) guardNum = vGuardNum ?? 0;
-                if (videoCount == 0) videoCount = vVideoCount ?? 0;
-            }
         }
         catch (Exception ex)
         {
