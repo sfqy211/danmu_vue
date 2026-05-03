@@ -74,7 +74,7 @@ public class AdminController : ControllerBase
             long realLiveStartTime = proc?.LiveStartTime ?? liveStartTime;
             if (realLiveStatus == 0)
             {
-                var cached = _liveStatusService.GetCachedStatus(room.RoomId);
+                var cached = await _liveStatusService.GetCachedStatusAsync(room.RoomId);
                 if (cached != null)
                 {
                     realLiveStatus = cached.LiveStatus;
