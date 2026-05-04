@@ -13,6 +13,8 @@ RUN dotnet publish -c Release -o /app/publish
 # Stage 2: Runtime
 # Use DaoCloud mirror for China network
 FROM m.daocloud.io/mcr.microsoft.com/dotnet/aspnet:9.0
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 WORKDIR /app/server_net
 
 # Copy backend artifacts
