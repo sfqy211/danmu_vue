@@ -20,6 +20,7 @@ public class DanmakuService
     private readonly ILogger<DanmakuService> _logger;
     private readonly RedisService _redis;
     private readonly string _danmakuDir;
+    private readonly string _danmakuTmpDir;
 
     public DanmakuService(IServiceScopeFactory scopeFactory, ILogger<DanmakuService> logger, RedisService redis)
     {
@@ -28,6 +29,8 @@ public class DanmakuService
         _redis = redis;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
             ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
+        _danmakuTmpDir = Environment.GetEnvironmentVariable("DANMAKU_TMP_DIR")
+            ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku_tmp"));
     }
 
     private DanmuContext GetDb(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<DanmuContext>();
@@ -44,6 +47,85 @@ public class DanmakuService
                          (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)))
             .OrderByDescending(s => s.StartTime)
             .FirstOrDefaultAsync();
+    }
+
+    public async Task ReconcileTmpFilesAsync(string uid, long roomId, long? currentLiveStartTime, bool isLive)
+    {
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            uid = roomId.ToString();
+        }
+
+        var roomTmpDir = Path.Combine(_danmakuTmpDir, uid);
+        if (!Directory.Exists(roomTmpDir))
+        {
+            return;
+        }
+
+        var tmpFiles = Directory.GetFiles(roomTmpDir, "*.jsonl", SearchOption.TopDirectoryOnly);
+        if (tmpFiles.Length == 0)
+        {
+            return;
+        }
+
+        var keepFileName = isLive && currentLiveStartTime.HasValue && currentLiveStartTime.Value > 0
+            ? $"{currentLiveStartTime.Value}.jsonl"
+            : null;
+
+        foreach (var tmpFile in tmpFiles)
+        {
+            if (!string.IsNullOrEmpty(keepFileName)
+                && string.Equals(Path.GetFileName(tmpFile), keepFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Keeping tmp file for active live session: {TmpFile}", tmpFile);
+                continue;
+            }
+
+            await PromoteTmpFileAsync(uid, roomId, tmpFile);
+        }
+    }
+
+    public async Task PromoteTmpFileAsync(string uid, long roomId, string tmpFilePath)
+    {
+        if (!File.Exists(tmpFilePath))
+        {
+            return;
+        }
+
+        var parsed = await ParseJsonlFileAsync(tmpFilePath);
+        if (parsed == null)
+        {
+            return;
+        }
+
+        var effectiveUid = !string.IsNullOrWhiteSpace(parsed.Meta.Uid) ? parsed.Meta.Uid : uid;
+        var effectiveRoomId = long.TryParse(parsed.Meta.RoomId, out var parsedRoomId) ? parsedRoomId : roomId;
+        var startTimestamp = parsed.Meta.RecordStartTimestamp > 0
+            ? parsed.Meta.RecordStartTimestamp
+            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var title = string.IsNullOrWhiteSpace(parsed.Meta.Title) ? "未知直播" : parsed.Meta.Title;
+
+        var roomDir = Path.Combine(_danmakuDir, effectiveUid);
+        Directory.CreateDirectory(roomDir);
+        var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
+        var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(title)}.jsonl";
+        var finalFilePath = Path.Combine(roomDir, finalFileName);
+
+        _logger.LogInformation("Promoting tmp danmaku file {TmpFile} to {FinalFile}", tmpFilePath, finalFilePath);
+        File.Move(tmpFilePath, finalFilePath, true);
+
+        var activeSession = await GetActiveSessionAsync(effectiveUid, effectiveRoomId);
+        if (activeSession != null)
+        {
+            var endTime = parsed.Messages.Count > 0
+                ? parsed.Messages[^1].Timestamp
+                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            await CloseSessionAsync(effectiveUid, effectiveRoomId, endTime, finalFilePath);
+        }
+        else
+        {
+            await ProcessFileAsync(finalFilePath);
+        }
     }
 
     public async Task CreateLiveSessionAsync(string uid, long roomId, string title, string userName, long startTime, string sessionKey)

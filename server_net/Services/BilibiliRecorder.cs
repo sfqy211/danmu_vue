@@ -13,7 +13,7 @@ public class BilibiliRecorder : IDisposable
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan RecorderHeartbeatInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RecorderHeartbeatTtl = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan RedisIncrementalDumpInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RedisIncrementalDumpInterval = TimeSpan.FromMinutes(1);
 
     private readonly long _roomId;
     private readonly string _uid;
@@ -27,6 +27,7 @@ public class BilibiliRecorder : IDisposable
     private Task? _receiveTask;
     private Task? _heartbeatTask;
     private readonly string _danmakuDir;
+    private readonly string _danmakuTmpDir;
     private bool _isDisposed;
     private string? _token;
     private string? _host;
@@ -74,6 +75,8 @@ public class BilibiliRecorder : IDisposable
         var root = Directory.GetCurrentDirectory();
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                        ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku"));
+        _danmakuTmpDir = Environment.GetEnvironmentVariable("DANMAKU_TMP_DIR")
+                         ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku_tmp"));
     }
 
     public async Task StartAsync(string token, string host, BilibiliService bilibiliService, long realRoomId)
@@ -340,11 +343,11 @@ public class BilibiliRecorder : IDisposable
                 return;
             }
 
-            var roomDir = Path.Combine(_danmakuDir, _uid);
+            var roomDir = Path.Combine(_danmakuTmpDir, _uid);
             if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
 
             var meta = await _redis.GetMetadataAsync(metaKey);
-            var filename = await EnsureSessionFilenameAsync(metaKey, meta);
+            var filename = await EnsureTmpFilenameAsync(metaKey, meta);
             var filePath = Path.Combine(roomDir, filename);
 
             if (!File.Exists(filePath) || new FileInfo(filePath).Length == 0)
@@ -1003,9 +1006,15 @@ public class BilibiliRecorder : IDisposable
                 }
             }
 
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var timestamp = LiveStartTime.GetValueOrDefault();
+            var startTimeIsFallback = false;
+            if (timestamp <= 0)
+            {
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                startTimeIsFallback = true;
+            }
             _currentSessionKey = $"danmaku:session:{_uid}:{timestamp}";
-            var filename = BuildSessionFilename(timestamp);
+            var filename = BuildTmpFilename(timestamp);
             
             var meta = new Dictionary<string, string>
             {
@@ -1015,6 +1024,7 @@ public class BilibiliRecorder : IDisposable
                 { "room_title", _title },
                 { "user_name", _userName },
                 { "video_start_time", timestamp.ToString() },
+                { "start_time_is_fallback", startTimeIsFallback ? "1" : "0" },
                 { "filename", filename },
                 { "dump_offset", "0" }
             };
@@ -1116,8 +1126,20 @@ public class BilibiliRecorder : IDisposable
         var meta = await _redis.GetMetadataAsync(metaKey);
         if (long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp))
         {
-            await _redis.SetMetadataFieldAsync(metaKey, "filename", BuildSessionFilename(startTimestamp));
+            await _redis.SetMetadataFieldAsync(metaKey, "filename", BuildTmpFilename(startTimestamp));
         }
+    }
+
+    private static string BuildTmpFilename(long startTimestamp)
+    {
+        return $"{startTimestamp}.jsonl";
+    }
+
+    private static long GetSessionStartTimestamp(IReadOnlyDictionary<string, string> meta)
+    {
+        return long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp) && startTimestamp > 0
+            ? startTimestamp
+            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
     private string BuildSessionFilename(long startTimestamp)
@@ -1131,7 +1153,7 @@ public class BilibiliRecorder : IDisposable
         return $"{dateStr} {SanitizeFileName(title)}.jsonl";
     }
 
-    private async Task<string> EnsureSessionFilenameAsync(string metaKey, Dictionary<string, string> meta)
+    private async Task<string> EnsureTmpFilenameAsync(string metaKey, Dictionary<string, string> meta)
     {
         if (meta.TryGetValue("filename", out var existingFilename) && !string.IsNullOrWhiteSpace(existingFilename))
         {
@@ -1144,11 +1166,7 @@ public class BilibiliRecorder : IDisposable
             startTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
 
-        var effectiveTitle = meta.TryGetValue("room_title", out var roomTitle) && !string.IsNullOrWhiteSpace(roomTitle)
-            ? roomTitle
-            : _title;
-
-        var filename = BuildSessionFilename(startTimestamp, effectiveTitle);
+        var filename = BuildTmpFilename(startTimestamp);
         await _redis.SetMetadataFieldAsync(metaKey, "filename", filename);
         meta["filename"] = filename;
         return filename;
@@ -1165,7 +1183,8 @@ public class BilibiliRecorder : IDisposable
             realRoomId = meta.GetValueOrDefault("real_room_id", _realRoomId.ToString()),
             title = meta.GetValueOrDefault("room_title", _title),
             userName = meta.GetValueOrDefault("user_name", _userName),
-            startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString())
+            startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()),
+            startTimeIsFallback = meta.GetValueOrDefault("start_time_is_fallback", "0") == "1"
         }, EventJsonOptions);
     }
 
@@ -1220,18 +1239,17 @@ public class BilibiliRecorder : IDisposable
             var metaKey = _currentSessionKey + ":meta";
             var meta = await _redis.GetMetadataAsync(metaKey);
 
-            var filename = await EnsureSessionFilenameAsync(metaKey, meta);
-            var roomDir = Path.Combine(_danmakuDir, _uid);
-            if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
-            var filePath = Path.Combine(roomDir, filename);
-            var tempPath = filePath + ".tmp";
+            var tmpFileName = await EnsureTmpFilenameAsync(metaKey, meta);
+            var tmpRoomDir = Path.Combine(_danmakuTmpDir, _uid);
+            if (!Directory.Exists(tmpRoomDir)) Directory.CreateDirectory(tmpRoomDir);
+            var tmpFilePath = Path.Combine(tmpRoomDir, tmpFileName);
 
             var lines = new List<string>();
             var metaLine = BuildSessionMetaLine(meta);
 
-            if (File.Exists(filePath))
+            if (File.Exists(tmpFilePath))
             {
-                var existingLines = await File.ReadAllLinesAsync(filePath, Encoding.UTF8);
+                var existingLines = await File.ReadAllLinesAsync(tmpFilePath, Encoding.UTF8);
                 if (existingLines.Length > 0)
                 {
                     if (LooksLikeMetaLine(existingLines[0]))
@@ -1263,18 +1281,20 @@ public class BilibiliRecorder : IDisposable
                 lines.AddRange(remaining);
             }
 
-            await File.WriteAllLinesAsync(tempPath, lines, Encoding.UTF8);
-            
-            if (File.Exists(filePath)) File.Delete(filePath);
-            File.Move(tempPath, filePath);
-            
-            _logger.LogInformation($"Dumped Redis to {filePath}");
+            await File.WriteAllLinesAsync(tmpFilePath, lines, Encoding.UTF8);
+            _logger.LogInformation($"Flushed final Redis tail to tmp file {tmpFilePath}");
             
             var endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             
             if (OnSessionEnded != null)
             {
-                await OnSessionEnded.Invoke(_uid, _roomId, endTime, filePath);
+                var finalFileName = BuildSessionFilename(GetSessionStartTimestamp(meta), meta.GetValueOrDefault("room_title", _title));
+                var finalRoomDir = Path.Combine(_danmakuDir, _uid);
+                if (!Directory.Exists(finalRoomDir)) Directory.CreateDirectory(finalRoomDir);
+                var finalFilePath = Path.Combine(finalRoomDir, finalFileName);
+                File.Move(tmpFilePath, finalFilePath, true);
+                _logger.LogInformation("Promoted tmp file {TmpFile} to final file {FinalFile}", tmpFilePath, finalFilePath);
+                await OnSessionEnded.Invoke(_uid, _roomId, endTime, finalFilePath);
             }
 
             await _redis.DeleteKeyAsync(_currentSessionKey + ":list");

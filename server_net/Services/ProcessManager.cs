@@ -203,6 +203,18 @@ public class ProcessManager
         {
             try 
             {
+                var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
+                var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                var liveState = await biliService.GetRoomStatusByRoomIdAsync(room.RoomId);
+                var isLive = liveState?.LiveStatus == 1;
+                await danmakuService.ReconcileTmpFilesAsync(room.Uid ?? room.RoomId.ToString(), room.RoomId, liveState?.LiveStartTime, isLive);
+
+                if (!isLive)
+                {
+                    _logger.LogInformation("Skipping recorder restore for offline room {RoomName} (Uid: {Uid}, RoomId: {RoomId}) after tmp reconciliation.", room.Name, room.Uid, room.RoomId);
+                    continue;
+                }
+
                 _logger.LogInformation($"Restoring recorder for {room.Name} (Uid: {room.Uid}, RoomId: {room.RoomId})...");
                 await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
                 // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
