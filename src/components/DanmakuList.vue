@@ -45,9 +45,11 @@
                 :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
                 class="danmaku-item">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(normalList[virtualItem.index].timestamp) : normalList[virtualItem.index].timeStr }}</span>
-                <span v-if="normalList[virtualItem.index].wealthLevel" class="wealth-level">{{ normalList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" :alt="'财' + normalList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="normalList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, normalList[virtualItem.index])">{{ normalList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(normalList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(normalList[virtualItem.index].guardLevel)" />
                 <span class="dm-message">{{ normalList[virtualItem.index].content }}</span>
               </div>
             </div>
@@ -79,9 +81,11 @@
                 :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
                 class="danmaku-item info-item">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(infoList[virtualItem.index].timestamp) : infoList[virtualItem.index].timeStr }}</span>
-                <span v-if="infoList[virtualItem.index].wealthLevel" class="wealth-level">{{ infoList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(infoList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(infoList[virtualItem.index].wealthLevel)" :alt="'财' + infoList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="infoList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, infoList[virtualItem.index])">{{ infoList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(infoList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(infoList[virtualItem.index].guardLevel)" />
                 <span class="info-type-label">{{ getEventTypeLabel(infoList[virtualItem.index]) }}</span>
                 <span v-if="infoList[virtualItem.index].content" class="dm-message">{{ infoList[virtualItem.index].content }}</span>
               </div>
@@ -120,9 +124,11 @@
                 backgroundColor: getSCStyle(scList[virtualItem.index].price || 0).bg,
               }">
               <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(scList[virtualItem.index].timestamp) : scList[virtualItem.index].timeStr }}</span>
-              <span v-if="scList[virtualItem.index].wealthLevel" class="wealth-level">{{ scList[virtualItem.index].wealthLevel }}</span>
+              <img v-if="getWealthLevelUrl(scList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(scList[virtualItem.index].wealthLevel)" :alt="'财' + scList[virtualItem.index].wealthLevel" />
               <FansMedal :item="scList[virtualItem.index]" />
+              
               <span class="dm-user" @click="openUserMenu($event, scList[virtualItem.index])">{{ scList[virtualItem.index].user }}</span>
+              <img v-if="getGuardIconUrl(scList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(scList[virtualItem.index].guardLevel)" />
               <span class="dm-meta">
                 <span class="sc-price" :style="{ color: getSCStyle(scList[virtualItem.index].price || 0).main }">¥{{ formatPrice(scList[virtualItem.index].price || 0) }}</span>
               </span>
@@ -165,9 +171,11 @@
               <!-- GIFT: SEND_GIFT -->
               <template v-if="getEventType(giftList[virtualItem.index]) === 'give_gift'">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <span v-if="giftList[virtualItem.index].wealthLevel" class="wealth-level">{{ giftList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="giftList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
                 <span class="dm-meta">
                   <span class="gift-name">{{ giftList[virtualItem.index].name }}</span>
                   <span class="gift-count">x{{ giftList[virtualItem.index].count || 1 }}</span>
@@ -178,9 +186,11 @@
               <!-- GUARD: GUARD_BUY -->
               <template v-else-if="getEventType(giftList[virtualItem.index]) === 'guard'">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <span v-if="giftList[virtualItem.index].wealthLevel" class="wealth-level">{{ giftList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="giftList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
                 <span class="dm-meta">
                   <span class="guard-badge-inline">{{ getGuardName(giftList[virtualItem.index].guardLevel) }}</span>
                   <span v-if="giftList[virtualItem.index].price" class="guard-price">¥{{ formatPrice(giftList[virtualItem.index].price || 0) }}</span>
@@ -190,9 +200,11 @@
               <!-- GIFT COMBO: COMBO_SEND -->
               <template v-else-if="getEventType(giftList[virtualItem.index]) === 'gift_combo'">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <span v-if="giftList[virtualItem.index].wealthLevel" class="wealth-level">{{ giftList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="giftList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
                 <span class="dm-meta">
                   <span class="gift-name">{{ giftList[virtualItem.index].name }}</span>
                   <span class="gift-count combo-count">x{{ giftList[virtualItem.index].count || 1 }}</span>
@@ -202,9 +214,11 @@
               <!-- Fallback -->
               <template v-else>
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <span v-if="giftList[virtualItem.index].wealthLevel" class="wealth-level">{{ giftList[virtualItem.index].wealthLevel }}</span>
+                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
                 <FansMedal :item="giftList[virtualItem.index]" />
+                
                 <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
+                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
                 <span class="dm-meta">
                   <span class="generic-type">{{ getEventTypeLabel(giftList[virtualItem.index]) }}</span>
                 </span>
@@ -243,6 +257,9 @@ import { useDanmakuStore } from '../stores/danmakuStore';
 import { storeToRefs } from 'pinia';
 import type { Danmaku } from '../api/danmaku';
 import FansMedal from './FansMedal.vue';
+
+import { getWealthLevelUrl } from '../constants/wealthLevel';
+import { getGuardIconUrl } from '../constants/guardIcon';
 
 const store = useDanmakuStore();
 const {
@@ -1092,19 +1109,23 @@ onUnmounted(() => {
 }
 
 /* ═══════ Wealth Level (荣耀等级) ═══════ */
-.wealth-level {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.wealth-level-img {
+  display: inline-block;
   flex-shrink: 0;
-  padding: 0 4px;
-  border-radius: 3px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1.4;
-  background: linear-gradient(135deg, #e6a23c, #f0c060);
-  color: #fff;
-  text-shadow: 0 1px 1px rgba(0,0,0,0.2);
-  white-space: nowrap;
+  height: 18px;
+  width: auto;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+/* ═══════ Guard Icon Inline (舰长图标) ═══════ */
+.guard-icon-inline {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-left: 1px;
 }
 </style>

@@ -3,16 +3,13 @@
     v-if="item.medalName && item.medalLevel != null"
     class="fans-medal"
     :class="{
-      'fans-medal-light': item.medalIsLight,
-      [`fans-medal-tier--${tier}`]: true,
+      'fans-medal-lightened': item.medalIsLight,
+      'fans-medal-has-guard': !!item.medalGuardLevel,
     }"
+    :style="{ '--medal-color': mainColor }"
   >
     <div class="fans-medal-content">
-      <div
-        v-if="item.medalGuardLevel"
-        class="guard-badge-in-fans-medal"
-        :class="`guard-level--${item.medalGuardLevel}`"
-      />
+      <i v-if="item.medalGuardLevel" class="medal-deco medal-guard" :class="`medal-guard--${item.medalGuardLevel}`"></i>
       {{ item.medalName }}
     </div>
     <div class="fans-medal-level">{{ item.medalLevel }}</div>
@@ -27,24 +24,35 @@ const props = defineProps<{ item: Danmaku }>();
 
 const tier = computed(() => {
   const lvl = props.item.medalLevel ?? 0;
-  if (lvl <= 4) return 1;
-  if (lvl <= 8) return 2;
-  if (lvl <= 12) return 3;
-  if (lvl <= 16) return 4;
-  if (lvl <= 20) return 5;
-  if (lvl <= 24) return 6;
-  if (lvl <= 28) return 7;
-  if (lvl <= 32) return 8;
-  if (lvl <= 36) return 9;
-  return 10;
+  if (lvl <= 10) return 1;
+  if (lvl <= 20) return 2;
+  if (lvl <= 30) return 3;
+  if (lvl <= 40) return 4;
+  if (lvl <= 50) return 5;
+  if (lvl <= 60) return 6;
+  return 7;
 });
+
+const colorMap: Record<number, string> = {
+  1: '#5963A5',
+  2: '#C474A4',
+  3: '#4AB3E7',
+  4: '#5781E4',
+  5: '#A779E6',
+  6: '#E05673',
+  7: '#F08632',
+};
+
+const mainColor = computed(() => colorMap[tier.value] ?? '#5963A5');
 </script>
 
 <style scoped>
+/* ═══════ Fans Medal — Bilibili-style pill badge ═══════ */
+
 .fans-medal {
   display: inline-flex;
   align-items: center;
-  border-radius: 3px;
+  border-radius: 999px;
   overflow: hidden;
   font-size: 0.7rem;
   line-height: 1;
@@ -53,59 +61,51 @@ const tier = computed(() => {
   cursor: default;
   user-select: none;
   font-weight: 600;
+  color: #fff;
+  /* Default: not lightened → grey */
+  background-image: linear-gradient(45deg, rgba(145, 146, 152, 0.8), rgba(145, 146, 152, 0.8));
 }
 
+/* ─── Lightened (点亮态) — show actual tier color ─── */
+.fans-medal-lightened {
+  background-image: none !important;
+  background-color: var(--medal-color);
+}
+
+/* ─── Left: guard icon + medal name ─── */
 .fans-medal-content {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 0 4px;
+  padding: 0 4px 0 3px;
   height: 100%;
-  color: #fff;
   white-space: nowrap;
+  color: #fff;
 }
 
+/* ─── Guard icon (local assets — keep paths in sync with constants/guardIcon.ts) ─── */
+.medal-deco.medal-guard {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.medal-guard--1 { background-image: url('/guard-icon/governor.webp'); }
+.medal-guard--2 { background-image: url('/guard-icon/admiral.webp'); }
+.medal-guard--3 { background-image: url('/guard-icon/captain.webp'); }
+
+/* ─── Right: level number ─── */
 .fans-medal-level {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 3px;
+  padding: 0 4px 0 2px;
   height: 100%;
-  background-color: #fff;
-  color: #333;
   font-weight: 700;
-  min-width: 14px;
-  text-align: center;
-}
-
-/* Guard dot inside medal */
-.guard-badge-in-fans-medal {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.guard-level--1 { background-color: #f25d8e; }
-.guard-level--2 { background-color: #f25d8e; }
-.guard-level--3 { background-color: #f25d8e; }
-
-/* Tier colors (default / not lightened) */
-.fans-medal-tier--1 .fans-medal-content { background: linear-gradient(90deg, #969696, #b0b0b0); }
-.fans-medal-tier--2 .fans-medal-content { background: linear-gradient(90deg, #5d8ac4, #7aa3d6); }
-.fans-medal-tier--3 .fans-medal-content { background: linear-gradient(90deg, #5dc4a6, #7dd6bc); }
-.fans-medal-tier--4 .fans-medal-content { background: linear-gradient(90deg, #c4a65d, #d6bc7d); }
-.fans-medal-tier--5 .fans-medal-content { background: linear-gradient(90deg, #c47d5d, #d69a7d); }
-.fans-medal-tier--6 .fans-medal-content { background: linear-gradient(90deg, #c45d5d, #d67d7d); }
-.fans-medal-tier--7 .fans-medal-content { background: linear-gradient(90deg, #8a5dc4, #a67dd6); }
-.fans-medal-tier--8 .fans-medal-content { background: linear-gradient(90deg, #6a4ca3, #8a6dc4); }
-.fans-medal-tier--9 .fans-medal-content { background: linear-gradient(90deg, #d4a017, #e8c050); }
-.fans-medal-tier--10 .fans-medal-content { background: linear-gradient(90deg, #b8860b, #daa520); }
-
-/* Lightened variant (golden) */
-.fans-medal-light .fans-medal-content {
-  background: linear-gradient(90deg, #e6a23c, #f0c060) !important;
-}
-.fans-medal-light .fans-medal-level {
-  color: #b8741a !important;
+  color: #fff;
 }
 </style>
