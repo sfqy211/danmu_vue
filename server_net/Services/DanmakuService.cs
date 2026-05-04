@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Danmu.Server.Data;
@@ -536,6 +537,69 @@ public class DanmakuService
         }
     }
 
+    public async Task<Session?> ImportLegacyXmlAsJsonlAsync(string sourceXmlPath)
+    {
+        if (!File.Exists(sourceXmlPath)) return null;
+        if (!string.Equals(Path.GetExtension(sourceXmlPath), ".xml", StringComparison.OrdinalIgnoreCase)) return null;
+
+        var parsed = await ParseLegacyXmlFileAsync(sourceXmlPath);
+        if (parsed == null) return null;
+
+        var uidOrRoom = !string.IsNullOrWhiteSpace(parsed.Meta.Uid)
+            ? parsed.Meta.Uid
+            : (!string.IsNullOrWhiteSpace(parsed.Meta.RoomId) ? parsed.Meta.RoomId : InferUidFromPath(sourceXmlPath));
+        if (string.IsNullOrWhiteSpace(uidOrRoom))
+        {
+            uidOrRoom = "unknown";
+        }
+
+        var roomDir = Path.Combine(_danmakuDir, uidOrRoom);
+        Directory.CreateDirectory(roomDir);
+
+        var startTimestamp = parsed.Meta.RecordStartTimestamp > 0
+            ? parsed.Meta.RecordStartTimestamp
+            : new DateTimeOffset(File.GetLastWriteTimeUtc(sourceXmlPath)).ToUnixTimeMilliseconds();
+        var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
+        var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(parsed.Meta.Title)}.jsonl";
+        var finalPath = GetAvailableFilePath(Path.Combine(roomDir, finalFileName));
+
+        var metaLine = JsonSerializer.Serialize(new
+        {
+            kind = "meta",
+            version = "danmu-jsonl-v1",
+            uid = parsed.Meta.Uid,
+            roomId = parsed.Meta.RoomId,
+            realRoomId = parsed.Meta.RoomId,
+            title = parsed.Meta.Title,
+            userName = parsed.Meta.UserName,
+            startTime = startTimestamp,
+            startTimeIsFallback = parsed.Meta.RecordStartTimestamp <= 0
+        }, JsonOptions);
+
+        var lines = new List<string> { metaLine };
+        lines.AddRange(parsed.Messages.Select(m => JsonSerializer.Serialize(ToRecordedEvent(m), JsonOptions)));
+        await File.WriteAllLinesAsync(finalPath, lines, Encoding.UTF8);
+
+        var analysis = await ProcessFileAsync(finalPath);
+        if (analysis == null)
+        {
+            try
+            {
+                File.Delete(finalPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete converted JSONL file after import processing failed: {FilePath}", finalPath);
+            }
+            return null;
+        }
+
+        var relativePath = Path.GetRelativePath(_danmakuDir, finalPath).Replace("\\", "/");
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+        return await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == relativePath);
+    }
+
     private async Task<List<DanmakuMessage>> LoadMessagesFromFileAsync(string filePath)
     {
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
@@ -701,7 +765,7 @@ public class DanmakuService
                 Type = "give_gift",
                 Name = match.Groups[1].Value,
                 Count = count > 0 ? count : 1,
-                Price = priceRaw / 1000.0,
+                Price = NormalizeXmlGoldSeeds(priceRaw),
                 IsPriceTotal = false,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[4].Value, Uid = match.Groups[5].Value }
@@ -711,43 +775,58 @@ public class DanmakuService
         var scRegex = new Regex(@"<sc (?:ts=""([^""]+)"" )?[^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""[^>]*>(.*?)</sc>");
         foreach (Match match in scRegex.Matches(content))
         {
-            double.TryParse(match.Groups[2].Value, out var price);
+            double.TryParse(match.Groups[2].Value, out var priceRaw);
             long.TryParse(match.Groups[5].Value, out var timestamp);
             messages.Add(new DanmakuMessage
             {
                 Type = "super_chat",
                 Text = match.Groups[6].Value,
-                Price = price,
+                Price = NormalizeXmlGoldSeeds(priceRaw),
                 IsPriceTotal = true,
                 Timestamp = timestamp,
                 Sender = new Sender { Name = match.Groups[3].Value, Uid = match.Groups[4].Value }
             });
         }
 
-        var guardRegex = new Regex(@"<guard [^>]*guard_level=""([^""]+)""[^>]*guard_name=""([^""]+)""[^>]*num=""([^""]+)""[^>]*price=""([^""]+)""[^>]*user=""([^""]+)""[^>]*uid=""([^""]+)""[^>]*timestamp=""([^""]+)""");
+        var guardRegex = new Regex(@"<guard\s+([^>]*)>", RegexOptions.IgnoreCase);
         foreach (Match match in guardRegex.Matches(content))
         {
-            double.TryParse(match.Groups[4].Value, out var price);
-            int.TryParse(match.Groups[1].Value, out var level);
-            int.TryParse(match.Groups[3].Value, out var count);
-            long.TryParse(match.Groups[7].Value, out var timestamp);
-            var normalized = price > 1000 ? price / 1000.0 : price;
+            var attrs = match.Groups[1].Value;
+            double.TryParse(GetXmlAttribute(attrs, "price"), out var priceRaw);
+            int.TryParse(GetXmlAttribute(attrs, "guard_level") ?? GetXmlAttribute(attrs, "level"), out var level);
+            int.TryParse(GetXmlAttribute(attrs, "num") ?? GetXmlAttribute(attrs, "giftcount"), out var count);
+            long.TryParse(GetXmlAttribute(attrs, "timestamp"), out var timestamp);
 
             messages.Add(new DanmakuMessage
             {
                 Type = "guard",
-                Name = match.Groups[2].Value,
+                Name = GetXmlAttribute(attrs, "guard_name") ?? GetXmlAttribute(attrs, "giftname") ?? "舰长",
                 GuardLevel = level > 0 ? level : 3,
                 Count = count > 0 ? count : 1,
-                Price = normalized,
-                IsPriceTotal = false,
+                Price = NormalizeXmlGoldSeeds(priceRaw),
+                IsPriceTotal = true,
                 Timestamp = timestamp,
-                Sender = new Sender { Name = match.Groups[5].Value, Uid = match.Groups[6].Value }
+                Sender = new Sender
+                {
+                    Name = GetXmlAttribute(attrs, "user") ?? "",
+                    Uid = GetXmlAttribute(attrs, "uid") ?? ""
+                }
             });
         }
 
         messages.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
         return messages;
+    }
+
+    private static double NormalizeXmlGoldSeeds(double rawPrice)
+    {
+        return rawPrice <= 0 ? 0 : rawPrice / 1000.0;
+    }
+
+    private static string? GetXmlAttribute(string attributes, string name)
+    {
+        var match = Regex.Match(attributes, $@"\b{Regex.Escape(name)}=""([^""]*)""", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private AnalysisResult BuildAnalysis(List<DanmakuMessage> messages)
@@ -972,7 +1051,45 @@ public class DanmakuService
         return parent?.Name ?? "";
     }
 
+    private static string GetAvailableFilePath(string preferredPath)
+    {
+        if (!File.Exists(preferredPath)) return preferredPath;
 
+        var directory = Path.GetDirectoryName(preferredPath) ?? "";
+        var fileName = Path.GetFileNameWithoutExtension(preferredPath);
+        var extension = Path.GetExtension(preferredPath);
+        for (var i = 1; ; i++)
+        {
+            var candidate = Path.Combine(directory, $"{fileName} ({i}){extension}");
+            if (!File.Exists(candidate)) return candidate;
+        }
+    }
+
+    private static RecordedDanmakuEvent ToRecordedEvent(DanmakuMessage message)
+    {
+        return new RecordedDanmakuEvent
+        {
+            Type = message.Type == "give_gift" ? "gift" : message.Type,
+            Timestamp = message.Timestamp,
+            Text = message.Text,
+            TextJpn = message.TextJpn,
+            Name = message.Name,
+            Count = message.Count ?? 1,
+            Price = message.Price,
+            IsPriceTotal = message.IsPriceTotal,
+            GuardLevel = message.GuardLevel,
+            User = message.Sender.Name,
+            Uid = message.Sender.Uid,
+            RawCommand = message.Type switch
+            {
+                "comment" => "DANMU_MSG",
+                "give_gift" => "SEND_GIFT",
+                "super_chat" => "SUPER_CHAT_MESSAGE",
+                "guard" => "GUARD_BUY",
+                _ => message.Type
+            }
+        };
+    }
 
     private static string? TryGetString(JsonElement element, string propertyName)
     {

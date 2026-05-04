@@ -87,7 +87,7 @@ public class DanmakuProcessor : BackgroundService
         }
     }
 
-    private static bool IsSupportedDanmakuFile(string filePath)
+    internal static bool IsSupportedDanmakuFile(string filePath)
     {
         var extension = Path.GetExtension(filePath);
         return string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase)

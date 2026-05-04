@@ -408,7 +408,7 @@ const normalizeQrPoll = (poll: any): QrCodePollResponse => {
   };
 };
 
-const getAuthConfig = () => {
+export const getAuthConfig = () => {
   const token = localStorage.getItem('admin_token') || '';
   return { headers: { Authorization: `Bearer ${token}` } };
 };

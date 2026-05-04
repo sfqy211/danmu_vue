@@ -396,6 +396,72 @@ public class AdminController : ControllerBase
         return Ok(new { success = true, id = session.Id });
     }
 
+    [HttpPost("sessions/upload-xml")]
+    [RequestSizeLimit(512 * 1024 * 1024)]
+    public async Task<IActionResult> UploadSessionXml([FromForm] IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { error = "请选择要上传的 XML 文件" });
+        }
+
+        if (!string.Equals(Path.GetExtension(file.FileName), ".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { error = "仅支持上传 .xml 文件" });
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "danmu-session-imports");
+        Directory.CreateDirectory(tempDir);
+        var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}.xml");
+
+        try
+        {
+            await using (var stream = System.IO.File.Create(tempPath))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            var session = await _danmakuService.ImportLegacyXmlAsJsonlAsync(tempPath);
+            if (session == null)
+            {
+                return BadRequest(new { error = "XML 解析或转换失败" });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                id = session.Id,
+                session = new
+                {
+                    session.Id,
+                    session.Uid,
+                    session.RoomId,
+                    session.Title,
+                    session.UserName,
+                    session.StartTime,
+                    session.EndTime,
+                    session.FilePath
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload and import session XML file {FileName}", file.FileName);
+            return StatusCode(500, new { error = "上传导入失败: " + ex.Message });
+        }
+        finally
+        {
+            try
+            {
+                if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temp upload file {TempPath}", tempPath);
+            }
+        }
+    }
+
     [HttpPost("sessions/recalculate")]
     public async Task<IActionResult> RecalculateSessions([FromBody] RecalculateSessionsDto dto)
     {

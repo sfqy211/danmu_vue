@@ -12,7 +12,7 @@ import { getAdminChangelog, addChangelog, updateChangelog, deleteChangelog, type
 import LogViewer from '../components/LogViewer.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
-  Refresh, Switch, Plus, VideoPlay, Delete, EditPen, 
+  Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
   VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document,
   Sunny, Moon
 } from '@element-plus/icons-vue';
@@ -102,6 +102,9 @@ const sessionPageSize = ref(20);
 const sessionTotal = ref(0);
 const sessionDialogVisible = ref(false);
 const sessionFormMode = ref<'create' | 'edit'>('create');
+const sessionUploadFile = ref<File | null>(null);
+const sessionUploadFileList = ref<any[]>([]);
+const sessionUploadLoading = ref(false);
 const sessionForm = ref({
   id: 0,
   roomId: '',
@@ -873,6 +876,8 @@ const applySessionFilters = async () => {
 
 const openCreateSession = () => {
   sessionFormMode.value = 'create';
+  sessionUploadFile.value = null;
+  sessionUploadFileList.value = [];
   sessionForm.value = {
     id: 0,
     roomId: '',
@@ -887,6 +892,8 @@ const openCreateSession = () => {
 
 const openEditSession = (row: AdminSession) => {
   sessionFormMode.value = 'edit';
+  sessionUploadFile.value = null;
+  sessionUploadFileList.value = [];
   sessionForm.value = {
     id: row.id,
     roomId: row.roomId ?? '',
@@ -897,6 +904,24 @@ const openEditSession = (row: AdminSession) => {
     filePath: row.filePath ?? ''
   };
   sessionDialogVisible.value = true;
+};
+
+const handleSessionXmlChange = (uploadFile: any, uploadFiles: any[]) => {
+  const raw = uploadFile.raw as File | undefined;
+  if (!raw) return;
+  if (!raw.name.toLowerCase().endsWith('.xml')) {
+    ElMessage.error('仅支持上传 .xml 文件');
+    sessionUploadFile.value = null;
+    sessionUploadFileList.value = [];
+    return;
+  }
+  sessionUploadFile.value = raw;
+  sessionUploadFileList.value = uploadFiles.slice(-1);
+};
+
+const handleSessionXmlRemove = () => {
+  sessionUploadFile.value = null;
+  sessionUploadFileList.value = [];
 };
 
 const saveSession = async () => {
@@ -911,8 +936,15 @@ const saveSession = async () => {
 
   try {
     if (sessionFormMode.value === 'create') {
-      await adminApi.post('/admin/sessions', payload, getAuthConfig());
-      ElMessage.success('直播场次已添加');
+      if (!sessionUploadFile.value) {
+        ElMessage.warning('请先选择要导入的 XML 文件');
+        return;
+      }
+      sessionUploadLoading.value = true;
+      const formData = new FormData();
+      formData.append('file', sessionUploadFile.value);
+      await adminApi.post('/admin/sessions/upload-xml', formData, getAuthConfig());
+      ElMessage.success('XML 已上传并转换为直播回放');
     } else {
       await adminApi.put(`/admin/sessions/${sessionForm.value.id}`, payload, getAuthConfig());
       ElMessage.success('直播场次已更新');
@@ -921,6 +953,8 @@ const saveSession = async () => {
     await fetchSessions();
   } catch (e: any) {
     ElMessage.error('保存失败: ' + (e.response?.data?.error || e.message));
+  } finally {
+    sessionUploadLoading.value = false;
   }
 };
 
@@ -1279,7 +1313,7 @@ watch(activeSection, async (val) => {
           <!-- Theme Toggle (Bottom Left) -->
           <div class="theme-toggle-area" @click="toggleTheme">
             <el-icon :size="16">
-              <component :is="isDarkMode ? 'Sunny' : 'Moon'" />
+              <component :is="isDarkMode ? Sunny : Moon" />
             </el-icon>
             <span v-if="!sidebarCollapsed" class="theme-label">
               {{ isDarkMode ? '浅色模式' : '深色模式' }}
@@ -1867,16 +1901,37 @@ watch(activeSection, async (val) => {
 
     <el-dialog v-model="sessionDialogVisible" :title="sessionFormMode === 'create' ? '新增直播回放' : '编辑直播回放'" width="520px">
       <div class="dialog-form">
-        <el-input v-model="sessionForm.title" placeholder="直播标题" />
-        <el-input v-model="sessionForm.userName" placeholder="主播名称" />
-        <el-input v-model="sessionForm.roomId" placeholder="房间号" />
-        <el-input v-model="sessionForm.startTime" placeholder="开始时间戳 (毫秒)" type="number" />
-        <el-input v-model="sessionForm.endTime" placeholder="结束时间戳 (毫秒)" type="number" />
-        <el-input v-model="sessionForm.filePath" placeholder="文件路径 (可选)" />
+        <template v-if="sessionFormMode === 'create'">
+          <el-upload
+            v-model:file-list="sessionUploadFileList"
+            drag
+            accept=".xml"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="handleSessionXmlChange"
+            :on-remove="handleSessionXmlRemove"
+          >
+            <el-icon class="el-icon--upload"><Document /></el-icon>
+            <div class="el-upload__text">拖拽 XML 文件到此处，或 <em>点击选择</em></div>
+            <template #tip>
+              <div class="el-upload__tip">上传后会自动转换为 JSONL，并解析直播标题、主播名称、房间号和时间戳。</div>
+            </template>
+          </el-upload>
+        </template>
+        <template v-else>
+          <el-input v-model="sessionForm.title" placeholder="直播标题" />
+          <el-input v-model="sessionForm.userName" placeholder="主播名称" />
+          <el-input v-model="sessionForm.roomId" placeholder="房间号" />
+          <el-input v-model="sessionForm.startTime" placeholder="开始时间戳 (毫秒)" type="number" />
+          <el-input v-model="sessionForm.endTime" placeholder="结束时间戳 (毫秒)" type="number" />
+          <el-input v-model="sessionForm.filePath" placeholder="文件路径 (可选)" />
+        </template>
       </div>
       <template #footer>
         <el-button @click="sessionDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveSession">保存</el-button>
+        <el-button type="primary" :loading="sessionUploadLoading" @click="saveSession">
+          {{ sessionFormMode === 'create' ? '上传并导入' : '保存' }}
+        </el-button>
       </template>
     </el-dialog>
 

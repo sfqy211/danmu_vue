@@ -730,7 +730,7 @@ public class BilibiliRecorder : IDisposable
                 Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                 Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
                 Count = count > 0 ? count : 1,
-                Price = NormalizeMoney(priceRaw),
+                Price = NormalizeGoldSeeds(priceRaw),
                 IsPriceTotal = false,
                 CoinType = TryGetString(data, "coin_type"),
                 GuardLevel = TryGetInt32(data, "guard_level"),
@@ -776,7 +776,7 @@ public class BilibiliRecorder : IDisposable
                 Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                 Name = TryGetString(data, "gift_name") ?? "guard",
                 Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
-                Price = NormalizeMoney(TryGetDouble(data, "price") ?? 0) * Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
                 IsPriceTotal = true,
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "username") ?? "",
@@ -792,7 +792,7 @@ public class BilibiliRecorder : IDisposable
             var comboTotalCoin = TryGetDouble(data, "combo_total_coin");
             var coinType = TryGetString(data, "coin_type");
             var normalizedPrice = comboTotalCoin.HasValue && string.Equals(coinType, "gold", StringComparison.OrdinalIgnoreCase)
-                ? NormalizeMoney(comboTotalCoin.Value)
+                ? NormalizeGoldSeeds(comboTotalCoin.Value)
                 : 0;
 
             return new RecordedDanmakuEvent
@@ -851,10 +851,10 @@ public class BilibiliRecorder : IDisposable
         await WriteToRedisAsync(content);
     }
 
-    internal static double NormalizeMoney(double rawPrice)
+    internal static double NormalizeGoldSeeds(double rawPrice)
     {
         if (rawPrice <= 0) return 0;
-        return rawPrice >= 1000 ? rawPrice / 1000.0 : rawPrice;
+        return rawPrice / 1000.0;
     }
 
     internal static string? GetString(JsonElement element, int index)
@@ -1158,12 +1158,12 @@ public class BilibiliRecorder : IDisposable
         }
     }
 
-    private static string BuildTmpFilename(long startTimestamp)
+    internal static string BuildTmpFilename(long startTimestamp)
     {
         return $"{startTimestamp}.jsonl";
     }
 
-    private static long GetSessionStartTimestamp(IReadOnlyDictionary<string, string> meta)
+    internal static long GetSessionStartTimestamp(IReadOnlyDictionary<string, string> meta)
     {
         return long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp) && startTimestamp > 0
             ? startTimestamp
@@ -1360,7 +1360,7 @@ public class BilibiliRecorder : IDisposable
         _cts?.Dispose();
     }
 
-    private static bool LooksLikeMetaLine(string line)
+    internal static bool LooksLikeMetaLine(string line)
     {
         if (string.IsNullOrWhiteSpace(line))
         {
