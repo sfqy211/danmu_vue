@@ -127,10 +127,16 @@ public class DanmakuService
             session.Uid = uid;
             session.RoomId = roomIdStr;
             session.EndTime = endTime;
-            session.FilePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
-            await db.SaveChangesAsync();
-
-            await ProcessFileAsync(finalFilePath);
+            if (!string.IsNullOrEmpty(finalFilePath))
+            {
+                session.FilePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
+                await db.SaveChangesAsync();
+                await ProcessFileAsync(finalFilePath);
+            }
+            else
+            {
+                await db.SaveChangesAsync();
+            }
         }
     }
 

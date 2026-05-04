@@ -59,28 +59,19 @@ public class AdminController : ControllerBase
         {
             var proc = processes.FirstOrDefault(p => p.Uid == (room.Uid ?? ""));
 
-            // Fallback: If LastLiveTime is 0 or outdated, try to get from Sessions table
             long liveStartTime = room.LastLiveTime;
-            var roomIdStr = room.RoomId.ToString();
-            var lastSession = await _db.Sessions
-                .Where(s => s.Uid == room.Uid || s.RoomId == roomIdStr)
-                .OrderByDescending(s => s.StartTime)
-                .Select(s => s.StartTime)
-                .FirstOrDefaultAsync();
-            
-            if (lastSession.HasValue && lastSession.Value > room.LastLiveTime)
-            {
-                liveStartTime = lastSession.Value;
-                // Sync back to Rooms table if we found a more recent session time
-                room.LastLiveTime = liveStartTime;
-                await _db.SaveChangesAsync();
-            }
 
-            // Layer 1: use recorder's real live status from API if recorder exists
-            // Layer 2: fallback to cached live status from LiveStatusService if no recorder
-            var realLiveStatus = proc?.LiveStatus ?? 0;
-            long realLiveStartTime = proc?.LiveStartTime ?? liveStartTime;
-            if (realLiveStatus == 0)
+            // Layer 1: only trust recorder live status when recorder is actually online
+            // Layer 2: fallback to cached live status from LiveStatusService otherwise
+            var realLiveStatus = 0;
+            long realLiveStartTime = liveStartTime;
+
+            if (proc != null && proc.Status == "online")
+            {
+                realLiveStatus = proc.LiveStatus;
+                realLiveStartTime = proc.LiveStartTime ?? liveStartTime;
+            }
+            else
             {
                 var cached = await _liveStatusService.GetCachedStatusAsync(room.RoomId);
                 if (cached != null)

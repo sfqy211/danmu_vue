@@ -100,26 +100,6 @@ public class VupInfoScheduler : BackgroundService
                 room.LastLiveTime = liveStartTime.Value;
             }
             
-            // Still check sessions for the absolute latest (in case API is behind)
-            try 
-            {
-                var roomIdStr = room.RoomId.ToString();
-                var lastSession = await db.Sessions
-                    .Where(s => s.RoomId == roomIdStr)
-                    .OrderByDescending(s => s.StartTime)
-                    .Select(s => s.StartTime)
-                    .FirstOrDefaultAsync(stoppingToken);
-                    
-                if (lastSession.HasValue && lastSession.Value > room.LastLiveTime)
-                {
-                    room.LastLiveTime = lastSession.Value;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, $"Failed to get last session time for {room.Name}");
-            }
-            
             room.UpdatedAt = DateTime.UtcNow.ToString("O");
             
             await db.SaveChangesAsync(stoppingToken);

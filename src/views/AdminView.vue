@@ -1463,7 +1463,12 @@ watch(activeSection, async (val) => {
                       </el-popover>
                     </template>
                   </el-table-column>
-                  <el-table-column label="开播时长" align="center">
+                  <el-table-column label="运行时长" align="center" width="120">
+                    <template #default="scope">
+                      {{ formatUptime(scope.row.process_uptime) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="开播时长" align="center" width="160">
                     <template #default="scope">
                       {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
                     </template>

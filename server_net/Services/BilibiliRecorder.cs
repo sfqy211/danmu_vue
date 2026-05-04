@@ -159,6 +159,8 @@ public class BilibiliRecorder : IDisposable
                     lastAccountUid = null;
                 }
                 Status = "reconnecting";
+                LiveStatus = 0;
+                LiveStartTime = null;
             }
             finally
             {
@@ -260,6 +262,8 @@ public class BilibiliRecorder : IDisposable
         if (Status == "stopped") return;
 
         Status = "stopped";
+        LiveStatus = 0;
+        LiveStartTime = null;
         _cts?.Cancel();
 
         if (_redisDumpTask != null)
@@ -485,6 +489,9 @@ public class BilibiliRecorder : IDisposable
                     if (liveStatus != 1)
                     {
                         _logger.LogInformation($"Detected offline via API check for {_roomId}");
+                        LiveStatus = 0;
+                        LiveStartTime = null;
+                        await CheckAndCloseStaleSessionAsync();
                         if (_ws != null) 
                         {
                             try 
@@ -1279,6 +1286,19 @@ public class BilibiliRecorder : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to dump Redis to JSONL");
+            // 保底：即使归档失败，也要把 session 标记为已结束
+            try
+            {
+                var endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                if (OnSessionEnded != null)
+                {
+                    await OnSessionEnded.Invoke(_uid, _roomId, endTime, string.Empty);
+                }
+            }
+            catch (Exception fallbackEx)
+            {
+                _logger.LogError(fallbackEx, "Failed to notify session end in fallback");
+            }
         }
     }
 

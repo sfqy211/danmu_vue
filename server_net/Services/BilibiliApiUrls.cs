@@ -17,6 +17,7 @@ public static class BilibiliApiUrls
 
     public const string RoomInit = LiveApiBase + "/room/v1/Room/room_init";
     public const string RoomInfo = LiveApiBase + "/room/v1/Room/get_info";
+    public const string RoomStatusByUids = LiveApiBase + "/room/v1/Room/get_status_info_by_uids";
     public const string DanmuInfo = LiveApiBase + "/xlive/web-room/v1/index/getDanmuInfo";
     public const string DanmuConf = LiveApiBase + "/room/v1/Danmu/getConf";
     public const string AnchorInRoom = LiveApiBase + "/live_user/v1/UserInfo/get_anchor_in_room";

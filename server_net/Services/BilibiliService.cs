@@ -591,6 +591,15 @@ public class BilibiliService
                     liveStartTime = liveStartTime.Value * 1000;
                 }
 
+                if (!liveStartTime.HasValue || liveStartTime.Value <= 0)
+                {
+                    var unifiedStatus = await GetRoomStatusByRoomIdAsync(roomId, uid: uid, realRoomId: roomId);
+                    if (unifiedStatus?.LiveStartTime is > 0)
+                    {
+                        liveStartTime = unifiedStatus.LiveStartTime;
+                    }
+                }
+
                 // Get Anchor Info
                 string? userName = "Unknown";
                 try 
@@ -633,6 +642,12 @@ public class BilibiliService
 
     public async Task<(int LiveStatus, long? LiveStartTime)> GetRoomLiveStatusAsync(long roomId)
     {
+        var unifiedStatus = await GetRoomStatusByRoomIdAsync(roomId);
+        if (unifiedStatus != null)
+        {
+            return (unifiedStatus.LiveStatus, unifiedStatus.LiveStartTime);
+        }
+
         try
         {
             var cookie = GetCookie();
@@ -899,6 +914,17 @@ public class BilibiliService
             if (liveStartTime.HasValue && liveStartTime.Value > 0 && liveStartTime.Value < 1_000_000_000_000)
                 liveStartTime = liveStartTime.Value * 1000;
 
+            if (!liveStartTime.HasValue || liveStartTime.Value <= 0)
+            {
+                var uid = data.TryGetProperty("uid", out var uidEl) ? uidEl.ToString() : null;
+                var unifiedStatus = await GetRoomStatusByRoomIdAsync(roomId, uid: uid, realRoomId: roomId, cancellationToken: cancellationToken);
+                if (unifiedStatus?.LiveStartTime is > 0)
+                {
+                    liveStartTime = unifiedStatus.LiveStartTime;
+                    liveStatus = unifiedStatus.LiveStatus;
+                }
+            }
+
             return new LiveState
             {
                 RoomId = roomId,
@@ -910,6 +936,109 @@ public class BilibiliService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to get room init for Room {RoomId}", roomId);
+            return null;
+        }
+    }
+
+    public Task<LiveState?> GetRoomStatusByRoomIdAsync(long roomId, CancellationToken cancellationToken = default)
+        => GetRoomStatusByRoomIdAsync(roomId, uid: null, realRoomId: null, cancellationToken);
+
+    public async Task<LiveState?> GetRoomStatusByRoomIdAsync(long roomId, string? uid, long? realRoomId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var effectiveRoomId = realRoomId.GetValueOrDefault();
+            if (effectiveRoomId <= 0)
+            {
+                effectiveRoomId = await GetRealRoomIdAsync(roomId);
+                if (effectiveRoomId <= 0)
+                {
+                    effectiveRoomId = roomId;
+                }
+            }
+
+            var effectiveUid = uid;
+            int liveStatus = 0;
+            if (string.IsNullOrWhiteSpace(effectiveUid))
+            {
+                var roomInitJson = await SendBiliGetAsync(
+                    BilibiliApiUrls.RoomInit,
+                    new Dictionary<string, string?> { ["id"] = effectiveRoomId.ToString() },
+                    origin: BilibiliApiUrls.LiveBase,
+                    cancellationToken: cancellationToken);
+
+                using var roomInitDoc = JsonDocument.Parse(roomInitJson);
+                var roomInitRoot = roomInitDoc.RootElement;
+                if (!roomInitRoot.TryGetProperty("code", out var initCode) || initCode.GetInt32() != 0)
+                {
+                    return null;
+                }
+
+                if (!roomInitRoot.TryGetProperty("data", out var initData))
+                {
+                    return null;
+                }
+
+                effectiveUid = initData.TryGetProperty("uid", out var uidEl) ? uidEl.ToString() : null;
+                liveStatus = initData.TryGetProperty("live_status", out var ls) ? ls.GetInt32() : 0;
+                if (string.IsNullOrWhiteSpace(effectiveUid))
+                {
+                    return new LiveState
+                    {
+                        RoomId = roomId,
+                        LiveStatus = liveStatus,
+                        LiveStartTime = null,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                }
+            }
+
+            var json = await SendBiliGetAsync(
+                BilibiliApiUrls.RoomStatusByUids,
+                new Dictionary<string, string?> { ["uids[]"] = effectiveUid },
+                origin: BilibiliApiUrls.LiveBase,
+                cancellationToken: cancellationToken);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("code", out var code) || code.GetInt32() != 0)
+            {
+                return null;
+            }
+
+            if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty(effectiveUid, out var roomData))
+            {
+                return null;
+            }
+
+            long? liveStartTime = null;
+            if (roomData.TryGetProperty("live_time", out var lt))
+            {
+                if (lt.ValueKind == JsonValueKind.Number)
+                {
+                    var parsed = lt.GetInt64();
+                    if (parsed > 0)
+                    {
+                        liveStartTime = parsed < 1_000_000_000_000 ? parsed * 1000 : parsed;
+                    }
+                }
+                else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed) && parsed > 0)
+                {
+                    liveStartTime = parsed < 1_000_000_000_000 ? parsed * 1000 : parsed;
+                }
+            }
+
+            return new LiveState
+            {
+                RoomId = roomId,
+                LiveStatus = roomData.TryGetProperty("live_status", out var roomStatusEl) ? roomStatusEl.GetInt32() : liveStatus,
+                LiveStartTime = liveStartTime,
+                UpdatedAt = DateTime.UtcNow
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get room status by uid for Room {RoomId}", roomId);
             return null;
         }
     }
