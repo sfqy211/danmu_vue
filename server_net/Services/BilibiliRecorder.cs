@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Danmu.Server.Models;
+using Danmu.Server.Utils;
 
 namespace Danmu.Server.Services;
 
@@ -996,6 +997,33 @@ public class BilibiliRecorder : IDisposable
                     {
                         _dumpOffset = dumpOffset;
                     }
+
+                    // Recover dumpOffset from tmp file if Redis was cleared or stale
+                    var tmpFileName = await EnsureTmpFilenameAsync(_currentSessionKey + ":meta", existingMeta);
+                    var tmpFilePath = Path.Combine(_danmakuTmpDir, _uid, tmpFileName);
+                    if (File.Exists(tmpFilePath))
+                    {
+                        try
+                        {
+                            var lines = await File.ReadAllLinesAsync(tmpFilePath, Encoding.UTF8);
+                            var messageCount = lines.Count(l => !string.IsNullOrWhiteSpace(l));
+                            if (messageCount > 0 && LooksLikeMetaLine(lines[0]))
+                            {
+                                messageCount--;
+                            }
+                            if (messageCount > _dumpOffset)
+                            {
+                                _logger.LogInformation("Recovered _dumpOffset from tmp file: {FileCount} vs Redis {RedisOffset}, using file count for session {SessionKey}", messageCount, _dumpOffset, _currentSessionKey);
+                                _dumpOffset = messageCount;
+                                await _redis.SetMetadataFieldAsync(_currentSessionKey + ":meta", "dump_offset", _dumpOffset.ToString());
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to recover _dumpOffset from tmp file {TmpFile} for session {SessionKey}", tmpFilePath, _currentSessionKey);
+                        }
+                    }
+
                     await SyncCurrentSessionMetadataAsync(updateFilename: true);
                     if (OnTitleChanged != null)
                     {
@@ -1197,6 +1225,8 @@ public class BilibiliRecorder : IDisposable
         }
         return string.IsNullOrWhiteSpace(safeTitle) ? "未知直播" : safeTitle;
     }
+
+
     
     private async Task CheckAndCloseStaleSessionAsync()
     {
@@ -1292,7 +1322,7 @@ public class BilibiliRecorder : IDisposable
                 var finalRoomDir = Path.Combine(_danmakuDir, _uid);
                 if (!Directory.Exists(finalRoomDir)) Directory.CreateDirectory(finalRoomDir);
                 var finalFilePath = Path.Combine(finalRoomDir, finalFileName);
-                File.Move(tmpFilePath, finalFilePath, true);
+                FileUtils.MoveFileWithFallback(tmpFilePath, finalFilePath, _logger);
                 _logger.LogInformation("Promoted tmp file {TmpFile} to final file {FinalFile}", tmpFilePath, finalFilePath);
                 await OnSessionEnded.Invoke(_uid, _roomId, endTime, finalFilePath);
             }

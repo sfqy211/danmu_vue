@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Danmu.Server.Data;
 using Danmu.Server.Models;
+using Danmu.Server.Utils;
 using Microsoft.EntityFrameworkCore;
 
 namespace Danmu.Server.Services;
@@ -112,7 +113,7 @@ public class DanmakuService
         var finalFilePath = Path.Combine(roomDir, finalFileName);
 
         _logger.LogInformation("Promoting tmp danmaku file {TmpFile} to {FinalFile}", tmpFilePath, finalFilePath);
-        File.Move(tmpFilePath, finalFilePath, true);
+        FileUtils.MoveFileWithFallback(tmpFilePath, finalFilePath, _logger);
 
         var activeSession = await GetActiveSessionAsync(effectiveUid, effectiveRoomId);
         if (activeSession != null)
@@ -310,32 +311,7 @@ public class DanmakuService
             using var scope = _scopeFactory.CreateScope();
             var db = GetDb(scope);
 
-            Session? activeRedisSession = null;
-            if (!string.IsNullOrEmpty(parsed.Meta.Uid) && parsed.Meta.RecordStartTimestamp > 0)
-            {
-                activeRedisSession = await db.Sessions.FirstOrDefaultAsync(s =>
-                    (s.EndTime == null || s.EndTime == 0)
-                    && s.Uid == parsed.Meta.Uid
-                    && s.StartTime == parsed.Meta.RecordStartTimestamp
-                    && s.FilePath != null
-                    && s.FilePath.StartsWith("redis:"));
-            }
-
-            if (activeRedisSession == null && !string.IsNullOrEmpty(parsed.Meta.RoomId) && parsed.Meta.RecordStartTimestamp > 0)
-            {
-                activeRedisSession = await db.Sessions.FirstOrDefaultAsync(s =>
-                    (s.EndTime == null || s.EndTime == 0)
-                    && s.RoomId == parsed.Meta.RoomId
-                    && s.StartTime == parsed.Meta.RecordStartTimestamp
-                    && s.FilePath != null
-                    && s.FilePath.StartsWith("redis:"));
-            }
-
             var existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == relativePath);
-            if (existingSession == null && activeRedisSession != null)
-            {
-                existingSession = activeRedisSession;
-            }
             if (existingSession == null && !string.IsNullOrEmpty(parsed.Meta.Uid))
             {
                 existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.Uid == parsed.Meta.Uid && s.StartTime == parsed.Meta.RecordStartTimestamp);
@@ -365,25 +341,14 @@ public class DanmakuService
             }
             else
             {
-                var keepRedisFilePath = (existingSession.EndTime == null || existingSession.EndTime == 0)
-                    && !string.IsNullOrEmpty(existingSession.FilePath)
-                    && existingSession.FilePath.StartsWith("redis:", StringComparison.Ordinal);
-                var isActiveRedisSession = keepRedisFilePath;
-
                 existingSession.Uid = parsed.Meta.Uid ?? existingSession.Uid;
                 existingSession.RoomId = parsed.Meta.RoomId ?? existingSession.RoomId;
                 existingSession.Title = parsed.Meta.Title;
                 existingSession.UserName = parsed.Meta.UserName;
-                if (!isActiveRedisSession)
-                {
-                    existingSession.EndTime = parsed.Messages.Count > 0
-                        ? parsed.Messages.Last().Timestamp
-                        : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                }
-                if (!keepRedisFilePath)
-                {
-                    existingSession.FilePath = relativePath;
-                }
+                existingSession.EndTime = parsed.Messages.Count > 0
+                    ? parsed.Messages.Last().Timestamp
+                    : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                existingSession.FilePath = relativePath;
                 existingSession.SummaryJson = JsonSerializer.Serialize(analysis, JsonOptions);
                 existingSession.GiftSummaryJson = JsonSerializer.Serialize(giftAnalysis, JsonOptions);
                 await db.SaveChangesAsync();
@@ -851,6 +816,8 @@ public class DanmakuService
         var parent = Directory.GetParent(filePath);
         return parent?.Name ?? "";
     }
+
+
 
     private static string? TryGetString(JsonElement element, string propertyName)
     {
