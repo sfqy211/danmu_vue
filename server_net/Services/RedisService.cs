@@ -38,6 +38,15 @@ public class RedisService
         await _db.ListRightPushAsync(key, message);
     }
 
+    public virtual async Task PushMessagesAsync(string key, IEnumerable<string> messages)
+    {
+        var values = messages.Select(m => (RedisValue)m).ToArray();
+        if (values.Length > 0)
+        {
+            await _db.ListRightPushAsync(key, values);
+        }
+    }
+
     public virtual async Task SetMetadataAsync(string key, Dictionary<string, string> metadata)
     {
         var entries = metadata.Select(kv => new HashEntry(kv.Key, kv.Value)).ToArray();

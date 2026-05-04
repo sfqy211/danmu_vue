@@ -78,11 +78,141 @@ public class DanmakuService
             if (!string.IsNullOrEmpty(keepFileName)
                 && string.Equals(Path.GetFileName(tmpFile), keepFileName, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("Keeping tmp file for active live session: {TmpFile}", tmpFile);
+                _logger.LogInformation("Restoring tmp file to Redis for active live session: {TmpFile}", tmpFile);
+                await RestoreTmpToRedisAsync(uid, roomId, tmpFile, currentLiveStartTime!.Value);
                 continue;
             }
 
             await PromoteTmpFileAsync(uid, roomId, tmpFile);
+        }
+    }
+
+    private async Task RestoreTmpToRedisAsync(string uid, long roomId, string tmpFilePath, long liveStartTime)
+    {
+        try
+        {
+            var lines = await File.ReadAllLinesAsync(tmpFilePath);
+            var messageLines = new List<string>();
+            SessionFileMeta? metaInfo = null;
+
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.Trim();
+                if (string.IsNullOrEmpty(line)) continue;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    if (TryGetString(root, "kind") == "meta")
+                    {
+                        metaInfo = new SessionFileMeta
+                        {
+                            Title = TryGetString(root, "title") ?? "未知直播",
+                            UserName = TryGetString(root, "userName") ?? "未知主播",
+                            RoomId = TryGetString(root, "roomId") ?? roomId.ToString(),
+                            Uid = TryGetString(root, "uid") ?? uid,
+                            RecordStartTimestamp = TryGetInt64(root, "startTime") ?? liveStartTime
+                        };
+                        continue;
+                    }
+                }
+                catch { }
+
+                messageLines.Add(line);
+            }
+
+            if (messageLines.Count == 0 && metaInfo == null)
+            {
+                _logger.LogWarning("Tmp file {TmpFile} is empty or has no valid data, deleting", tmpFilePath);
+                File.Delete(tmpFilePath);
+                return;
+            }
+
+            var sessionKey = $"danmaku:session:{uid}:{liveStartTime}";
+            var listKey = sessionKey + ":list";
+            var metaKey = sessionKey + ":meta";
+
+            // 清空可能残留的 Redis key
+            await _redis.DeleteKeyAsync(listKey);
+            await _redis.DeleteKeyAsync(metaKey);
+
+            // 批量恢复消息到 Redis
+            await _redis.PushMessagesAsync(listKey, messageLines);
+
+            // 构建 meta
+            var meta = new Dictionary<string, string>
+            {
+                { "uid", metaInfo?.Uid ?? uid },
+                { "room_id", metaInfo?.RoomId ?? roomId.ToString() },
+                { "real_room_id", metaInfo?.RoomId ?? roomId.ToString() },
+                { "room_title", metaInfo?.Title ?? "未知直播" },
+                { "user_name", metaInfo?.UserName ?? "未知主播" },
+                { "video_start_time", liveStartTime.ToString() },
+                { "start_time_is_fallback", "0" },
+                { "filename", $"{liveStartTime}.jsonl" },
+                { "dump_offset", messageLines.Count.ToString() }
+            };
+
+            await _redis.SetMetadataAsync(metaKey, meta);
+            await _redis.SetLiveSessionKeyAsync(uid, sessionKey);
+
+            _logger.LogInformation(
+                "Restored {Count} messages from {TmpFile} to Redis session {SessionKey}",
+                messageLines.Count, tmpFilePath, sessionKey);
+
+            // 更新 DB session
+            using var scope = _scopeFactory.CreateScope();
+            var db = GetDb(scope);
+            var roomIdStr = roomId.ToString();
+
+            var session = await db.Sessions.FirstOrDefaultAsync(s =>
+                (s.EndTime == null || s.EndTime == 0) &&
+                ((!string.IsNullOrEmpty(uid) && s.Uid == uid) ||
+                 (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)));
+
+            if (session != null)
+            {
+                session.FilePath = "redis:" + sessionKey;
+                session.Title = metaInfo?.Title ?? session.Title;
+                session.UserName = metaInfo?.UserName ?? session.UserName;
+                session.StartTime = liveStartTime;
+                await db.SaveChangesAsync();
+                _logger.LogInformation(
+                    "Updated DB session {SessionId} FilePath to redis:{SessionKey}",
+                    session.Id, sessionKey);
+            }
+            else
+            {
+                session = new Session
+                {
+                    Uid = uid,
+                    RoomId = roomIdStr,
+                    Title = metaInfo?.Title ?? "未知直播",
+                    UserName = metaInfo?.UserName ?? "未知主播",
+                    StartTime = liveStartTime,
+                    EndTime = 0,
+                    FilePath = "redis:" + sessionKey,
+                    SummaryJson = "{}",
+                    GiftSummaryJson = "{}",
+                    CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+                };
+                db.Sessions.Add(session);
+                await db.SaveChangesAsync();
+                _logger.LogInformation(
+                    "Created new DB session for recovered Redis session {SessionKey}",
+                    sessionKey);
+            }
+
+            // 删除 tmp 文件（数据已在 Redis）
+            File.Delete(tmpFilePath);
+            _logger.LogInformation("Deleted tmp file {TmpFile} after Redis recovery", tmpFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to restore tmp file {TmpFile} to Redis for uid {Uid}, room {RoomId}",
+                tmpFilePath, uid, roomId);
         }
     }
 
