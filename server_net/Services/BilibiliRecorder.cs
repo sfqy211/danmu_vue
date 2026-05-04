@@ -656,22 +656,20 @@ public class BilibiliRecorder : IDisposable
                         }
                     }
                 }
-                else
-                {
-                    if (cmd == "LOG_IN_NOTICE")
-                    {
-                        _logger.LogWarning("Received LOG_IN_NOTICE for uid {Uid}. Current cookie/session may be degraded or expired.", _uid);
-                    }
 
-                    var recordedEvent = CreateRecordedEvent(root, cmd);
-                    if (recordedEvent != null)
-                    {
-                        _ = WriteEventToRedisAsync(recordedEvent);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(cmd))
-                    {
-                        _logger.LogDebug("Ignoring unsupported danmaku command {Command} for uid {Uid}", cmd, _uid);
-                    }
+                if (cmd == "LOG_IN_NOTICE")
+                {
+                    _logger.LogWarning("Received LOG_IN_NOTICE for uid {Uid}. Current cookie/session may be degraded or expired.", _uid);
+                }
+
+                var recordedEvent = CreateRecordedEvent(root, cmd);
+                if (recordedEvent != null)
+                {
+                    _ = WriteEventToRedisAsync(recordedEvent);
+                }
+                else if (!string.IsNullOrWhiteSpace(cmd))
+                {
+                    _logger.LogDebug("Ignoring unsupported danmaku command {Command} for uid {Uid}", cmd, _uid);
                 }
             }
         }
@@ -838,6 +836,20 @@ public class BilibiliRecorder : IDisposable
                 User = TryGetString(data, "uname") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
                 GuardLevel = TryGetInt32(data, "guard_level"),
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "ROOM_CHANGE")
+        {
+            var data = root.TryGetProperty("data", out var d) ? d : default;
+            var title = data.ValueKind != JsonValueKind.Undefined ? TryGetString(data, "title") : null;
+            return new RecordedDanmakuEvent
+            {
+                Type = "room_change",
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Text = string.IsNullOrWhiteSpace(title) ? "直播间信息变更" : $"直播标题变更：{title}",
+                Name = title,
                 RawCommand = cmd
             };
         }

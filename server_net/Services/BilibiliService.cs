@@ -744,7 +744,7 @@ public class BilibiliService
         }
     }
 
-    public async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId)
+    public virtual async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId)
     {
         var realRoomId = await GetRealRoomIdAsync(roomId);
         if (realRoomId <= 0) realRoomId = roomId;
@@ -940,7 +940,7 @@ public class BilibiliService
         }
     }
 
-    public Task<LiveState?> GetRoomStatusByRoomIdAsync(long roomId, CancellationToken cancellationToken = default)
+    public virtual Task<LiveState?> GetRoomStatusByRoomIdAsync(long roomId, CancellationToken cancellationToken = default)
         => GetRoomStatusByRoomIdAsync(roomId, uid: null, realRoomId: null, cancellationToken);
 
     public async Task<LiveState?> GetRoomStatusByRoomIdAsync(long roomId, string? uid, long? realRoomId, CancellationToken cancellationToken = default)

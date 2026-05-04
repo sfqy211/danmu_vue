@@ -288,3 +288,5 @@ var pm = app.Services.GetRequiredService<ProcessManager>();
 _ = pm.RestoreRecordersAsync(); // Fire and forget but better to await if possible, but Run() is blocking.
 
 app.Run();
+
+public partial class Program { }

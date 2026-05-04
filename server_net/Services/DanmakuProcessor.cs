@@ -55,7 +55,7 @@ public class DanmakuProcessor : BackgroundService
         await ProcessFileAsync(e.FullPath);
     }
 
-    private async Task ScanDirectoryAsync(string dir)
+    internal async Task ScanDirectoryAsync(string dir)
     {
         try
         {
@@ -72,7 +72,7 @@ public class DanmakuProcessor : BackgroundService
         }
     }
 
-    private async Task ProcessFileAsync(string filePath)
+    internal async Task ProcessFileAsync(string filePath)
     {
         if (!IsSupportedDanmakuFile(filePath)) return;
 

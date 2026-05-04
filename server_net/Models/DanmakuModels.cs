@@ -11,6 +11,18 @@ public class DanmakuMessage
     public string? Name { get; set; } // Gift/Guard name
     public int? Count { get; set; }
     public int? GuardLevel { get; set; }
+    public int? MedalLevel { get; set; }
+    public string? MedalName { get; set; }
+    public string? MedalAnchor { get; set; }
+    public int? MedalRoomId { get; set; }
+    public int? MedalGuardLevel { get; set; }
+    public bool? MedalIsLight { get; set; }
+    public long? MedalAnchorUid { get; set; }
+    public int? UlLevel { get; set; }
+    public int? WealthLevel { get; set; }
+    public string? CoinType { get; set; }
+    public string? RawCommand { get; set; }
+    public int? Duration { get; set; }
     public Sender Sender { get; set; } = new();
 }
 

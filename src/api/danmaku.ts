@@ -96,14 +96,31 @@ export interface FileInfo {
 
 export interface Danmaku {
   id: string; // 唯一 ID
+  type?: string;
+  rawCommand?: string;
   user: string;
   uid: string;
   content: string;
   contentJpn?: string;
+  name?: string;
+  count?: number;
   timestamp: number;
   timeStr: string;
   isSC: boolean;
   price?: number;
+  isPriceTotal?: boolean;
+  guardLevel?: number;
+  medalLevel?: number;
+  medalName?: string;
+  medalAnchor?: string;
+  medalRoomId?: number;
+  medalGuardLevel?: number;
+  medalIsLight?: boolean;
+  medalAnchorUid?: number;
+  ulLevel?: number;
+  wealthLevel?: number;
+  coinType?: string;
+  duration?: number;
 }
 
 export interface SessionInfo {
@@ -231,14 +248,31 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
   const danmaku: Danmaku[] = sourceMessages.map((msg: any, index: number) => ({
     // Generate unique ID on frontend: timestamp-uid-page-index
     id: `${msg.timestamp}-${msg.uid}-${page}-${index}`,
+    type: msg.type ?? msg.Type,
+    rawCommand: msg.rawCommand ?? msg.RawCommand,
     user: msg.sender,
     uid: msg.uid,
     content: msg.text,
     contentJpn: msg.textJpn || undefined,
+    name: msg.name ?? msg.Name,
+    count: toNumber(msg.count ?? msg.Count),
     timestamp: msg.timestamp,
     timeStr: formatTime(toNumber(msg.time) ?? 0),
     isSC: msg.isSC,
-    price: msg.price
+    price: msg.price,
+    isPriceTotal: Boolean(msg.isPriceTotal ?? msg.IsPriceTotal),
+    guardLevel: toNumber(msg.guardLevel ?? msg.GuardLevel),
+    medalLevel: toNumber(msg.medalLevel ?? msg.MedalLevel),
+    medalName: msg.medalName ?? msg.MedalName,
+    medalAnchor: msg.medalAnchor ?? msg.MedalAnchor,
+    medalRoomId: toNumber(msg.medalRoomId ?? msg.MedalRoomId),
+    medalGuardLevel: toNumber(msg.medalGuardLevel ?? msg.MedalGuardLevel),
+    medalIsLight: msg.medalIsLight ?? msg.MedalIsLight,
+    medalAnchorUid: toNumber(msg.medalAnchorUid ?? msg.MedalAnchorUid),
+    ulLevel: toNumber(msg.ulLevel ?? msg.UlLevel),
+    wealthLevel: toNumber(msg.wealthLevel ?? msg.WealthLevel),
+    coinType: msg.coinType ?? msg.CoinType,
+    duration: toNumber(msg.duration ?? msg.Duration)
   }));
 
   const total = typeof res.data.total === 'number' ? res.data.total : danmaku.length;

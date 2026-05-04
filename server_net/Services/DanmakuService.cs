@@ -408,7 +408,17 @@ public class DanmakuService
             messages = await LoadMessagesFromFileAsync(fullPath);
         }
 
-        var displayable = messages.Where(m => m.Type == "comment" || m.Type == "super_chat").ToList();
+        var displayable = messages.Where(m =>
+            m.Type == "comment" ||
+            m.Type == "super_chat" ||
+            m.Type == "give_gift" ||
+            m.Type == "guard" ||
+            m.Type == "gift_combo" ||
+            m.Type == "enter" ||
+            m.Type == "follow" ||
+            m.Type == "share" ||
+            m.Type == "interact" ||
+            m.Type == "room_change").ToList();
 
         // Merge bilingual SC: if consecutive SC have same user/uid/timestamp/price, keep only the first one
         displayable = MergeBilingualSuperChats(displayable);
@@ -428,7 +438,24 @@ public class DanmakuService
                 text = m.Text,
                 textJpn = m.TextJpn,
                 isSC = m.Type == "super_chat",
+                type = m.Type,
+                rawCommand = m.RawCommand,
+                name = m.Name,
+                count = m.Count,
                 price = m.Price,
+                isPriceTotal = m.IsPriceTotal,
+                guardLevel = m.GuardLevel,
+                medalLevel = m.MedalLevel,
+                medalName = m.MedalName,
+                medalAnchor = m.MedalAnchor,
+                medalRoomId = m.MedalRoomId,
+                medalGuardLevel = m.MedalGuardLevel,
+                medalIsLight = m.MedalIsLight,
+                medalAnchorUid = m.MedalAnchorUid,
+                ulLevel = m.UlLevel,
+                wealthLevel = m.WealthLevel,
+                coinType = m.CoinType,
+                duration = m.Duration,
                 id = $"{m.Timestamp}-{m.Sender.Uid}"
             })
             .ToList();
@@ -888,7 +915,7 @@ public class DanmakuService
 
         foreach (var msg in messages)
         {
-            if (msg.Type != "give_gift" && msg.Type != "super_chat" && msg.Type != "guard")
+            if (msg.Type != "give_gift" && msg.Type != "gift_combo" && msg.Type != "super_chat" && msg.Type != "guard")
             {
                 continue;
             }
@@ -905,7 +932,7 @@ public class DanmakuService
             stats.TotalPrice += eventAmount;
             giftAnalysis.TotalPrice += eventAmount;
 
-            if (msg.Type == "give_gift")
+            if (msg.Type == "give_gift" || msg.Type == "gift_combo")
             {
                 stats.GiftPrice += eventAmount;
                 var giftName = msg.Name ?? "Unknown";
@@ -987,6 +1014,18 @@ public class DanmakuService
             Name = recordedEvent.Name,
             Count = recordedEvent.Count > 0 ? recordedEvent.Count : 1,
             GuardLevel = recordedEvent.GuardLevel,
+            MedalLevel = recordedEvent.MedalLevel,
+            MedalName = recordedEvent.MedalName,
+            MedalAnchor = recordedEvent.MedalAnchor,
+            MedalRoomId = recordedEvent.MedalRoomId,
+            MedalGuardLevel = recordedEvent.MedalGuardLevel,
+            MedalIsLight = recordedEvent.MedalIsLight,
+            MedalAnchorUid = recordedEvent.MedalAnchorUid,
+            UlLevel = recordedEvent.UlLevel,
+            WealthLevel = recordedEvent.WealthLevel,
+            CoinType = recordedEvent.CoinType,
+            RawCommand = recordedEvent.RawCommand,
+            Duration = recordedEvent.Duration,
             Sender = new Sender
             {
                 Name = recordedEvent.User ?? "",

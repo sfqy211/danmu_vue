@@ -159,7 +159,7 @@ public class HealthCheckService : BackgroundService
         await _alertService.SendHealthCheckAlertAsync(report);
     }
 
-    public HealthCheckReport GetLatestReport() => _latestReport;
+    public virtual HealthCheckReport GetLatestReport() => _latestReport;
 }
 
 public record HealthCheckIssue(string Uid, long RoomId, string Reason, double? AgeSeconds);

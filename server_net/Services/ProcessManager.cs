@@ -61,7 +61,7 @@ public class ProcessManager
         return list;
     }
 
-    public async Task StartRecorder(long roomId, string? name)
+    public virtual async Task StartRecorder(long roomId, string? name)
     {
         var identity = await ResolveRoomIdentityAsync(roomId, name);
         BilibiliRecorder? recorder;
@@ -80,7 +80,7 @@ public class ProcessManager
             }
 
             var logger = _loggerFactory.CreateLogger<BilibiliRecorder>();
-            recorder = new BilibiliRecorder(identity.RoomId, identity.Uid, identity.Name, logger, _redis, _accountService);
+            recorder = CreateRecorder(identity.RoomId, identity.Uid, identity.Name, logger);
             
             // Delegate: Check for active session in DB
             recorder.CheckActiveSession = async (uid, rid) =>
@@ -159,7 +159,7 @@ public class ProcessManager
         }
     }
 
-    public async Task StopRecorder(long roomId)
+    public virtual async Task StopRecorder(long roomId)
     {
         var uid = await ResolveUidAsync(roomId);
         if (string.IsNullOrWhiteSpace(uid))
@@ -192,7 +192,7 @@ public class ProcessManager
         }
     }
 
-    public async Task RestoreRecordersAsync()
+    public virtual async Task RestoreRecordersAsync()
     {
         _logger.LogInformation("Restoring recorders...");
         using var scope = _scopeFactory.CreateScope();
@@ -253,6 +253,11 @@ public class ProcessManager
 
         var resolvedRoomId = room?.RoomId ?? roomId;
         return (uid, resolvedRoomId, name);
+    }
+
+    protected virtual BilibiliRecorder CreateRecorder(long roomId, string uid, string name, ILogger logger)
+    {
+        return new BilibiliRecorder(roomId, uid, name, logger, _redis, _accountService);
     }
 
     private async Task<string?> ResolveUidAsync(long roomId)
