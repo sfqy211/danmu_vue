@@ -537,7 +537,7 @@ public class DanmakuService
         }
     }
 
-    public async Task<Session?> ImportLegacyXmlAsJsonlAsync(string sourceXmlPath)
+    public async Task<Session?> ImportLegacyXmlAsJsonlAsync(string sourceXmlPath, string? targetFilePath = null)
     {
         if (!File.Exists(sourceXmlPath)) return null;
         if (!string.Equals(Path.GetExtension(sourceXmlPath), ".xml", StringComparison.OrdinalIgnoreCase)) return null;
@@ -553,15 +553,26 @@ public class DanmakuService
             uidOrRoom = "unknown";
         }
 
-        var roomDir = Path.Combine(_danmakuDir, uidOrRoom);
-        Directory.CreateDirectory(roomDir);
-
         var startTimestamp = parsed.Meta.RecordStartTimestamp > 0
             ? parsed.Meta.RecordStartTimestamp
             : new DateTimeOffset(File.GetLastWriteTimeUtc(sourceXmlPath)).ToUnixTimeMilliseconds();
         var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
-        var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(parsed.Meta.Title)}.jsonl";
-        var finalPath = GetAvailableFilePath(Path.Combine(roomDir, finalFileName));
+        var finalPath = targetFilePath;
+        if (string.IsNullOrWhiteSpace(finalPath))
+        {
+            var roomDir = Path.Combine(_danmakuDir, uidOrRoom);
+            Directory.CreateDirectory(roomDir);
+            var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(parsed.Meta.Title)}.jsonl";
+            finalPath = GetAvailableFilePath(Path.Combine(roomDir, finalFileName));
+        }
+        else
+        {
+            var targetDir = Path.GetDirectoryName(finalPath);
+            if (!string.IsNullOrWhiteSpace(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+        }
 
         var metaLine = JsonSerializer.Serialize(new
         {

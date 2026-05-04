@@ -35,7 +35,7 @@ public class ProcessManager
         _accountService = accountService;
     }
 
-    public List<ProcessInfo> GetProcesses()
+    public virtual List<ProcessInfo> GetProcesses()
     {
         var list = new List<ProcessInfo>();
         lock (_recorders)

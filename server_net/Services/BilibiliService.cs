@@ -860,7 +860,7 @@ public class BilibiliService
         return (0, "");
     }
 
-    public async Task<long> GetRealRoomIdAsync(long roomId)
+    public virtual async Task<long> GetRealRoomIdAsync(long roomId)
     {
         try
         {

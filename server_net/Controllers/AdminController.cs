@@ -462,6 +462,125 @@ public class AdminController : ControllerBase
         }
     }
 
+    [HttpPost("sessions/{id}/replace-xml")]
+    [RequestSizeLimit(512 * 1024 * 1024)]
+    public async Task<IActionResult> ReplaceSessionXml(int id, [FromForm] IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { error = "请选择要上传的 XML 文件" });
+        }
+
+        if (!string.Equals(Path.GetExtension(file.FileName), ".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { error = "仅支持上传 .xml 文件" });
+        }
+
+        var session = await _db.Sessions.FindAsync(id);
+        if (session == null)
+        {
+            return NotFound(new { error = "Session not found" });
+        }
+
+        if (string.IsNullOrWhiteSpace(session.FilePath) || session.FilePath.StartsWith("redis:", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { error = "当前直播回放不是本地文件，无法替换" });
+        }
+
+        var targetPath = ResolveSessionFilePath(session);
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            return BadRequest(new { error = "无法定位原始 jsonl 文件" });
+        }
+
+        var backupPath = Path.Combine(Path.GetTempPath(), "danmu-session-backups", $"{Guid.NewGuid():N}.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(backupPath)!);
+
+        var hasBackup = false;
+        try
+        {
+            if (System.IO.File.Exists(targetPath))
+            {
+                System.IO.File.Copy(targetPath, backupPath, true);
+                hasBackup = true;
+            }
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "danmu-session-imports");
+            Directory.CreateDirectory(tempDir);
+            var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}.xml");
+
+            try
+            {
+                await using (var stream = System.IO.File.Create(tempPath))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var imported = await _danmakuService.ImportLegacyXmlAsJsonlAsync(tempPath, targetPath);
+                if (imported == null)
+                {
+                    throw new InvalidOperationException("XML 解析或转换失败");
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    id = imported.Id,
+                    session = new
+                    {
+                        imported.Id,
+                        imported.Uid,
+                        imported.RoomId,
+                        imported.Title,
+                        imported.UserName,
+                        imported.StartTime,
+                        imported.EndTime,
+                        imported.FilePath
+                    }
+                });
+            }
+            finally
+            {
+                try
+                {
+                    if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temp upload file {TempPath}", tempPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (hasBackup)
+            {
+                try
+                {
+                    System.IO.File.Copy(backupPath, targetPath, true);
+                }
+                catch (Exception restoreEx)
+                {
+                    _logger.LogError(restoreEx, "Failed to restore backup jsonl file {TargetPath} after XML replace failed", targetPath);
+                }
+            }
+
+            _logger.LogError(ex, "Failed to replace session XML for session {SessionId}", id);
+            return StatusCode(500, new { error = "替换导入失败: " + ex.Message });
+        }
+        finally
+        {
+            try
+            {
+                if (System.IO.File.Exists(backupPath)) System.IO.File.Delete(backupPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete backup jsonl file {BackupPath}", backupPath);
+            }
+        }
+    }
+
     [HttpPost("sessions/recalculate")]
     public async Task<IActionResult> RecalculateSessions([FromBody] RecalculateSessionsDto dto)
     {

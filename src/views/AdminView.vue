@@ -946,8 +946,16 @@ const saveSession = async () => {
       await adminApi.post('/admin/sessions/upload-xml', formData, getAuthConfig());
       ElMessage.success('XML 已上传并转换为直播回放');
     } else {
-      await adminApi.put(`/admin/sessions/${sessionForm.value.id}`, payload, getAuthConfig());
-      ElMessage.success('直播场次已更新');
+      if (sessionUploadFile.value) {
+        sessionUploadLoading.value = true;
+        const formData = new FormData();
+        formData.append('file', sessionUploadFile.value);
+        await adminApi.post(`/admin/sessions/${sessionForm.value.id}/replace-xml`, formData, getAuthConfig());
+        ElMessage.success('XML 已上传并替换原回放文件');
+      } else {
+        await adminApi.put(`/admin/sessions/${sessionForm.value.id}`, payload, getAuthConfig());
+        ElMessage.success('直播场次已更新');
+      }
     }
     sessionDialogVisible.value = false;
     await fetchSessions();
@@ -1925,12 +1933,27 @@ watch(activeSection, async (val) => {
           <el-input v-model="sessionForm.startTime" placeholder="开始时间戳 (毫秒)" type="number" />
           <el-input v-model="sessionForm.endTime" placeholder="结束时间戳 (毫秒)" type="number" />
           <el-input v-model="sessionForm.filePath" placeholder="文件路径 (可选)" />
+          <el-upload
+            v-model:file-list="sessionUploadFileList"
+            drag
+            accept=".xml"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="handleSessionXmlChange"
+            :on-remove="handleSessionXmlRemove"
+          >
+            <el-icon class="el-icon--upload"><Document /></el-icon>
+            <div class="el-upload__text">可选：上传 XML 替换当前 JSONL 文件</div>
+            <template #tip>
+              <div class="el-upload__tip">选择 XML 后点击保存，将转换为 JSONL 并覆盖当前回放文件，同时重新解析统计。</div>
+            </template>
+          </el-upload>
         </template>
       </div>
       <template #footer>
         <el-button @click="sessionDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="sessionUploadLoading" @click="saveSession">
-          {{ sessionFormMode === 'create' ? '上传并导入' : '保存' }}
+          {{ sessionFormMode === 'create' ? '上传并导入' : (sessionUploadFile ? '上传并替换' : '保存') }}
         </el-button>
       </template>
     </el-dialog>
