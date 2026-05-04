@@ -133,12 +133,33 @@ public class DanmakuService
             var listKey = sessionKey + ":list";
             var metaKey = sessionKey + ":meta";
 
-            // 清空可能残留的 Redis key
-            await _redis.DeleteKeyAsync(listKey);
-            await _redis.DeleteKeyAsync(metaKey);
+            var existingRedisCount = await _redis.GetListLengthAsync(listKey);
+            var restoredMessageCount = messageLines.Count;
 
-            // 批量恢复消息到 Redis
-            await _redis.PushMessagesAsync(listKey, messageLines);
+            if (existingRedisCount > messageLines.Count)
+            {
+                var redisTail = await _redis.GetListRangeAsync(listKey, messageLines.Count, existingRedisCount - 1);
+                if (redisTail.Count > 0)
+                {
+                    await File.AppendAllLinesAsync(tmpFilePath, redisTail, System.Text.Encoding.UTF8);
+                    restoredMessageCount += redisTail.Count;
+                    _logger.LogInformation(
+                        "Preserved {TailCount} Redis-only messages by appending them to tmp file {TmpFile}",
+                        redisTail.Count,
+                        tmpFilePath);
+                }
+            }
+            else if (existingRedisCount < messageLines.Count)
+            {
+                // Redis is empty or behind tmp, rebuild it from the tmp baseline.
+                await _redis.DeleteKeyAsync(listKey);
+                await _redis.PushMessagesAsync(listKey, messageLines);
+                restoredMessageCount = messageLines.Count;
+            }
+            else if (existingRedisCount == 0 && messageLines.Count == 0)
+            {
+                _logger.LogInformation("Tmp file {TmpFile} has no messages yet; restoring metadata only", tmpFilePath);
+            }
 
             // 构建 meta
             var meta = new Dictionary<string, string>
@@ -151,25 +172,29 @@ public class DanmakuService
                 { "video_start_time", liveStartTime.ToString() },
                 { "start_time_is_fallback", "0" },
                 { "filename", $"{liveStartTime}.jsonl" },
-                { "dump_offset", messageLines.Count.ToString() }
+                { "dump_offset", restoredMessageCount.ToString() }
             };
 
+            await _redis.DeleteKeyAsync(metaKey);
             await _redis.SetMetadataAsync(metaKey, meta);
             await _redis.SetLiveSessionKeyAsync(uid, sessionKey);
 
             _logger.LogInformation(
-                "Restored {Count} messages from {TmpFile} to Redis session {SessionKey}",
-                messageLines.Count, tmpFilePath, sessionKey);
+                "Restored active tmp file {TmpFile} to Redis session {SessionKey} (tmpMessages={TmpCount}, redisExisting={RedisCount}, dumpOffset={DumpOffset})",
+                tmpFilePath, sessionKey, messageLines.Count, existingRedisCount, restoredMessageCount);
 
             // 更新 DB session
             using var scope = _scopeFactory.CreateScope();
             var db = GetDb(scope);
             var roomIdStr = roomId.ToString();
 
-            var session = await db.Sessions.FirstOrDefaultAsync(s =>
-                (s.EndTime == null || s.EndTime == 0) &&
-                ((!string.IsNullOrEmpty(uid) && s.Uid == uid) ||
-                 (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)));
+            var session = await db.Sessions
+                .Where(s =>
+                    (s.EndTime == null || s.EndTime == 0) &&
+                    ((!string.IsNullOrEmpty(uid) && s.Uid == uid) ||
+                     (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)))
+                .OrderByDescending(s => s.StartTime)
+                .FirstOrDefaultAsync();
 
             if (session != null)
             {
@@ -182,7 +207,7 @@ public class DanmakuService
                     "Updated DB session {SessionId} FilePath to redis:{SessionKey}",
                     session.Id, sessionKey);
             }
-            else
+            else if (restoredMessageCount > 0)
             {
                 session = new Session
                 {
@@ -203,10 +228,10 @@ public class DanmakuService
                     "Created new DB session for recovered Redis session {SessionKey}",
                     sessionKey);
             }
-
-            // 删除 tmp 文件（数据已在 Redis）
-            File.Delete(tmpFilePath);
-            _logger.LogInformation("Deleted tmp file {TmpFile} after Redis recovery", tmpFilePath);
+            else
+            {
+                _logger.LogInformation("Skipped creating DB session for meta-only tmp file {TmpFile}", tmpFilePath);
+            }
         }
         catch (Exception ex)
         {
