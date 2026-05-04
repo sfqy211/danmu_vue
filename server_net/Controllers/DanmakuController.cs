@@ -89,9 +89,18 @@ public class DanmakuController : ControllerBase
         if (startTime.HasValue) query = query.Where(s => s.StartTime >= startTime);
         if (endTime.HasValue) query = query.Where(s => s.EndTime <= endTime);
 
-        var sessions = await query.OrderByDescending(s => s.StartTime)
+        var rawSessions = await query.OrderByDescending(s => s.StartTime)
             .Select(s => new { s.Id, s.Uid, s.RoomId, s.Title, s.UserName, s.StartTime, s.EndTime })
             .ToListAsync();
+
+        var sessions = rawSessions
+            .GroupBy(s => new { s.Uid, s.RoomId, s.StartTime })
+            .Select(g => g
+                .OrderByDescending(s => s.EndTime ?? 0)
+                .ThenByDescending(s => s.Id)
+                .First())
+            .OrderByDescending(s => s.StartTime)
+            .ToList();
 
         return Ok(sessions);
     }
@@ -116,7 +125,14 @@ public class DanmakuController : ControllerBase
             }
         }
         
-        var count = await query.CountAsync();
+        var rawSessions = await query
+            .Select(s => new { s.Uid, s.RoomId, s.StartTime })
+            .ToListAsync();
+
+        var count = rawSessions
+            .Select(s => new { s.Uid, s.RoomId, s.StartTime })
+            .Distinct()
+            .Count();
         return Ok(new { total = count });
     }
 
