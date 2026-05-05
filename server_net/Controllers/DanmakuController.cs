@@ -1,6 +1,8 @@
 using Danmu.Server.Data;
 using Danmu.Server.Models;
+using Danmu.Server.Models.Dtos;
 using Danmu.Server.Services;
+using Danmu.Server.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -50,22 +52,22 @@ public class DanmakuController : ControllerBase
         var processes = _pm.GetProcesses();
         var hasError = processes.Any(p => p.Status == "errored");
 
-        return Ok(new
+        return Ok(new RecorderStatusResponseDto
         {
-            status = hasError ? "error" : "success",
-            processes = processes.Select(p => new
+            Status = hasError ? "error" : "success",
+            Processes = processes.Select(p => new RecorderProcessDto
             {
-                uid = p.Uid,
-                roomId = p.RoomId,
-                name = p.Name,
-                status = p.Status,
-                id = p.Pid,
-                uptime = p.Uptime,
-                startTime = p.StartTime,
-                liveStatus = p.LiveStatus,
-                liveStartTime = p.LiveStartTime,
-                accountUid = p.AccountUid
-            })
+                Uid = p.Uid,
+                RoomId = p.RoomId,
+                Name = p.Name,
+                Status = p.Status,
+                Id = p.Pid,
+                Uptime = p.Uptime,
+                StartTime = TimeUtils.ToUnixMilliseconds(p.StartTime),
+                LiveStatus = p.LiveStatus,
+                LiveStartTime = p.LiveStartTime,
+                AccountUid = p.AccountUid
+            }).ToList()
         });
     }
 

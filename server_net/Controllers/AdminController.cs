@@ -1,11 +1,14 @@
 using Danmu.Server.Data;
 using Danmu.Server.Filters;
 using Danmu.Server.Models;
+using Danmu.Server.Models.Dtos;
 using Danmu.Server.Services;
+using Danmu.Server.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Danmu.Server.Controllers;
 
@@ -53,18 +56,18 @@ public class AdminController : ControllerBase
     {
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
-        var results = new List<object>();
+        var results = new List<AdminRoomListItemDto>();
 
         foreach (var room in rooms)
         {
             var proc = processes.FirstOrDefault(p => p.Uid == (room.Uid ?? ""));
 
-            long liveStartTime = room.LastLiveTime;
+            long? liveStartTime = room.LastLiveTime > 0 ? room.LastLiveTime : null;
 
             // Layer 1: only trust recorder live status when recorder is actually online
             // Layer 2: fallback to cached live status from LiveStatusService otherwise
             var realLiveStatus = 0;
-            long realLiveStartTime = liveStartTime;
+            long? realLiveStartTime = liveStartTime;
 
             if (proc != null && proc.Status == "online")
             {
@@ -82,23 +85,22 @@ public class AdminController : ControllerBase
                 }
             }
 
-            results.Add(new
+            results.Add(new AdminRoomListItemDto
             {
-                id = room.Id,
-                room_id = room.RoomId,
-                name = room.Name,
-                uid = room.Uid,
-                auto_record = room.AutoRecord,
-                process_status = proc?.Status ?? "stopped",
-                process_uptime = proc?.Uptime ?? "0s",
-                live_status = realLiveStatus,
-                live_start_time = realLiveStartTime,
-                pid = proc?.Pid,
-                account_uid = proc?.AccountUid,
-                accountUid = proc?.AccountUid,
-                remark = room.Remark,
-                playlist_url = room.PlaylistUrl,
-                playlistUrl = room.PlaylistUrl
+                Id = room.Id,
+                RoomId = room.RoomId,
+                Name = room.Name,
+                Uid = room.Uid,
+                AutoRecord = room.AutoRecord,
+                ProcessStatus = proc?.Status ?? "stopped",
+                ProcessUptime = proc?.Uptime ?? "0s",
+                ProcessStartTime = TimeUtils.ToUnixMilliseconds(proc?.StartTime),
+                LiveStatus = realLiveStatus,
+                LiveStartTime = realLiveStartTime,
+                Pid = proc?.Pid,
+                AccountUid = proc?.AccountUid,
+                Remark = room.Remark,
+                PlaylistUrl = room.PlaylistUrl
             });
         }
 
@@ -1122,10 +1124,19 @@ public class QrCodeLoginResponse
 
 public class AssignmentItem
 {
+    [JsonPropertyName("room_uid")]
     public string RoomUid { get; set; } = "";
+
+    [JsonPropertyName("room_id")]
     public long RoomId { get; set; }
+
+    [JsonPropertyName("room_name")]
     public string? RoomName { get; set; }
+
+    [JsonPropertyName("account_uid")]
     public long AccountUid { get; set; }
+
+    [JsonPropertyName("is_recording")]
     public bool IsRecording { get; set; }
 }
 

@@ -26,11 +26,13 @@ interface Room {
   auto_record: number;
   process_status: string;
   process_uptime: number | string;
+  process_start_time?: number | null;
   live_status: number;
   live_start_time: number | null;
   pid: number | null;
+  account_uid?: number | null;
   remark?: string;
-  playlistUrl?: string;
+  playlist_url?: string;
 }
 
 interface AdminSession {
@@ -84,10 +86,10 @@ const handleResize = () => {
 
 // Monitor Data
 const rooms = ref<Room[]>([]);
-const newRoom = ref({ roomId: '', name: '', uid: '', remark: '', playlistUrl: '' });
+const newRoom = ref({ roomId: '', name: '', uid: '', remark: '', playlist_url: '' });
 const adding = ref(false);
 const editDialogVisible = ref(false);
-const editForm = ref({ id: 0, remark: '', playlistUrl: '' });
+const editForm = ref({ id: 0, remark: '', playlist_url: '' });
 const healthCheckLoading = ref(false);
 const healthCheckReport = ref<HealthCheckReport | null>(null);
 
@@ -255,7 +257,7 @@ const openEditRoom = (row: Room) => {
   editForm.value = {
     id: row.id,
     remark: row.remark || '',
-    playlistUrl: row.playlistUrl || ''
+    playlist_url: row.playlist_url || ''
   };
   editDialogVisible.value = true;
 };
@@ -266,7 +268,7 @@ const saveRoomEdit = async () => {
       roomId: 0, // Not used
       name: 'Unknown', // Not used
       remark: editForm.value.remark,
-      playlistUrl: editForm.value.playlistUrl
+      playlistUrl: editForm.value.playlist_url
     }, getAuthConfig());
     ElMessage.success('更新成功');
     editDialogVisible.value = false;
@@ -763,18 +765,20 @@ const formatDate = (ts: number) => {
 // --- Methods: Data Normalization ---
 
 const normalizeRoomRow = (row: any): Room => ({
-  id: row.id ?? row.Id ?? 0,
-  room_id: row.room_id ?? row.roomId ?? row.RoomId ?? 0,
-  name: row.name ?? row.Name ?? '',
-  uid: row.uid ?? row.Uid ?? '',
-  auto_record: row.auto_record ?? row.autoRecord ?? row.AutoRecord ?? 0,
-  process_status: row.process_status ?? row.processStatus ?? row.ProcessStatus ?? 'stopped',
-  process_uptime: row.process_uptime ?? row.processUptime ?? row.ProcessUptime ?? '0s',
-  live_status: row.live_status ?? row.liveStatus ?? row.LiveStatus ?? 0,
-  live_start_time: row.live_start_time ?? row.liveStartTime ?? row.LiveStartTime ?? null,
-  pid: row.pid ?? row.Pid ?? null,
-  remark: row.remark ?? row.Remark ?? '',
-  playlistUrl: row.playlistUrl ?? row.playlist_url ?? row.PlaylistUrl ?? row.Playlist_url ?? ''
+  id: row.id ?? 0,
+  room_id: row.room_id ?? 0,
+  name: row.name ?? '',
+  uid: row.uid ?? '',
+  auto_record: row.auto_record ?? 0,
+  process_status: row.process_status ?? 'stopped',
+  process_uptime: row.process_uptime ?? '0s',
+  process_start_time: row.process_start_time ?? null,
+  live_status: row.live_status ?? 0,
+  live_start_time: row.live_start_time ?? null,
+  pid: row.pid ?? null,
+  account_uid: row.account_uid ?? null,
+  remark: row.remark ?? '',
+  playlist_url: row.playlist_url ?? ''
 });
 
 const normalizeSessionRow = (row: any): AdminSession => ({
@@ -813,11 +817,11 @@ const addRoom = async () => {
     await adminApi.post('/admin/rooms', {
       uid: newRoom.value.uid,
       remark: newRoom.value.remark,
-      playlistUrl: newRoom.value.playlistUrl,
+      playlistUrl: newRoom.value.playlist_url,
       name: 'Unknown', // Backend will resolve this, but DTO requires it
       roomId: 0 // Backend will resolve this
     }, getAuthConfig());
-    newRoom.value = { roomId: '', name: '', uid: '', remark: '', playlistUrl: '' };
+    newRoom.value = { roomId: '', name: '', uid: '', remark: '', playlist_url: '' };
     ElMessage.success('添加成功，已自动获取直播间信息并启动录制');
     await fetchRooms();
   } catch (e: any) {
@@ -1410,7 +1414,7 @@ watch(activeSection, async (val) => {
                     clearable
                   />
                   <el-input 
-                    v-model="newRoom.playlistUrl" 
+                    v-model="newRoom.playlist_url" 
                     placeholder="歌单链接 (可选)" 
                     clearable
                   />
@@ -1461,12 +1465,12 @@ watch(activeSection, async (val) => {
                   <el-table-column label="歌单" min-width="220" align="center" show-overflow-tooltip>
                     <template #default="scope">
                       <a
-                        v-if="scope.row.playlistUrl"
-                        :href="scope.row.playlistUrl"
+                        v-if="scope.row.playlist_url"
+                        :href="scope.row.playlist_url"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        {{ scope.row.playlistUrl }}
+                        {{ scope.row.playlist_url }}
                       </a>
                       <span v-else>-</span>
                     </template>
@@ -1899,7 +1903,7 @@ watch(activeSection, async (val) => {
     <el-dialog v-model="editDialogVisible" title="修改主播配置" width="400px">
       <div class="dialog-form">
         <el-input v-model="editForm.remark" placeholder="备注" />
-        <el-input v-model="editForm.playlistUrl" placeholder="歌单链接" />
+        <el-input v-model="editForm.playlist_url" placeholder="歌单链接" />
       </div>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>

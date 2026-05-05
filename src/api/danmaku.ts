@@ -387,9 +387,16 @@ export const getSongRequests = async (params: { id?: number; roomId?: string; pa
 };
 
 export interface RecorderProcess {
+  uid: string;
+  room_id: number;
   name: string;
   status: string;
   id: number;
+  uptime: string;
+  start_time?: number | null;
+  live_status: number;
+  live_start_time?: number | null;
+  account_uid?: number | null;
 }
 
 export interface RecorderStatusResponse {
@@ -501,11 +508,11 @@ export interface AccountAssignment {
 }
 
 const normalizeAssignment = (row: any): AccountAssignment => ({
-  room_uid: row.room_uid ?? row.roomUid ?? row.RoomUid ?? '',
-  room_id: row.room_id ?? row.roomId ?? row.RoomId ?? 0,
-  room_name: row.room_name ?? row.roomName ?? row.RoomName,
-  account_uid: row.account_uid ?? row.accountUid ?? row.AccountUid ?? 0,
-  is_recording: row.is_recording ?? row.isRecording ?? row.IsRecording ?? false
+  room_uid: row.room_uid ?? '',
+  room_id: row.room_id ?? 0,
+  room_name: row.room_name,
+  account_uid: row.account_uid ?? 0,
+  is_recording: row.is_recording ?? false
 });
 
 export const getBiliAccountAssignments = async (): Promise<AccountAssignment[]> => {
