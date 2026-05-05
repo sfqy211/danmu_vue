@@ -91,16 +91,16 @@ public class BiliAccountService
     /// Get a cookie for a specific room using round-robin assignment.
     /// Each room sticks to its assigned account until that account fails.
     /// </summary>
-    public string? GetCookieForRoom(string roomUid)
+    public async Task<string?> GetCookieForRoomAsync(string roomUid)
     {
-        var result = GetCookieWithAccountForRoom(roomUid);
+        var result = await GetCookieWithAccountForRoomAsync(roomUid);
         return result.Cookie;
     }
 
     /// <summary>
     /// Get a cookie for a specific room along with the assigned account UID.
     /// </summary>
-    public (string? Cookie, long? AccountUid) GetCookieWithAccountForRoom(string roomUid)
+    public async Task<(string? Cookie, long? AccountUid)> GetCookieWithAccountForRoomAsync(string roomUid)
     {
         // Query DB outside the lock to avoid holding lock during I/O
         List<BiliAccount> allAccounts;
@@ -109,6 +109,10 @@ public class BiliAccountService
             var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
             allAccounts = db.BiliAccounts.AsNoTracking().ToList();
         }
+
+        string? selectedCookie;
+        long? selectedUid;
+        var shouldPersist = false;
 
         lock (_rotationLock)
         {
@@ -159,9 +163,17 @@ public class BiliAccountService
                 .Select(x => x.Account)
                 .First();
             _roomAccountMap[roomUid] = selected.Uid;
-            _ = PersistRoomAssignmentAsync(roomUid, selected.Uid);
-            return (BuildCookieString(selected.CookieJson), selected.Uid);
+            selectedCookie = BuildCookieString(selected.CookieJson);
+            selectedUid = selected.Uid;
+            shouldPersist = true;
         }
+
+        if (shouldPersist && selectedUid.HasValue)
+        {
+            await PersistRoomAssignmentAsync(roomUid, selectedUid.Value);
+        }
+
+        return (selectedCookie, selectedUid);
     }
 
     /// <summary>
@@ -179,7 +191,7 @@ public class BiliAccountService
     /// Manually reassign a room to a specific account.
     /// Returns true if reassigned, false if target account not found or has no cookie.
     /// </summary>
-    public bool ReassignRoom(string roomUid, long targetAccountUid)
+    public async Task<bool> ReassignRoomAsync(string roomUid, long targetAccountUid)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
@@ -195,9 +207,23 @@ public class BiliAccountService
                 _accountFailures[oldUid] = DateTime.UtcNow.AddMinutes(10);
             }
             _roomAccountMap[roomUid] = targetAccountUid;
-            _ = PersistRoomAssignmentAsync(roomUid, targetAccountUid);
         }
+        await PersistRoomAssignmentAsync(roomUid, targetAccountUid);
         return true;
+    }
+
+    public async Task ReleaseRoomAssignmentAsync(string roomUid)
+    {
+        var removed = false;
+        lock (_rotationLock)
+        {
+            removed = _roomAccountMap.Remove(roomUid);
+        }
+
+        if (removed)
+        {
+            await RemoveRoomAssignmentAsync(roomUid);
+        }
     }
 
     /// <summary>
@@ -216,12 +242,12 @@ public class BiliAccountService
     /// Report that a room's assigned account cookie has failed.
     /// Looks up the room's current assignment and marks that account as unavailable.
     /// </summary>
-    public void ReportRoomFailure(string roomUid)
+    public async Task ReportRoomFailureAsync(string roomUid)
     {
         var accountUid = GetAssignedAccountUid(roomUid);
         if (accountUid.HasValue)
         {
-            ReportAccountFailure(accountUid.Value);
+            await ReportAccountFailureAsync(accountUid.Value);
         }
     }
 
@@ -229,19 +255,24 @@ public class BiliAccountService
     /// Report that an account's cookie has failed (e.g., got 403 or expired).
     /// This marks the account as temporarily unavailable and reassigns affected rooms.
     /// </summary>
-    public void ReportAccountFailure(long accountUid)
+    public async Task ReportAccountFailureAsync(long accountUid)
     {
+        List<string> affectedRooms;
         lock (_rotationLock)
         {
             _accountFailures[accountUid] = DateTime.UtcNow.AddMinutes(10);
             // Remove room assignments that pointed to this account
-            var affectedRooms = _roomAccountMap.Where(kv => kv.Value == accountUid).Select(kv => kv.Key).ToList();
+            affectedRooms = _roomAccountMap.Where(kv => kv.Value == accountUid).Select(kv => kv.Key).ToList();
             foreach (var room in affectedRooms)
             {
                 _roomAccountMap.Remove(room);
-                _ = RemoveRoomAssignmentAsync(room);
             }
             _logger.LogWarning("Account {Uid} reported as failing, marked unavailable for 10 minutes. {Count} rooms will be reassigned.", accountUid, affectedRooms.Count);
+        }
+
+        foreach (var room in affectedRooms)
+        {
+            await RemoveRoomAssignmentAsync(room);
         }
     }
 
@@ -896,7 +927,7 @@ public class BiliAccountService
                                 if (!refreshed || !await ValidateCookieAsync(acc.Uid))
                                 {
                                     _logger.LogWarning("Account {Uid} remains unhealthy after refresh attempt; reporting account failure.", acc.Uid);
-                                    ReportAccountFailure(acc.Uid);
+                                    await ReportAccountFailureAsync(acc.Uid);
                                 }
 
                                 continue;
@@ -920,7 +951,7 @@ public class BiliAccountService
                                 catch (Exception ex)
                                 {
                                     _logger.LogWarning(ex, "Scheduled web cookie refresh failed for {Uid}; reporting account failure.", acc.Uid);
-                                    ReportAccountFailure(acc.Uid);
+                                    await ReportAccountFailureAsync(acc.Uid);
                                 }
                             }
                         }

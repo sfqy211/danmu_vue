@@ -39,6 +39,7 @@ public class BilibiliRecorder : IDisposable
     private string _title = "未知直播";
     private string _userName = "未知主播";
     private long _realRoomId;
+    private volatile bool _stopRequestedAfterOfflineDetected;
     
     // Delegate to check for active session key
     public Func<string, long, Task<string?>>? CheckActiveSession;
@@ -49,6 +50,7 @@ public class BilibiliRecorder : IDisposable
     // Delegate to notify session ended
     public event Func<string, long, long, string, Task>? OnSessionEnded;
     public event Func<string, long, string, Task>? OnTitleChanged;
+    public event Func<string, long, string, Task>? OnRecorderStopped;
 
     public string Status { get; private set; } = "stopped";
     public DateTime StartTime { get; private set; }
@@ -99,6 +101,7 @@ public class BilibiliRecorder : IDisposable
 
         _token = token;
         _host = host;
+        _stopRequestedAfterOfflineDetected = false;
         Status = "online";
         StartTime = DateTime.Now;
         _cts = new CancellationTokenSource();
@@ -116,7 +119,7 @@ public class BilibiliRecorder : IDisposable
         while (!token.IsCancellationRequested)
         {
             // Check if any account is available before attempting connection
-            var cookie = GetCookie();
+            var cookie = await GetCookieAsync();
             if (string.IsNullOrEmpty(cookie))
             {
                 _logger.LogWarning("All accounts exhausted for room {RoomId}, backing off for 5 minutes.", _roomId);
@@ -137,6 +140,13 @@ public class BilibiliRecorder : IDisposable
 
                 // Receive loop blocks until connection closes
                 await ReceiveLoopAsync(token);
+                if (_stopRequestedAfterOfflineDetected)
+                {
+                    _logger.LogInformation("Room {RoomId} went offline during heartbeat check; finalizing and stopping recorder.", _roomId);
+                    await StopAsync();
+                    await NotifyRecorderStoppedAsync("stream-ended");
+                    return;
+                }
             }
             catch (Exception ex)
             {
@@ -146,15 +156,24 @@ public class BilibiliRecorder : IDisposable
                     var currentAccountUid = GetCurrentAccountUid();
                     if (currentAccountUid.HasValue)
                     {
-                        _accountService.ReportAccountFailure(currentAccountUid.Value);
+                        await _accountService.ReportAccountFailureAsync(currentAccountUid.Value);
                         _logger.LogWarning("Reported account {Uid} as failing for room {Room} due to auth failure.",
                             currentAccountUid.Value, _roomId);
                     }
                     rapidFailureCount = 0;
                     lastAccountUid = null;
                 }
-                else if (!(ex is EndOfStreamException ||
-                           ex is System.Net.WebSockets.WebSocketException ||
+                else if (ex is EndOfStreamException)
+                {
+                    _logger.LogInformation("Room {RoomId} ended live stream; finalizing and stopping recorder.", _roomId);
+                    LiveStatus = 0;
+                    LiveStartTime = null;
+                    await CheckAndCloseStaleSessionAsync();
+                    await StopAsync();
+                    await NotifyRecorderStoppedAsync("stream-ended");
+                    return;
+                }
+                else if (!(ex is System.Net.WebSockets.WebSocketException ||
                            ex is System.OperationCanceledException ||
                            ex is System.IO.IOException))
                 {
@@ -196,7 +215,7 @@ public class BilibiliRecorder : IDisposable
 
                 if (rapidFailureCount >= 2 && currentAccountUid.HasValue)
                 {
-                    _accountService.ReportAccountFailure(currentAccountUid.Value);
+                    await _accountService.ReportAccountFailureAsync(currentAccountUid.Value);
                     _logger.LogWarning("Reported account {Uid} as failing due to rapid disconnections.",
                         currentAccountUid.Value);
                     rapidFailureCount = 0;
@@ -218,7 +237,22 @@ public class BilibiliRecorder : IDisposable
             }
         }
 
+        await NotifyRecorderStoppedAsync("cancelled");
         Status = "stopped";
+    }
+
+    private async Task NotifyRecorderStoppedAsync(string reason)
+    {
+        if (OnRecorderStopped == null) return;
+
+        try
+        {
+            await OnRecorderStopped.Invoke(_uid, _roomId, reason);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to notify recorder stopped for uid {Uid}, room {RoomId}", _uid, _roomId);
+        }
     }
 
     internal static bool IsAuthFailure(Exception ex)
@@ -419,7 +453,7 @@ public class BilibiliRecorder : IDisposable
         _ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         
         long uid = 0;
-        var cookie = GetCookie();
+        var cookie = await GetCookieAsync();
         if (!string.IsNullOrEmpty(cookie))
         {
             var match = Regex.Match(cookie, @"DedeUserID=([^;]+)");
@@ -466,9 +500,9 @@ public class BilibiliRecorder : IDisposable
         await _ws.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Binary, true, _cts!.Token);
     }
 
-    private string? GetCookie()
+    private async Task<string?> GetCookieAsync()
     {
-        return _accountService.GetCookieForRoom(_uid);
+        return await _accountService.GetCookieForRoomAsync(_uid);
     }
 
     private long? GetCurrentAccountUid()
@@ -496,6 +530,7 @@ public class BilibiliRecorder : IDisposable
                         LiveStatus = 0;
                         LiveStartTime = null;
                         await CheckAndCloseStaleSessionAsync();
+                        _stopRequestedAfterOfflineDetected = true;
                         if (_ws != null) 
                         {
                             try 

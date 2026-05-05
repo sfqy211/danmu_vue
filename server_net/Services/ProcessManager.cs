@@ -15,6 +15,7 @@ public class ProcessInfo
     public DateTime StartTime { get; set; }
     public int LiveStatus { get; set; }
     public long? LiveStartTime { get; set; }
+    public long? AccountUid { get; set; }
 }
 
 public class ProcessManager
@@ -54,7 +55,8 @@ public class ProcessManager
                     Uptime = recorder.Uptime,
                     StartTime = recorder.StartTime,
                     LiveStatus = recorder.LiveStatus,
-                    LiveStartTime = recorder.LiveStartTime
+                    LiveStartTime = recorder.LiveStartTime,
+                    AccountUid = _accountService.GetAssignedAccountUid(kvp.Key)
                 });
             }
         }
@@ -148,6 +150,11 @@ public class ProcessManager
                 await svc.CloseSessionAsync(uid, rid, endTime, finalPath);
             };
 
+            recorder.OnRecorderStopped += async (uid, rid, reason) =>
+            {
+                await RemoveRecorderAsync(uid, rid, recorder, reason);
+            };
+
             _recorders[identity.Uid] = recorder;
         }
 
@@ -184,12 +191,27 @@ public class ProcessManager
         if (recorder != null)
         {
             await recorder.StopAsync();
-            lock (_recorders)
+            await RemoveRecorderAsync(uid, recorder.RoomId, recorder, "manual-stop");
+        }
+    }
+
+    private async Task RemoveRecorderAsync(string uid, long roomId, BilibiliRecorder recorder, string reason)
+    {
+        var removed = false;
+        lock (_recorders)
+        {
+            if (_recorders.TryGetValue(uid, out var current) && ReferenceEquals(current, recorder))
             {
                 _recorders.Remove(uid);
+                removed = true;
             }
-            recorder.Dispose();
         }
+
+        if (!removed) return;
+
+        await _accountService.ReleaseRoomAssignmentAsync(uid);
+        _logger.LogInformation("Stopped recorder for uid {Uid}, room {RoomId}. Reason: {Reason}", uid, roomId, reason);
+        recorder.Dispose();
     }
 
     public virtual async Task RestoreRecordersAsync()

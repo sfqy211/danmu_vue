@@ -94,6 +94,8 @@ public class AdminController : ControllerBase
                 live_status = realLiveStatus,
                 live_start_time = realLiveStartTime,
                 pid = proc?.Pid,
+                account_uid = proc?.AccountUid,
+                accountUid = proc?.AccountUid,
                 remark = room.Remark,
                 playlist_url = room.PlaylistUrl,
                 playlistUrl = room.PlaylistUrl
@@ -939,9 +941,9 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("bili-accounts/{targetUid:long}/reassign/{roomUid}")]
-    public IActionResult ReassignRoom(long targetUid, string roomUid)
+    public async Task<IActionResult> ReassignRoom(long targetUid, string roomUid)
     {
-        var ok = _accountService.ReassignRoom(roomUid, targetUid);
+        var ok = await _accountService.ReassignRoomAsync(roomUid, targetUid);
         if (!ok)
             return BadRequest(new { message = "目标账户不存在或没有有效 Cookie" });
         return Ok(new { message = "已重新分配" });

@@ -55,9 +55,16 @@ public class DanmakuController : ControllerBase
             status = hasError ? "error" : "success",
             processes = processes.Select(p => new
             {
+                uid = p.Uid,
+                roomId = p.RoomId,
                 name = p.Name,
                 status = p.Status,
-                id = p.Pid
+                id = p.Pid,
+                uptime = p.Uptime,
+                startTime = p.StartTime,
+                liveStatus = p.LiveStatus,
+                liveStartTime = p.LiveStartTime,
+                accountUid = p.AccountUid
             })
         });
     }

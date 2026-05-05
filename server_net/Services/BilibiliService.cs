@@ -489,17 +489,17 @@ public class BilibiliService
     /// <summary>
     /// Get cookie for a specific room (round-robin + failover).
     /// </summary>
-    private string? GetCookieForRoom(string roomUid)
+    private async Task<string?> GetCookieForRoomAsync(string roomUid)
     {
-        return _accountService.GetCookieForRoom(roomUid);
+        return await _accountService.GetCookieForRoomAsync(roomUid);
     }
 
     /// <summary>
     /// Report that the current account's cookie has failed, triggering failover.
     /// </summary>
-    public void ReportCookieFailure(string roomUid)
+    public async Task ReportCookieFailureAsync(string roomUid)
     {
-        _accountService.ReportRoomFailure(roomUid);
+        await _accountService.ReportRoomFailureAsync(roomUid);
     }
 
     public async Task<string?> GetAvatarUrlAsync(string uid)
