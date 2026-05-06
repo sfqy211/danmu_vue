@@ -36,6 +36,7 @@ __pycache__/
 # Temporary or archived directories
 example/
 test/
+.firecrawl/
 
 # VUP images (stored in COS CDN, not in repo)
 public/vup-avatar/
