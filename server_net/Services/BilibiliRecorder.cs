@@ -1099,6 +1099,7 @@ public class BilibiliRecorder : IDisposable
                 { "room_title", _title },
                 { "user_name", _userName },
                 { "video_start_time", timestamp.ToString() },
+                { "recording_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString() },
                 { "start_time_is_fallback", startTimeIsFallback ? "1" : "0" },
                 { "filename", filename },
                 { "dump_offset", "0" }
@@ -1259,6 +1260,7 @@ public class BilibiliRecorder : IDisposable
             title = meta.GetValueOrDefault("room_title", _title),
             userName = meta.GetValueOrDefault("user_name", _userName),
             startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()),
+            recordingStartTime = meta.GetValueOrDefault("recording_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()),
             startTimeIsFallback = meta.GetValueOrDefault("start_time_is_fallback", "0") == "1"
         }, EventJsonOptions);
     }

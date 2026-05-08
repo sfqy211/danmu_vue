@@ -171,6 +171,7 @@ public class DanmakuService
                 { "room_title", metaInfo?.Title ?? "未知直播" },
                 { "user_name", metaInfo?.UserName ?? "未知主播" },
                 { "video_start_time", liveStartTime.ToString() },
+                { "recording_start_time", liveStartTime.ToString() },
                 { "start_time_is_fallback", "0" },
                 { "filename", $"{liveStartTime}.jsonl" },
                 { "dump_offset", restoredMessageCount.ToString() }
@@ -611,6 +612,7 @@ public class DanmakuService
             title = parsed.Meta.Title,
             userName = parsed.Meta.UserName,
             startTime = startTimestamp,
+            recordingStartTime = startTimestamp,
             startTimeIsFallback = parsed.Meta.RecordStartTimestamp <= 0
         }, JsonOptions);
 
