@@ -100,6 +100,22 @@ public class LiveStatusService : BackgroundService
                 {
                     _cache[room.RoomId] = state;
                     await PersistRoomStateAsync(state, token);
+
+                    if (state.LiveStatus == 1)
+                    {
+                        _logger.LogInformation("Auto-restarting recorder for live room {RoomId}", room.RoomId);
+                        try
+                        {
+                            if (!_pm.HasRecorder(room.RoomId))
+                            {
+                                await _pm.StartRecorder(room.RoomId, null);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to auto-restart recorder for room {RoomId}", room.RoomId);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

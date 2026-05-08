@@ -63,6 +63,14 @@ public class ProcessManager
         return list;
     }
 
+    public virtual bool HasRecorder(long roomId)
+    {
+        lock (_recorders)
+        {
+            return _recorders.Values.Any(r => r.RoomId == roomId && r.Status == "online");
+        }
+    }
+
     public virtual async Task StartRecorder(long roomId, string? name)
     {
         var identity = await ResolveRoomIdentityAsync(roomId, name);
