@@ -23,19 +23,21 @@ public class AdminController : ControllerBase
     private readonly BilibiliService _bilibili;
     private readonly DanmakuService _danmakuService;
     private readonly BiliAccountService _accountService;
+    private readonly RedisService _redis;
     private readonly LiveStatusService _liveStatusService;
     private readonly HealthCheckService _healthCheckService;
     private readonly ChangelogService _changelogService;
     private readonly LogService _logService;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, LiveStatusService liveStatusService, HealthCheckService healthCheckService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, RedisService redis, LiveStatusService liveStatusService, HealthCheckService healthCheckService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
         _bilibili = bilibili;
         _danmakuService = danmakuService;
         _accountService = accountService;
+        _redis = redis;
         _liveStatusService = liveStatusService;
         _healthCheckService = healthCheckService;
         _changelogService = changelogService;
@@ -56,13 +58,35 @@ public class AdminController : ControllerBase
     {
         var rooms = await _db.Rooms.ToListAsync();
         var processes = _pm.GetProcesses();
+        var activeSessions = await _db.Sessions
+            .Where(s => s.EndTime == null || s.EndTime == 0)
+            .ToListAsync();
+        var sessionMap = activeSessions
+            .GroupBy(s => s.RoomId ?? s.Uid ?? string.Empty)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.StartTime).First());
         var results = new List<AdminRoomListItemDto>();
 
         foreach (var room in rooms)
         {
             var proc = processes.FirstOrDefault(p => p.Uid == (room.Uid ?? ""));
+            var roomIdText = room.RoomId.ToString();
+            sessionMap.TryGetValue(roomIdText, out var activeSession);
+            if (activeSession == null && !string.IsNullOrWhiteSpace(room.Uid))
+            {
+                sessionMap.TryGetValue(room.Uid, out activeSession);
+            }
 
             long? liveStartTime = room.LastLiveTime > 0 ? room.LastLiveTime : null;
+            long? recordingStartTime = activeSession?.StartTime;
+            if (activeSession?.FilePath?.StartsWith("redis:", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var sessionKey = activeSession.FilePath.Substring(6);
+                var meta = await _redis.GetMetadataAsync(sessionKey + ":meta");
+                if (meta.TryGetValue("recording_start_time", out var recordingStartText) && long.TryParse(recordingStartText, out var parsedRecordingStart) && parsedRecordingStart > 0)
+                {
+                    recordingStartTime = parsedRecordingStart;
+                }
+            }
 
             // Layer 1: only trust recorder live status when recorder is actually online
             // Layer 2: fallback to cached live status from LiveStatusService otherwise
@@ -85,6 +109,12 @@ public class AdminController : ControllerBase
                 }
             }
 
+            var processStatus = proc?.Status;
+            if (processStatus == null && room.AutoRecord == 1)
+            {
+                processStatus = "monitoring";
+            }
+
             results.Add(new AdminRoomListItemDto
             {
                 Id = room.Id,
@@ -92,9 +122,10 @@ public class AdminController : ControllerBase
                 Name = room.Name,
                 Uid = room.Uid,
                 AutoRecord = room.AutoRecord,
-                ProcessStatus = proc?.Status ?? "stopped",
+                ProcessStatus = processStatus ?? "stopped",
                 ProcessUptime = proc?.Uptime ?? "0s",
                 ProcessStartTime = TimeUtils.ToUnixMilliseconds(proc?.StartTime),
+                RecordingStartTime = recordingStartTime,
                 LiveStatus = realLiveStatus,
                 LiveStartTime = realLiveStartTime,
                 Pid = proc?.Pid,

@@ -28,6 +28,9 @@ public class AdminRoomListItemDto
     [JsonPropertyName("process_start_time")]
     public long? ProcessStartTime { get; set; }
 
+    [JsonPropertyName("recording_start_time")]
+    public long? RecordingStartTime { get; set; }
+
     [JsonPropertyName("live_status")]
     public int LiveStatus { get; set; }
 
