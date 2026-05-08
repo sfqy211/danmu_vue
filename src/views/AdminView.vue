@@ -27,6 +27,7 @@ interface Room {
   process_status: string;
   process_uptime: number | string;
   process_start_time?: number | null;
+  recording_start_time?: number | null;
   live_status: number;
   live_start_time: number | null;
   pid: number | null;
@@ -773,6 +774,7 @@ const normalizeRoomRow = (row: any): Room => ({
   process_status: row.process_status ?? 'stopped',
   process_uptime: row.process_uptime ?? '0s',
   process_start_time: row.process_start_time ?? null,
+  recording_start_time: row.recording_start_time ?? null,
   live_status: row.live_status ?? 0,
   live_start_time: row.live_start_time ?? null,
   pid: row.pid ?? null,
@@ -1085,14 +1087,14 @@ const formatUptime = (val: number | string) => {
 const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
   if (liveStatus !== 1) return '未开播';
   if (!liveStartTime || liveStartTime === 0) return '直播中';
-  const now = Date.now();
   const startMs = liveStartTime < 1_000_000_000_000 ? liveStartTime * 1000 : liveStartTime;
-  
-  // 增加日志辅助调试
-  // console.log(`LiveStartTime: ${liveStartTime}, StartMs: ${startMs}, Now: ${now}, Diff: ${now - startMs}`);
-  
-  const diffSeconds = Math.floor((now - startMs) / 1000);
-  if (diffSeconds < 0) return '直播中'; // 如果时间还没到（本地时差），显示直播中而非未开播
+  const diff = Date.now() - startMs;
+  if (diff <= 0) return '直播中';
+  return formatSpan(diff);
+};
+
+const formatSpan = (diffMs: number) => {
+  const diffSeconds = Math.floor(Math.max(0, diffMs) / 1000);
   const seconds = diffSeconds % 60;
   const totalMinutes = Math.floor(diffSeconds / 60);
   const minutes = totalMinutes % 60;
@@ -1105,13 +1107,26 @@ const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) =>
   return `${seconds}秒`;
 };
 
+const formatRecordingDuration = (liveStatus: number, recordingStartTime?: number | null) => {
+  if (liveStatus !== 1 || !recordingStartTime) return '0秒';
+
+  // 后端统一输出毫秒；这里保留秒级兼容以防历史数据混入
+  const startMs = recordingStartTime < 1_000_000_000_000 ? recordingStartTime * 1000 : recordingStartTime;
+  const diff = Date.now() - startMs;
+  if (diff <= 0) return '0秒';
+
+  return formatSpan(diff);
+};
+
 const getMonitorStatusLabel = (status: string) => {
+  if (status === 'monitoring') return '监控中';
   if (status === 'stopped') return '已停止';
   if (status === 'errored') return '异常';
   return '正常';
 };
 
 const getMonitorStatusType = (status: string) => {
+  if (status === 'monitoring') return 'warning';
   if (status === 'stopped') return 'info';
   if (status === 'errored') return 'danger';
   return 'success';
@@ -1503,15 +1518,15 @@ watch(activeSection, async (val) => {
                           </el-tag>
                         </template>
                         <div style="text-align: center">
-                          <p style="margin: 0; font-weight: bold; font-size: 12px; color: #909399; margin-bottom: 4px;">运行时长</p>
-                          <p style="margin: 0; font-size: 14px;">{{ formatUptime(scope.row.process_uptime) }}</p>
+                          <p style="margin: 0; font-weight: bold; font-size: 12px; color: #909399; margin-bottom: 4px;">录制时长</p>
+                          <p style="margin: 0; font-size: 14px;">{{ formatRecordingDuration(scope.row.live_status, scope.row.recording_start_time) }}</p>
                         </div>
                       </el-popover>
                     </template>
                   </el-table-column>
-                  <el-table-column label="运行时长" align="center" width="120">
+                  <el-table-column label="录制时长" align="center" width="120">
                     <template #default="scope">
-                      {{ formatUptime(scope.row.process_uptime) }}
+                      {{ formatRecordingDuration(scope.row.live_status, scope.row.recording_start_time) }}
                     </template>
                   </el-table-column>
                   <el-table-column label="开播时长" align="center" width="160">
