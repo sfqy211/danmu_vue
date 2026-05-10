@@ -833,34 +833,6 @@ const addRoom = async () => {
   }
 };
 
-const deleteRoom = async (id: number, name: string) => {
-  try {
-    await ElMessageBox.confirm(`确定要删除 "${name}" 吗？这将停止录制并移除配置。`, '删除确认', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    });
-    
-    await adminApi.delete(`/admin/rooms/${id}`, getAuthConfig());
-    ElMessage.success('删除成功');
-    await fetchRooms();
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error('删除失败: ' + (e.response?.data?.error || e.message));
-    }
-  }
-};
-
-const restartRoom = async (id: number) => {
-  try {
-    await adminApi.post(`/admin/rooms/${id}/restart`, {}, getAuthConfig());
-    ElMessage.success('重启指令已发送');
-    setTimeout(fetchRooms, 2000);
-  } catch (e: any) {
-    ElMessage.error('重启失败: ' + (e.response?.data?.error || e.message));
-  }
-};
-
 const toggleRoomMonitor = async (row: Room, active: boolean) => {
   try {
     await adminApi.post(`/admin/rooms/${row.id}/toggle-monitor`, { autoRecord: active }, getAuthConfig());
@@ -1491,8 +1463,18 @@ watch(activeSection, async (val) => {
                       {{ scope.row.remark || scope.row.name }}
                     </template>
                   </el-table-column>
-                  <el-table-column prop="uid" label="UID" min-width="130" align="center" show-overflow-tooltip />
-                  <el-table-column prop="room_id" label="房间号" align="center" />
+                  <el-table-column prop="uid" label="UID" min-width="130" align="center" show-overflow-tooltip>
+                    <template #default="scope">
+                      <a v-if="scope.row.uid" :href="`https://space.bilibili.com/${scope.row.uid}`" target="_blank" rel="noopener noreferrer" class="link-btn">{{ scope.row.uid }}</a>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="room_id" label="房间号" align="center">
+                    <template #default="scope">
+                      <a v-if="scope.row.room_id" :href="`https://live.bilibili.com/${scope.row.room_id}`" target="_blank" rel="noopener noreferrer" class="link-btn">{{ scope.row.room_id }}</a>
+                      <span v-else>-</span>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="歌单" min-width="220" align="center" show-overflow-tooltip>
                     <template #default="scope">
                       <a
@@ -1556,32 +1538,16 @@ watch(activeSection, async (val) => {
                       {{ formatAccountUid(scope.row.account_uid) }}
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="280" align="center">
+                  <el-table-column label="操作" width="100" align="center">
                     <template #default="scope">
                       <div class="action-btns">
-                        <el-button 
-                          type="primary" 
-                          size="small" 
-                          :icon="EditPen" 
+                        <el-button
+                          type="primary"
+                          size="small"
+                          :icon="EditPen"
                           @click="openEditRoom(scope.row)"
                         >
                           修改
-                        </el-button>
-                        <el-button 
-                          type="primary" 
-                          size="small" 
-                          :icon="VideoPlay" 
-                          @click="restartRoom(scope.row.id)"
-                        >
-                          重启
-                        </el-button>
-                        <el-button 
-                          type="danger" 
-                          size="small" 
-                          :icon="Delete" 
-                          @click="deleteRoom(scope.row.id, scope.row.name)"
-                        >
-                          删除
                         </el-button>
                       </div>
                     </template>
@@ -2441,6 +2407,16 @@ watch(activeSection, async (val) => {
   justify-content: center;
 }
 
+.link-btn {
+  color: #409eff;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
 .pagination-row {
   margin-top: 20px;
   display: flex;
@@ -2845,6 +2821,44 @@ watch(activeSection, async (val) => {
 
 .admin-wrapper[data-theme="dark"] :deep(.el-breadcrumb__separator) {
   color: #666;
+}
+
+.admin-wrapper[data-theme="dark"] .link-btn {
+  color: #60a5fa;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-panel {
+  background: #1e1e1e;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-title {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-meta {
+  color: #888;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-stat {
+  background: #262626;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-stat .label {
+  color: #888;
+}
+
+.admin-wrapper[data-theme="dark"] .health-check-stat strong {
+  color: #e0e0e0;
+}
+
+.admin-wrapper[data-theme="dark"] .health-issue-item.danger {
+  background: rgba(245, 108, 108, 0.15);
+  color: #f59e9e;
+}
+
+.admin-wrapper[data-theme="dark"] .health-issue-item.warning {
+  background: rgba(230, 162, 60, 0.15);
+  color: #f0c78a;
 }
 
 .admin-wrapper[data-theme="dark"] :deep(.el-menu) {
