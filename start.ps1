@@ -12,6 +12,20 @@ Write-Host ""
 
 Set-Location $PSScriptRoot
 
+$ports = @(3001, 5200)
+foreach ($port in $ports) {
+    $conns = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    if ($conns) {
+        $procIds = $conns.OwningProcess | Sort-Object -Unique
+        foreach ($procId in $procIds) {
+            if ($procId -and $procId -ne 0) {
+                Write-Host "Killing process $procId on port $port" -ForegroundColor DarkYellow
+                Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 Write-Host "[1/2] Starting backend..." -ForegroundColor Yellow
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "npm run dev:server"
 
