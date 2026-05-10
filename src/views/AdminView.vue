@@ -1118,6 +1118,22 @@ const formatRecordingDuration = (liveStatus: number, recordingStartTime?: number
   return formatSpan(diff);
 };
 
+const getMonitorStatusHelpText = (status: string, accountUid?: number | null) => {
+  if (status === 'monitoring') return '已开启自动监控，当前没有录制进程';
+  if (status === 'online') return '录制进程正在运行';
+  if (status === 'offline') return accountUid ? '录制进程存在，当前在等待开播或连接恢复' : '录制进程存在，当前在等待可用账号';
+  if (status === 'reconnecting') return '录制进程正在重连';
+  if (status === 'stopped') return '未开启监控或录制进程已停止';
+  if (status === 'errored') return '录制进程出现异常';
+  return '当前录制状态未知';
+};
+
+const formatAccountUid = (accountUid?: number | null) => {
+  if (!accountUid) return '-';
+  const account = biliAccounts.value.find(a => a.uid === accountUid);
+  return account?.name ? `${account.name} (${accountUid})` : String(accountUid);
+};
+
 const getMonitorStatusLabel = (status: string) => {
   if (status === 'monitoring') return '监控中';
   if (status === 'stopped') return '已停止';
@@ -1518,6 +1534,7 @@ watch(activeSection, async (val) => {
                           </el-tag>
                         </template>
                         <div style="text-align: center">
+                          <p style="margin: 0; font-size: 12px; color: #909399; margin-bottom: 8px;">{{ getMonitorStatusHelpText(scope.row.process_status, scope.row.account_uid) }}</p>
                           <p style="margin: 0; font-weight: bold; font-size: 12px; color: #909399; margin-bottom: 4px;">录制时长</p>
                           <p style="margin: 0; font-size: 14px;">{{ formatRecordingDuration(scope.row.live_status, scope.row.recording_start_time) }}</p>
                         </div>
@@ -1532,6 +1549,11 @@ watch(activeSection, async (val) => {
                   <el-table-column label="开播时长" align="center" width="160">
                     <template #default="scope">
                       {{ formatLiveDuration(scope.row.live_status, scope.row.live_start_time) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="当前账号" min-width="180" align="center" show-overflow-tooltip>
+                    <template #default="scope">
+                      {{ formatAccountUid(scope.row.account_uid) }}
                     </template>
                   </el-table-column>
                   <el-table-column label="操作" width="280" align="center">
