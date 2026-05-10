@@ -848,51 +848,6 @@ public class BilibiliRecorder : IDisposable
             };
         }
 
-        if (cmd == "INTERACT_WORD")
-        {
-            var data = root.GetProperty("data");
-            var msgType = TryGetInt32(data, "msg_type");
-            var eventType = msgType switch
-            {
-                1 => "enter",
-                2 => "follow",
-                3 => "share",
-                _ => "interact"
-            };
-
-            var textSuffix = msgType switch
-            {
-                2 => "followed the room",
-                3 => "shared the room",
-                _ => "entered room"
-            };
-
-            return new RecordedDanmakuEvent
-            {
-                Type = eventType,
-                Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Text = TryGetString(data, "uname") is { Length: > 0 } uname ? $"{uname} {textSuffix}" : $"user {textSuffix}",
-                User = TryGetString(data, "uname") ?? "",
-                Uid = TryGetString(data, "uid") ?? "",
-                GuardLevel = TryGetInt32(data, "guard_level"),
-                RawCommand = cmd
-            };
-        }
-
-        if (cmd == "ROOM_CHANGE")
-        {
-            var data = root.TryGetProperty("data", out var d) ? d : default;
-            var title = data.ValueKind != JsonValueKind.Undefined ? TryGetString(data, "title") : null;
-            return new RecordedDanmakuEvent
-            {
-                Type = "room_change",
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Text = string.IsNullOrWhiteSpace(title) ? "直播间信息变更" : $"直播标题变更：{title}",
-                Name = title,
-                RawCommand = cmd
-            };
-        }
-
         return null;
     }
 

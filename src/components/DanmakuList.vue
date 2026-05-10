@@ -57,43 +57,6 @@
           <div v-if="normalList.length === 0" class="pane-empty">暂无普通弹幕</div>
         </div>
 
-        <!-- Horizontal Resizer (left top / left bottom) -->
-        <div class="resizer resizer-h"
-          :class="{ 'resizer-hidden': isTopHidden || isBottomHidden }"
-          @mousedown="startResize('h', $event)" @touchstart="startResize('h', $event)">
-          <div class="resizer-handle"></div>
-        </div>
-
-        <!-- LEFT BOTTOM: INTERACT_WORD, ROOM_CHANGE, etc. -->
-        <div class="pane-inner pane-bottom"
-          :style="{ flex: flexBottom + ' 1 0px' }"
-          :class="{ 'pane-hidden': isBottomHidden }">
-          <div class="pane-header">
-            <span>互动信息</span>
-            <span class="badge">{{ infoList.length }}</span>
-          </div>
-          <div ref="infoScroller" class="scrollable-list" @scroll="onInfoScroll">
-            <div :style="{ height: infoVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
-              <div v-for="virtualItem in infoVirtualizer.getVirtualItems()"
-                :key="String(virtualItem.key)"
-                :ref="(el: any) => infoVirtualizer.measureElement(el as Element)"
-                :data-index="virtualItem.index"
-                :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
-                class="danmaku-item info-item">
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(infoList[virtualItem.index].timestamp) : infoList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(infoList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(infoList[virtualItem.index].wealthLevel)" :alt="'财' + infoList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="infoList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, infoList[virtualItem.index])">{{ infoList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(infoList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(infoList[virtualItem.index].guardLevel)" />
-                <span class="info-type-label">{{ getEventTypeLabel(infoList[virtualItem.index]) }}</span>
-                <span v-if="infoList[virtualItem.index].content" class="dm-message">{{ infoList[virtualItem.index].content }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="infoList.length === 0" class="pane-empty">暂无互动信息</div>
-        </div>
-
       </div>
 
       <!-- Vertical Resizer 1 (left-section / middle) -->
@@ -296,11 +259,6 @@ const getEventTypeLabel = (d: Danmaku): string => {
     case 'give_gift': return '礼物';
     case 'guard': return '上舰';
     case 'gift_combo': return '连击';
-    case 'enter': return '入场';
-    case 'follow': return '关注';
-    case 'share': return '分享';
-    case 'interact': return '互动';
-    case 'room_change': return '房间变更';
     default: return t;
   }
 };
@@ -312,11 +270,6 @@ const getEventTypeColor = (d: Danmaku): string => {
     case 'give_gift': return '#E2B52B';
     case 'guard': return '#AB1A32';
     case 'gift_combo': return '#E09443';
-    case 'enter': return '#427D9E';
-    case 'follow': return '#95d475';
-    case 'share': return '#79bbff';
-    case 'interact': return '#a0cfff';
-    case 'room_change': return '#c8c9cc';
     default: return '#409eff';
   }
 };
@@ -370,14 +323,6 @@ const normalList = computed(() => {
 });
 
 /** Left bottom: INTERACT_WORD, ROOM_CHANGE, enter, follow, share */
-const infoList = computed(() => {
-  let list = danmakuList.value.filter(d => {
-    const t = getEventType(d);
-    return t === 'interact' || t === 'room_change' || t === 'enter' || t === 'follow' || t === 'share';
-  });
-  return applySearch(list, ['content', 'user']);
-});
-
 /** Middle: SUPER_CHAT_MESSAGE / JPN → type === 'super_chat' */
 const scList = computed(() => {
   let list = danmakuList.value.filter(d => getEventType(d) === 'super_chat');
@@ -398,21 +343,12 @@ const giftList = computed(() => {
 const ROW_HEIGHT = 32;
 
 const normalScroller = ref<HTMLElement | null>(null);
-const infoScroller = ref<HTMLElement | null>(null);
 const scScroller = ref<HTMLElement | null>(null);
 const giftScroller = ref<HTMLElement | null>(null);
 
 const normalVirtualizer = useVirtualizer(computed(() => ({
   count: normalList.value.length,
   getScrollElement: () => normalScroller.value,
-  estimateSize: () => ROW_HEIGHT,
-  overscan: 10,
-  measureElement,
-})));
-
-const infoVirtualizer = useVirtualizer(computed(() => ({
-  count: infoList.value.length,
-  getScrollElement: () => infoScroller.value,
   estimateSize: () => ROW_HEIGHT,
   overscan: 10,
   measureElement,
@@ -437,10 +373,6 @@ const giftVirtualizer = useVirtualizer(computed(() => ({
 // ==================== Scroll / Load More ====================
 
 const onNormalScroll = (e: Event) => {
-  const t = e.target as HTMLElement;
-  if (t.scrollTop + t.clientHeight >= t.scrollHeight - 50) store.loadMore();
-};
-const onInfoScroll = (e: Event) => {
   const t = e.target as HTMLElement;
   if (t.scrollTop + t.clientHeight >= t.scrollHeight - 50) store.loadMore();
 };
@@ -503,23 +435,19 @@ const flexLeft = ref(4);
 const flexMiddle = ref(3);
 const flexRight = ref(3);
 
-// Within left section (horizontal split)
 const flexTop = ref(6);
-const flexBottom = ref(4);
 
 // Computed hidden states
 const isLeftHidden = computed(() => flexLeft.value < MIN_FLEX);
 const isMiddleHidden = computed(() => flexMiddle.value < MIN_FLEX);
 const isRightHidden = computed(() => flexRight.value < MIN_FLEX);
 const isTopHidden = computed(() => flexTop.value < MIN_FLEX);
-const isBottomHidden = computed(() => flexBottom.value < MIN_FLEX);
 
-// On mobile, hide right (gifts) and left-bottom (info) by default
+// On mobile, hide right (gifts) by default
 onMounted(() => {
   updateMobileStatus();
   if (isMobile.value) {
     flexRight.value = 0;
-    flexBottom.value = 0;
   }
 });
 
@@ -535,7 +463,7 @@ const startResize = (id: string, e: MouseEvent | TouchEvent) => {
   activeResizer.value = id;
   isResizing.value = true;
   const cursorMap: Record<string, string> = {
-    v1: 'col-resize', v2: 'col-resize', h: 'row-resize',
+    v1: 'col-resize', v2: 'col-resize',
   };
   document.body.style.cursor = cursorMap[id] || 'col-resize';
   document.body.style.userSelect = 'none';
@@ -581,17 +509,15 @@ const handleResizeMove = (clientX: number, clientY: number) => {
   const container = splitContainer.value;
   if (!container || !activeResizer.value) return;
 
-  // On mobile (column layout) or for the internal horizontal resizer, use Y axis.
-  // On desktop (row layout) for v1/v2 resizers, use X axis.
-  const useYAxis = isMobile.value || activeResizer.value === 'h';
+  // On mobile (column layout) use Y axis. On desktop for v1/v2 use X axis.
+  const useYAxis = isMobile.value;
 
   let relPos: number;
   let containerSize: number;
 
   if (useYAxis) {
-    // For 'h' resizer, compute relative to left panel height.
     // For mobile v1/v2, compute relative to the main container.
-    const parentEl = activeResizer.value === 'h' ? leftPanel.value : container;
+    const parentEl = container;
     const parentRect = parentEl?.getBoundingClientRect();
     if (!parentRect) return;
     relPos = Math.max(0, Math.min(parentRect.height, clientY - parentRect.top));
@@ -637,22 +563,6 @@ const handleResizeMove = (clientX: number, clientY: number) => {
     } else {
       flexMiddle.value = newMiddle;
       flexRight.value = mrTotal - newMiddle;
-    }
-  } else if (activeResizer.value === 'h') {
-    // Horizontal split within left section
-    const tbTotal = flexTop.value + flexBottom.value;
-    let newTop = fraction * tbTotal;
-    newTop = Math.max(0, Math.min(tbTotal, newTop));
-
-    if (newTop < MIN_FLEX) {
-      flexTop.value = 0;
-      flexBottom.value = tbTotal;
-    } else if (tbTotal - newTop < MIN_FLEX) {
-      flexBottom.value = 0;
-      flexTop.value = tbTotal;
-    } else {
-      flexTop.value = newTop;
-      flexBottom.value = tbTotal - newTop;
     }
   }
 };
@@ -834,25 +744,6 @@ onUnmounted(() => {
   background-color: var(--el-color-primary);
 }
 
-.split-container:not(.is-mobile) .resizer.resizer-h {
-  height: 1px;
-  width: 100%;
-  cursor: row-resize;
-  background-color: var(--border);
-}
-.split-container:not(.is-mobile) .resizer.resizer-h::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  top: -4px;
-  bottom: -4px;
-  z-index: -1;
-}
-.split-container:not(.is-mobile) .resizer.resizer-h:hover,
-.split-container:not(.is-mobile) .resizer.resizer-h[data-resize-active] {
-  background-color: var(--el-color-primary);
-}
-
 .split-container:not(.is-mobile) .resizer .resizer-handle {
   display: none;
   border-radius: 4px;
@@ -864,10 +755,6 @@ onUnmounted(() => {
   width: 4px;
   height: 48px;
 }
-.split-container:not(.is-mobile) .resizer.resizer-h .resizer-handle {
-  width: 48px;
-  height: 4px;
-}
 .split-container:not(.is-mobile) .resizer:hover .resizer-handle,
 .split-container:not(.is-mobile) .resizer[data-resize-active] .resizer-handle {
   display: block;
@@ -875,8 +762,7 @@ onUnmounted(() => {
 }
 
 /* Mobile resizers (column layout → row-resize) */
-.split-container.is-mobile .resizer.resizer-v,
-.split-container.is-mobile .resizer.resizer-h {
+.split-container.is-mobile .resizer.resizer-v {
   height: 1px;
   width: 100%;
   cursor: row-resize;
@@ -975,18 +861,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
   margin-left: 4px;
   opacity: 0.75;
-}
-
-/* Info items (interact / room_change) */
-.info-item .info-type-label {
-  flex-shrink: 0;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background-color: rgba(160, 207, 255, 0.15);
-  color: #a0cfff;
-  margin-right: 3px;
 }
 
 /* ═══════ Monetary Items ═══════ */

@@ -414,12 +414,7 @@ public class DanmakuService
             m.Type == "super_chat" ||
             m.Type == "give_gift" ||
             m.Type == "guard" ||
-            m.Type == "gift_combo" ||
-            m.Type == "enter" ||
-            m.Type == "follow" ||
-            m.Type == "share" ||
-            m.Type == "interact" ||
-            m.Type == "room_change").ToList();
+            m.Type == "gift_combo").ToList();
 
         // Merge bilingual SC: if consecutive SC have same user/uid/timestamp/price, keep only the first one
         displayable = MergeBilingualSuperChats(displayable);
