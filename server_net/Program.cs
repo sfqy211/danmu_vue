@@ -283,9 +283,27 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Restore recorders
-var pm = app.Services.GetRequiredService<ProcessManager>();
-_ = pm.RestoreRecordersAsync(); // Fire and forget but better to await if possible, but Run() is blocking.
+// Restore recorders after hosted services bootstrap account/redis state.
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var redisReadiness = scope.ServiceProvider.GetRequiredService<RedisReadiness>();
+            await redisReadiness.WaitUntilReadyAsync();
+
+            var pm = scope.ServiceProvider.GetRequiredService<ProcessManager>();
+            await pm.RestoreRecordersAsync();
+        }
+        catch (Exception ex)
+        {
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "Failed to restore recorders after application start.");
+        }
+    });
+});
 
 app.Run();
 
