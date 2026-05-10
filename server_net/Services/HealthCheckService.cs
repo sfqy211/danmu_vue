@@ -11,6 +11,7 @@ public class HealthCheckService : BackgroundService
     private readonly AlertService _alertService;
     private readonly TimeSpan _interval;
     private readonly TimeSpan _heartbeatTolerance = TimeSpan.FromSeconds(25);
+    private readonly TimeSpan _startupGracePeriod = TimeSpan.FromSeconds(30);
     private volatile HealthCheckReport _latestReport = HealthCheckReport.Empty;
     private string? _lastAlertSignature;
 
@@ -51,6 +52,12 @@ public class HealthCheckService : BackgroundService
 
     private async Task RunHealthCheckAsync()
     {
+        if (_processManager.IsRestoring)
+        {
+            _logger.LogDebug("Health check skipped during recorder restore.");
+            return;
+        }
+
         var processes = _processManager.GetProcesses();
         if (processes.Count == 0)
         {
@@ -74,6 +81,11 @@ public class HealthCheckService : BackgroundService
         {
             try
             {
+                if (process.RegisteredAt != default && DateTime.UtcNow - process.RegisteredAt < _startupGracePeriod)
+                {
+                    continue;
+                }
+
                 var heartbeatKey = $"recorder:heartbeat:{process.Uid}:{process.RoomId}";
                 var heartbeatRaw = await _redis.GetStringAsync(heartbeatKey);
                 if (string.IsNullOrWhiteSpace(heartbeatRaw))

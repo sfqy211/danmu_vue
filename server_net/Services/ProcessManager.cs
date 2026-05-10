@@ -12,6 +12,7 @@ public class ProcessInfo
     public int Pid { get; set; }
     public string Status { get; set; } = "stopped";
     public string Uptime { get; set; } = "0s";
+    public DateTime RegisteredAt { get; set; }
     public DateTime StartTime { get; set; }
     public int LiveStatus { get; set; }
     public long? LiveStartTime { get; set; }
@@ -26,6 +27,7 @@ public class ProcessManager
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly RedisService _redis;
     private readonly BiliAccountService _accountService;
+    private volatile bool _isRestoring;
 
     public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService)
     {
@@ -53,6 +55,7 @@ public class ProcessManager
                     Pid = recorder.Pid,
                     Status = recorder.Status,
                     Uptime = recorder.Uptime,
+                    RegisteredAt = recorder.RegisteredAt,
                     StartTime = recorder.StartTime,
                     LiveStatus = recorder.LiveStatus,
                     LiveStartTime = recorder.LiveStartTime,
@@ -91,6 +94,7 @@ public class ProcessManager
 
             var logger = _loggerFactory.CreateLogger<BilibiliRecorder>();
             recorder = CreateRecorder(identity.RoomId, identity.Uid, identity.Name, logger);
+            recorder.RegisteredAt = DateTime.UtcNow;
             
             // Delegate: Check for active session in DB
             recorder.CheckActiveSession = async (uid, rid) =>
@@ -225,37 +229,47 @@ public class ProcessManager
     public virtual async Task RestoreRecordersAsync()
     {
         _logger.LogInformation("Restoring recorders...");
+        _isRestoring = true;
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
-        
-        var rooms = await db.Rooms.Where(r => r.AutoRecord == 1).ToListAsync();
-        foreach (var room in rooms)
+        try
         {
-            try 
+            var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+            
+            var rooms = await db.Rooms.Where(r => r.AutoRecord == 1).ToListAsync();
+            foreach (var room in rooms)
             {
-                var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
-                var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
-                var liveState = await biliService.GetRoomStatusByRoomIdAsync(room.RoomId);
-                var isLive = liveState?.LiveStatus == 1;
-                await danmakuService.ReconcileTmpFilesAsync(room.Uid ?? room.RoomId.ToString(), room.RoomId, liveState?.LiveStartTime, isLive);
-
-                if (!isLive)
+                try 
                 {
-                    _logger.LogInformation("Skipping recorder restore for offline room {RoomName} (Uid: {Uid}, RoomId: {RoomId}) after tmp reconciliation.", room.Name, room.Uid, room.RoomId);
-                    continue;
-                }
+                    var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
+                    var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+                    var liveState = await biliService.GetRoomStatusByRoomIdAsync(room.RoomId);
+                    var isLive = liveState?.LiveStatus == 1;
+                    await danmakuService.ReconcileTmpFilesAsync(room.Uid ?? room.RoomId.ToString(), room.RoomId, liveState?.LiveStartTime, isLive);
 
-                _logger.LogInformation($"Restoring recorder for {room.Name} (Uid: {room.Uid}, RoomId: {room.RoomId})...");
-                await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
-                // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
-                await Task.Delay(TimeSpan.FromSeconds(5));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Failed to restore recorder for {room.Name}");
+                    if (!isLive)
+                    {
+                        _logger.LogInformation("Skipping recorder restore for offline room {RoomName} (Uid: {Uid}, RoomId: {RoomId}) after tmp reconciliation.", room.Name, room.Uid, room.RoomId);
+                        continue;
+                    }
+
+                    _logger.LogInformation($"Restoring recorder for {room.Name} (Uid: {room.Uid}, RoomId: {room.RoomId})...");
+                    await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
+                    // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Failed to restore recorder for {room.Name}");
+                }
             }
         }
+        finally
+        {
+            _isRestoring = false;
+        }
     }
+
+    public bool IsRestoring => _isRestoring;
 
     private async Task<(string Uid, long RoomId, string Name)> ResolveRoomIdentityAsync(long roomId, string? fallbackName)
     {

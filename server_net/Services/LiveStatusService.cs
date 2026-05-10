@@ -75,6 +75,11 @@ public class LiveStatusService : BackgroundService
 
     private async Task CheckRoomsAsync(CancellationToken token)
     {
+        if (_pm.IsRestoring)
+        {
+            return;
+        }
+
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Data.DanmuContext>();
         var rooms = await db.Rooms

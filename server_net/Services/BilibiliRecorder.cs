@@ -53,6 +53,10 @@ public class BilibiliRecorder : IDisposable
     public event Func<string, long, string, Task>? OnRecorderStopped;
 
     public string Status { get; private set; } = "stopped";
+    /// <summary>
+    /// Time when this recorder instance was registered into ProcessManager.
+    /// </summary>
+    public DateTime RegisteredAt { get; set; }
     public DateTime StartTime { get; private set; }
     public string Uptime => Status != "stopped" ? $"{(int)(DateTime.Now - StartTime).TotalMinutes}m" : "0s";
     public int Pid => _receiveTask?.Id ?? 0;
