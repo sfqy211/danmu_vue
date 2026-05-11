@@ -54,7 +54,7 @@ Log.Logger = new LoggerConfiguration()
         rollOnFileSizeLimit: true,
         shared: true,
         flushToDiskInterval: TimeSpan.FromSeconds(1),
-        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}")
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {SourceContext} - {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 builder.Host.UseSerilog();
 

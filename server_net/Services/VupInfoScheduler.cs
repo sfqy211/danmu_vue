@@ -83,7 +83,7 @@ public class VupInfoScheduler : BackgroundService
     {
         try
         {
-            _logger.LogInformation($"Updating stats for {room.Name} (RoomId: {room.RoomId})...");
+            _logger.LogDebug($"Updating stats for {room.Name} (RoomId: {room.RoomId})...");
 
             // Use the enhanced API to get all info including live status and start time
             var (title, userName, liveStatus, coverUrl, uid, liveStartTime, followers, guardNum, videoCount) = 
@@ -107,7 +107,7 @@ public class VupInfoScheduler : BackgroundService
             // Update the map
             _lastUpdateMap[room.RoomId] = DateTime.UtcNow;
             
-            _logger.LogInformation($"Updated stats for {room.Name}: Followers={followers}, Guards={guardNum}, Videos={videoCount}, LastLive={room.LastLiveTime}");
+            _logger.LogDebug($"Updated stats for {room.Name}: Followers={followers}, Guards={guardNum}, Videos={videoCount}, LastLive={room.LastLiveTime}");
         }
         catch (Exception ex)
         {

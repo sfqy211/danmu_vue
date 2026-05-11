@@ -91,7 +91,7 @@ public class AvatarScheduler : BackgroundService
     {
         try
         {
-            _logger.LogInformation($"[Avatar] Checking avatar for {vup.Name}...");
+            _logger.LogDebug($"[Avatar] Checking avatar for {vup.Name}...");
             
             var avatarUrl = await _bilibiliService.GetAvatarUrlAsync(vup.Uid);
             if (string.IsNullOrEmpty(avatarUrl)) return;
@@ -102,13 +102,13 @@ public class AvatarScheduler : BackgroundService
             // Save original to vup-bg
             var bgPath = Path.Combine(_bgDir, $"{vup.Uid}.png");
             await _imageService.SavePngAsync(imageBytes, bgPath);
-            _logger.LogInformation($"[Avatar] Saved original for {vup.Name} to {bgPath}");
+            _logger.LogDebug($"[Avatar] Saved original for {vup.Name} to {bgPath}");
             await _cosService.UploadAsync(bgPath, $"vup-bg/{vup.Uid}.png", "image/png");
 
             // Save thumbnail to vup-avatar
             var avatarPath = Path.Combine(_avatarDir, $"{vup.Uid}.webp");
             await _imageService.ResizeAndSaveWebpAsync(imageBytes, avatarPath, 120, 120);
-            _logger.LogInformation($"[Avatar] Saved thumbnail for {vup.Name} to {avatarPath}");
+            _logger.LogDebug($"[Avatar] Saved thumbnail for {vup.Name} to {avatarPath}");
             await _cosService.UploadAsync(avatarPath, $"vup-avatar/{vup.Uid}.webp", "image/webp");
         }
         catch (Exception ex)

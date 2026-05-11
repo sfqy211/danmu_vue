@@ -103,7 +103,7 @@ public class CoverScheduler : BackgroundService
     {
         try
         {
-            _logger.LogInformation($"[Cover] Checking cover for {room.Name}...");
+            _logger.LogDebug($"[Cover] Checking cover for {room.Name}...");
             
             var (title, userName, liveStatus, coverUrl, uid, _, _, _, _) = await _bilibiliService.GetRoomInfoAsync(room.RoomId);
             if (string.IsNullOrEmpty(coverUrl)) return;
@@ -120,7 +120,7 @@ public class CoverScheduler : BackgroundService
             var coverPath = Path.Combine(_coverDir, filename);
 
             await _imageService.SavePngAsync(imageBytes, coverPath);
-            _logger.LogInformation($"[Cover] Saved cover for {room.Name} to {coverPath}");
+            _logger.LogDebug($"[Cover] Saved cover for {room.Name} to {coverPath}");
             await _cosService.UploadAsync(coverPath, $"vup-cover/{filename}", "image/png");
         }
         catch (Exception ex)

@@ -94,7 +94,7 @@ public class LiveStatusService : BackgroundService
         var roomsToCheck = rooms.Where(r => !processRoomIds.Contains(r.RoomId)).ToList();
         if (roomsToCheck.Count == 0) return;
 
-        _logger.LogInformation("LiveStatusService checking {Count} rooms without active recorder", roomsToCheck.Count);
+        _logger.LogDebug("LiveStatusService checking {Count} rooms without active recorder", roomsToCheck.Count);
 
         var tasks = roomsToCheck.Select(async room =>
         {

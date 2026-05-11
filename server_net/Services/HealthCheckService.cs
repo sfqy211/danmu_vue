@@ -137,7 +137,7 @@ public class HealthCheckService : BackgroundService
 
         if (staleHeartbeats.Count == 0)
         {
-            _logger.LogInformation("Health check OK: {Count} recorder(s) healthy.", processes.Count);
+            _logger.LogDebug("Health check OK: {Count} recorder(s) healthy.", processes.Count);
             return;
         }
 

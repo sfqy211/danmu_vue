@@ -67,7 +67,7 @@ public class CosService
 
             if (result.httpCode >= 200 && result.httpCode < 300)
             {
-                _logger.LogInformation("Uploaded {RemotePath} to COS (HTTP {Code})", remotePath, result.httpCode);
+                _logger.LogDebug("Uploaded {RemotePath} to COS (HTTP {Code})", remotePath, result.httpCode);
             }
             else
             {

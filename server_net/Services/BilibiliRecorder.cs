@@ -402,7 +402,7 @@ public class BilibiliRecorder : IDisposable
 
             _dumpOffset = totalCount;
             await _redis.SetMetadataFieldAsync(metaKey, "dump_offset", _dumpOffset.ToString());
-            _logger.LogInformation("Incrementally dumped {Count} messages to {FilePath} (offset={Offset})", messages.Count, filePath, _dumpOffset);
+            _logger.LogDebug("Incrementally dumped {Count} messages to {FilePath} (offset={Offset})", messages.Count, filePath, _dumpOffset);
         }
         catch (Exception ex)
         {
