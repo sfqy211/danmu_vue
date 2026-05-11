@@ -45,11 +45,11 @@
                 :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
                 class="danmaku-item">
                 <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(normalList[virtualItem.index].timestamp) : normalList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" :alt="'财' + normalList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="normalList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, normalList[virtualItem.index])">{{ normalList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(normalList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(normalList[virtualItem.index].guardLevel)" />
+                <div class="dm-info">
+                  <img v-if="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" :alt="'财' + normalList[virtualItem.index].wealthLevel" />
+                  <FansMedal :item="normalList[virtualItem.index]" />
+                  <span class="dm-user" :class="getGuardClass(normalList[virtualItem.index].guardLevel)" @click="openUserMenu($event, normalList[virtualItem.index])">{{ normalList[virtualItem.index].user }}</span>
+                </div>
                 <span class="dm-message">{{ normalList[virtualItem.index].content }}</span>
               </div>
             </div>
@@ -59,137 +59,86 @@
 
       </div>
 
-      <!-- Vertical Resizer 1 (left-section / middle) -->
+      <!-- Vertical Resizer 1 (left / right) -->
       <div class="resizer resizer-v"
-        :class="{ 'resizer-hidden': isLeftHidden && isMiddleHidden }"
+        :class="{ 'resizer-hidden': isLeftHidden && isRightHidden }"
         @mousedown="startResize('v1', $event)" @touchstart="startResize('v1', $event)">
         <div class="resizer-handle"></div>
       </div>
 
-      <!-- ─── MIDDLE: SUPER_CHAT_MESSAGE / JPN ─── -->
-      <div class="column-side column-middle"
-        :style="{ flex: flexMiddle + ' 1 0px' }"
-        :class="{ 'pane-hidden': isMiddleHidden }">
-        <div class="pane-header">
-          <span>醒目留言 (SC)</span>
-          <span class="badge">{{ scList.length }}</span>
-        </div>
-        <div ref="scScroller" class="scrollable-list" @scroll="onSCScroll">
-          <div :style="{ height: scVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
-            <div v-for="virtualItem in scVirtualizer.getVirtualItems()"
-              :key="String(virtualItem.key)"
-              :ref="(el: any) => scVirtualizer.measureElement(el as Element)"
-              :data-index="virtualItem.index"
-              :class="['danmaku-item', 'monetary-item', 'type-super_chat']"
-              :style="{
-                position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%',
-                borderLeftColor: getSCStyle(scList[virtualItem.index].price || 0).main,
-                backgroundColor: getSCStyle(scList[virtualItem.index].price || 0).bg,
-              }">
-              <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(scList[virtualItem.index].timestamp) : scList[virtualItem.index].timeStr }}</span>
-              <img v-if="getWealthLevelUrl(scList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(scList[virtualItem.index].wealthLevel)" :alt="'财' + scList[virtualItem.index].wealthLevel" />
-              <FansMedal :item="scList[virtualItem.index]" />
-              
-              <span class="dm-user" @click="openUserMenu($event, scList[virtualItem.index])">{{ scList[virtualItem.index].user }}</span>
-              <img v-if="getGuardIconUrl(scList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(scList[virtualItem.index].guardLevel)" />
-              <span class="dm-meta">
-                <span class="sc-price" :style="{ color: getSCStyle(scList[virtualItem.index].price || 0).main }">¥{{ formatPrice(scList[virtualItem.index].price || 0) }}</span>
-              </span>
-              <span class="dm-message">
-                {{ scList[virtualItem.index].content }}
-                <span v-if="scList[virtualItem.index].contentJpn" class="dm-jpn">{{ scList[virtualItem.index].contentJpn }}</span>
-              </span>
-            </div>
-          </div>
-        </div>
-        <div v-if="scList.length === 0" class="pane-empty">暂无 SC</div>
-      </div>
-
-      <!-- Vertical Resizer 2 (middle / right) -->
-      <div class="resizer resizer-v"
-        :class="{ 'resizer-hidden': isMiddleHidden && isRightHidden }"
-        @mousedown="startResize('v2', $event)" @touchstart="startResize('v2', $event)">
-        <div class="resizer-handle"></div>
-      </div>
-
-      <!-- ─── RIGHT: SEND_GIFT, GUARD_BUY, COMBO_SEND ─── -->
+      <!-- ─── RIGHT: PAID INTERACTIONS (SC + GIFT + GUARD) ─── -->
       <div class="column-side column-right"
         :style="{ flex: flexRight + ' 1 0px' }"
         :class="{ 'pane-hidden': isRightHidden }">
         <div class="pane-header">
-          <span>礼物 / 上舰</span>
-          <span class="badge">{{ giftList.length }}</span>
+          <span>付费互动</span>
+          <div class="filter-toggles">
+            <span class="filter-btn" :class="{ active: showSC }" @click="showSC = !showSC">SC</span>
+            <span class="filter-btn" :class="{ active: showGift }" @click="showGift = !showGift">礼物</span>
+            <span class="filter-btn" :class="{ active: showGuard }" @click="showGuard = !showGuard">航海</span>
+          </div>
+          <span class="badge">{{ filteredMonetaryList.length }}</span>
         </div>
-        <div ref="giftScroller" class="scrollable-list" @scroll="onGiftScroll">
-          <div :style="{ height: giftVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
-            <div v-for="virtualItem in giftVirtualizer.getVirtualItems()"
+        <div ref="monetaryScroller" class="scrollable-list" @scroll="onMonetaryScroll">
+          <div :style="{ height: monetaryVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
+            <div v-for="virtualItem in monetaryVirtualizer.getVirtualItems()"
               :key="String(virtualItem.key)"
-              :ref="(el: any) => giftVirtualizer.measureElement(el as Element)"
+              :ref="(el: any) => monetaryVirtualizer.measureElement(el as Element)"
               :data-index="virtualItem.index"
-              :class="['danmaku-item', 'monetary-item', `type-${getEventType(giftList[virtualItem.index])}`]"
+              :class="['danmaku-item', 'monetary-item', `type-${getEventType(filteredMonetaryList[virtualItem.index])}`]"
               :style="{
                 position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%',
+                borderLeftColor: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).main : getGiftStyle(filteredMonetaryList[virtualItem.index].price).main),
+                backgroundColor: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).bg : getGiftStyle(filteredMonetaryList[virtualItem.index].price).bg),
               }">
 
-              <!-- GIFT: SEND_GIFT -->
-              <template v-if="getEventType(giftList[virtualItem.index]) === 'give_gift'">
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="giftList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
-                <span class="dm-meta">
-                  <span class="gift-name">{{ giftList[virtualItem.index].name }}</span>
-                  <span class="gift-count">x{{ giftList[virtualItem.index].count || 1 }}</span>
-                  <span v-if="giftList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(giftList[virtualItem.index].price || 0) }}</span>
-                </span>
+              <template v-if="shouldUseSCLayout(filteredMonetaryList[virtualItem.index])">
+                <div class="sc-layout">
+                  <div class="sc-row sc-user-row">
+                    <FansMedal :item="filteredMonetaryList[virtualItem.index]" />
+                    <span class="dm-user" :class="getGuardClass(filteredMonetaryList[virtualItem.index].guardLevel)" @click="openUserMenu($event, filteredMonetaryList[virtualItem.index])">{{ filteredMonetaryList[virtualItem.index].user }}</span>
+                  </div>
+                  <div class="sc-row sc-meta-row">
+                    <span class="sc-price" :style="{ color: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).main : getGiftStyle(filteredMonetaryList[virtualItem.index].price).main) }">
+                      <template v-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat'">
+                        <span>¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
+                      </template>
+                      <template v-else-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'guard'">
+                        <span class="gift-name">{{ getGuardName(filteredMonetaryList[virtualItem.index].guardLevel) }}</span>
+                        <span class="gift-count">x1</span>
+                        <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="gift-name">{{ filteredMonetaryList[virtualItem.index].name }}</span>
+                        <span class="gift-count" :class="{ 'combo-count': getEventType(filteredMonetaryList[virtualItem.index]) === 'gift_combo' }">x{{ filteredMonetaryList[virtualItem.index].count || 1 }}</span>
+                        <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
+                      </template>
+                    </span>
+                    <span class="sc-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
+                  </div>
+                  <div v-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat'" class="sc-row sc-content-row">
+                    {{ filteredMonetaryList[virtualItem.index].content }}
+                    <span v-if="filteredMonetaryList[virtualItem.index].contentJpn" class="dm-jpn">{{ filteredMonetaryList[virtualItem.index].contentJpn }}</span>
+                  </div>
+                </div>
               </template>
-
-              <!-- GUARD: GUARD_BUY -->
-              <template v-else-if="getEventType(giftList[virtualItem.index]) === 'guard'">
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="giftList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
-                <span class="dm-meta">
-                  <span class="guard-badge-inline">{{ getGuardName(giftList[virtualItem.index].guardLevel) }}</span>
-                  <span v-if="giftList[virtualItem.index].price" class="guard-price">¥{{ formatPrice(giftList[virtualItem.index].price || 0) }}</span>
-                </span>
-              </template>
-
-              <!-- GIFT COMBO: COMBO_SEND -->
-              <template v-else-if="getEventType(giftList[virtualItem.index]) === 'gift_combo'">
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="giftList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
-                <span class="dm-meta">
-                  <span class="gift-name">{{ giftList[virtualItem.index].name }}</span>
-                  <span class="gift-count combo-count">x{{ giftList[virtualItem.index].count || 1 }}</span>
-                </span>
-              </template>
-
-              <!-- Fallback -->
               <template v-else>
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(giftList[virtualItem.index].timestamp) : giftList[virtualItem.index].timeStr }}</span>
-                <img v-if="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(giftList[virtualItem.index].wealthLevel)" :alt="'财' + giftList[virtualItem.index].wealthLevel" />
-                <FansMedal :item="giftList[virtualItem.index]" />
-                
-                <span class="dm-user" @click="openUserMenu($event, giftList[virtualItem.index])">{{ giftList[virtualItem.index].user }}</span>
-                <img v-if="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" class="guard-icon-inline" :src="getGuardIconUrl(giftList[virtualItem.index].guardLevel)" />
-                <span class="dm-meta">
-                  <span class="generic-type">{{ getEventTypeLabel(giftList[virtualItem.index]) }}</span>
-                </span>
+                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
+                <div class="dm-info">
+                  <img v-if="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" :alt="'财' + filteredMonetaryList[virtualItem.index].wealthLevel" />
+                  <FansMedal :item="filteredMonetaryList[virtualItem.index]" />
+                  <span class="dm-user" :class="getGuardClass(filteredMonetaryList[virtualItem.index].guardLevel)" @click="openUserMenu($event, filteredMonetaryList[virtualItem.index])">{{ filteredMonetaryList[virtualItem.index].user }}</span>
+                  <span class="dm-meta">
+                    <span class="gift-name">{{ filteredMonetaryList[virtualItem.index].name }}</span>
+                    <span class="gift-count" :class="{ 'combo-count': getEventType(filteredMonetaryList[virtualItem.index]) === 'gift_combo' }">x{{ filteredMonetaryList[virtualItem.index].count || 1 }}</span>
+                    <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
+                  </span>
+                </div>
               </template>
             </div>
           </div>
         </div>
-        <div v-if="giftList.length === 0" class="pane-empty">暂无礼物 / 上舰</div>
+        <div v-if="filteredMonetaryList.length === 0" class="pane-empty">暂无付费互动</div>
       </div>
     </div>
 
@@ -251,6 +200,15 @@ const getGuardName = (level?: number) => {
   }
 };
 
+const getGuardClass = (level?: number) => {
+  switch (level) {
+    case 1: return 'guard-governor';
+    case 2: return 'guard-admiral';
+    case 3: return 'guard-captain';
+    default: return '';
+  }
+};
+
 const getEventTypeLabel = (d: Danmaku): string => {
   const t = getEventType(d);
   switch (t) {
@@ -301,7 +259,12 @@ const getSCStyle = (price: number) => {
   return styles[level] || styles[1];
 };
 
-const formatPrice = (price: number) => price.toString();
+const formatPrice = (price: number) => Number(price.toFixed(2)).toString();
+
+const getGiftStyle = (price?: number) => {
+  if (price && price >= 30) return getSCStyle(price);
+  return { main: 'transparent', bg: 'transparent' };
+};
 
 // ==================== Computed filtered lists ====================
 
@@ -338,13 +301,71 @@ const giftList = computed(() => {
   return applySearch(list, ['content', 'user', 'name']);
 });
 
+/** Group consecutive gifts with same user + name (give_gift & gift_combo treated as same) */
+const groupedGiftList = computed(() => {
+  const result: Danmaku[] = [];
+  for (const d of giftList.value) {
+    const prev = result[result.length - 1];
+    const t = getEventType(d);
+    const prevType = prev ? getEventType(prev) : '';
+    if (prev && t !== 'guard' && prevType !== 'guard'
+        && prev.user === d.user && prev.name === d.name) {
+      const merged = { ...prev };
+      const prevCount = merged.count || 1;
+      const currCount = d.count || 1;
+      merged.count = prevCount + currCount;
+      merged.type = 'give_gift'; // normalize to give_gift for unified rendering
+      // Infer unit price
+      const prevUnitPrice = merged.price
+        ? (merged.isPriceTotal ? merged.price / prevCount : merged.price)
+        : 0;
+      const currUnitPrice = d.price
+        ? (d.isPriceTotal ? d.price / currCount : d.price)
+        : 0;
+      const unitPrice = currUnitPrice > 0 ? currUnitPrice : prevUnitPrice;
+      merged.price = unitPrice * merged.count;
+      merged.isPriceTotal = true;
+      result[result.length - 1] = merged;
+    } else {
+      result.push({ ...d });
+    }
+  }
+  return result;
+});
+
+// ==================== Monetary Filters ====================
+
+const showSC = ref(true);
+const showGift = ref(true);
+const showGuard = ref(true);
+
+const combinedMonetaryList = computed(() => {
+  const combined = [...scList.value, ...groupedGiftList.value];
+  return combined.sort((a, b) => a.timestamp - b.timestamp);
+});
+
+const filteredMonetaryList = computed(() => {
+  return combinedMonetaryList.value.filter(d => {
+    const t = getEventType(d);
+    if (t === 'super_chat') return showSC.value;
+    if (t === 'guard') return showGuard.value;
+    if (t === 'give_gift' || t === 'gift_combo') return showGift.value;
+    return true;
+  });
+});
+
+const shouldUseSCLayout = (item: Danmaku) => {
+  const t = getEventType(item);
+  if (t === 'guard' || t === 'super_chat') return true;
+  return (item.price || 0) >= 30;
+};
+
 // ==================== Virtual Scrolling ====================
 
 const ROW_HEIGHT = 32;
 
 const normalScroller = ref<HTMLElement | null>(null);
-const scScroller = ref<HTMLElement | null>(null);
-const giftScroller = ref<HTMLElement | null>(null);
+const monetaryScroller = ref<HTMLElement | null>(null);
 
 const normalVirtualizer = useVirtualizer(computed(() => ({
   count: normalList.value.length,
@@ -354,17 +375,9 @@ const normalVirtualizer = useVirtualizer(computed(() => ({
   measureElement,
 })));
 
-const scVirtualizer = useVirtualizer(computed(() => ({
-  count: scList.value.length,
-  getScrollElement: () => scScroller.value,
-  estimateSize: () => ROW_HEIGHT,
-  overscan: 10,
-  measureElement,
-})));
-
-const giftVirtualizer = useVirtualizer(computed(() => ({
-  count: giftList.value.length,
-  getScrollElement: () => giftScroller.value,
+const monetaryVirtualizer = useVirtualizer(computed(() => ({
+  count: filteredMonetaryList.value.length,
+  getScrollElement: () => monetaryScroller.value,
   estimateSize: () => ROW_HEIGHT,
   overscan: 10,
   measureElement,
@@ -376,11 +389,7 @@ const onNormalScroll = (e: Event) => {
   const t = e.target as HTMLElement;
   if (t.scrollTop + t.clientHeight >= t.scrollHeight - 50) store.loadMore();
 };
-const onSCScroll = (e: Event) => {
-  const t = e.target as HTMLElement;
-  if (t.scrollTop + t.clientHeight >= t.scrollHeight - 50) store.loadMore();
-};
-const onGiftScroll = (e: Event) => {
+const onMonetaryScroll = (e: Event) => {
   const t = e.target as HTMLElement;
   if (t.scrollTop + t.clientHeight >= t.scrollHeight - 50) store.loadMore();
 };
@@ -430,16 +439,14 @@ const isMobile = ref(window.innerWidth <= 768);
 
 const MIN_FLEX = 0.3;
 
-// Vertical panes
-const flexLeft = ref(4);
-const flexMiddle = ref(3);
-const flexRight = ref(3);
+// Vertical panes (two-column: left / right)
+const flexLeft = ref(5);
+const flexRight = ref(5);
 
 const flexTop = ref(6);
 
 // Computed hidden states
 const isLeftHidden = computed(() => flexLeft.value < MIN_FLEX);
-const isMiddleHidden = computed(() => flexMiddle.value < MIN_FLEX);
 const isRightHidden = computed(() => flexRight.value < MIN_FLEX);
 const isTopHidden = computed(() => flexTop.value < MIN_FLEX);
 
@@ -531,38 +538,20 @@ const handleResizeMove = (clientX: number, clientY: number) => {
   const fraction = containerSize > 0 ? relPos / containerSize : 0.5;
 
   if (activeResizer.value === 'v1') {
-    // Between left and middle
-    const lmTotal = flexLeft.value + flexMiddle.value;
-    const totalFlex = flexLeft.value + flexMiddle.value + flexRight.value;
+    // Between left and right
+    const totalFlex = flexLeft.value + flexRight.value;
     let newLeft = fraction * totalFlex;
-    newLeft = Math.max(0, Math.min(lmTotal, newLeft));
+    newLeft = Math.max(0, Math.min(totalFlex, newLeft));
 
     if (newLeft < MIN_FLEX) {
       flexLeft.value = 0;
-      flexMiddle.value = lmTotal;
-    } else if (lmTotal - newLeft < MIN_FLEX) {
-      flexMiddle.value = 0;
-      flexLeft.value = lmTotal;
+      flexRight.value = totalFlex;
+    } else if (totalFlex - newLeft < MIN_FLEX) {
+      flexRight.value = 0;
+      flexLeft.value = totalFlex;
     } else {
       flexLeft.value = newLeft;
-      flexMiddle.value = lmTotal - newLeft;
-    }
-  } else if (activeResizer.value === 'v2') {
-    // Between middle and right
-    const totalFlex = flexLeft.value + flexMiddle.value + flexRight.value;
-    const mrTotal = flexMiddle.value + flexRight.value;
-    let newMiddle = fraction * totalFlex - flexLeft.value;
-    newMiddle = Math.max(0, Math.min(mrTotal, newMiddle));
-
-    if (newMiddle < MIN_FLEX) {
-      flexMiddle.value = 0;
-      flexRight.value = mrTotal;
-    } else if (mrTotal - newMiddle < MIN_FLEX) {
-      flexRight.value = 0;
-      flexMiddle.value = mrTotal;
-    } else {
-      flexMiddle.value = newMiddle;
-      flexRight.value = mrTotal - newMiddle;
+      flexRight.value = totalFlex - newLeft;
     }
   }
 };
@@ -676,16 +665,42 @@ onUnmounted(() => {
   background-color: var(--bg-primary);
   z-index: 10;
   flex-shrink: 0;
-  font-size: 0.9rem;
+  font-size: 1.0rem;
 }
 
 .badge {
   background-color: var(--el-color-primary-light-9);
   padding: 1px 7px;
   border-radius: 10px;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: var(--el-color-primary);
   font-weight: 500;
+}
+
+/* ═══════ Filter Toggles ═══════ */
+.filter-toggles {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0 8px;
+}
+
+.filter-btn {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.filter-btn.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ═══════ Scrollable List ═══════ */
@@ -703,7 +718,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 20px;
   color: var(--text-tertiary);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 /* ═══════ Resizer — vertical ═══════ */
@@ -795,12 +810,10 @@ onUnmounted(() => {
 
 /* ═══════ Danmaku Items ═══════ */
 .danmaku-item {
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-  padding: 4px 10px;
-  font-size: 0.9rem;
-  line-height: 2;
+  display: block;
+  padding: 3px 10px;
+  font-size: 1.0rem;
+  line-height: 1.5;
   border: none !important;
   border-radius: 0 !important;
   margin: 0 !important;
@@ -814,51 +827,74 @@ onUnmounted(() => {
 }
 
 .dm-time {
-  flex-shrink: 0;
-  width: 48px;
-  margin-right: 2px;
-  font-size: 0.75rem;
+  display: inline-block;
+  width: 42px;
+  margin-right: 4px;
+  font-size: 0.8rem;
+  line-height: 1.5;
   color: var(--text-tertiary);
   opacity: 0.45;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
+  vertical-align: middle;
+}
+
+.dm-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
 }
 
 .dm-meta {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 2px;
-  flex-shrink: 0;
-  margin-right: 2px;
 }
 
 .dm-user {
-  max-width: 140px;
+  display: inline-block;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-  color: #409eff;
-  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-size: 0.95rem;
   cursor: pointer;
+  line-height: 1.5;
+  vertical-align: middle;
 }
 
 .dm-user:hover {
   text-decoration: underline;
 }
 
+.dm-user.guard-captain {
+  color: var(--guard-captain);
+}
+
+.dm-user.guard-admiral {
+  color: var(--guard-admiral);
+}
+
+.dm-user.guard-governor {
+  color: var(--guard-governor);
+}
+
 .dm-message {
-  flex: 1;
-  min-width: 0;
+  display: inline;
   color: var(--text-primary);
   white-space: normal;
   word-break: break-all;
+  line-height: 1.5;
+  vertical-align: middle;
 }
 
 .dm-jpn {
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   margin-left: 4px;
   opacity: 0.75;
 }
@@ -867,7 +903,7 @@ onUnmounted(() => {
 .monetary-item {
   border-left: 3px solid transparent;
   padding-left: 7px;
-  line-height: 2.5;
+  line-height: 1.5;
 }
 
 .monetary-item.type-give_gift {
@@ -885,20 +921,55 @@ onUnmounted(() => {
 
 .sc-price {
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   flex-shrink: 0;
+}
+
+/* ═══════ SC Layout ═══════ */
+.monetary-item.type-super_chat {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.sc-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sc-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sc-meta-row {
+  justify-content: space-between;
+}
+
+.sc-time {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.sc-content-row {
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--text-primary);
 }
 
 .gift-name {
   font-weight: 600;
-  color: #E2B52B;
-  font-size: 0.8rem;
+  color: var(--gift-name);
+  font-size: 0.9rem;
   flex-shrink: 0;
 }
 
 .gift-count {
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 500;
 }
 
@@ -909,7 +980,7 @@ onUnmounted(() => {
 
 .gift-price {
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   opacity: 0.8;
 }
 
@@ -918,7 +989,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 700;
   background-color: rgba(171, 26, 50, 0.12);
   color: #AB1A32;
@@ -927,7 +998,7 @@ onUnmounted(() => {
 
 .guard-price {
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   opacity: 0.8;
 }
 
@@ -936,7 +1007,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 600;
   background-color: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
@@ -992,14 +1063,4 @@ onUnmounted(() => {
   vertical-align: middle;
 }
 
-/* ═══════ Guard Icon Inline (舰长图标) ═══════ */
-.guard-icon-inline {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  object-fit: contain;
-  vertical-align: middle;
-  margin-left: 1px;
-}
 </style>

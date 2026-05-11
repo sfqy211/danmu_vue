@@ -33,6 +33,14 @@
     --home-text-primary: #1C1C1E;
     --home-text-secondary: #424245;
     --home-border: #E8E8ED;
+
+    /* Guard colors (light mode) */
+    --guard-captain: #006FE6;
+    --guard-admiral: #AA3CDD;
+    --guard-governor: #F77102;
+
+    /* Gift name color */
+    --gift-name: #80BDFF;
 }
 
 /* 深色模式变量 */
@@ -66,6 +74,14 @@ html.dark {
     --home-text-primary: #FFFFFF;
     --home-text-secondary: #AEAeb2;
     --home-border: #38383a;
+
+    /* Guard colors (dark mode) */
+    --guard-captain: #80BDFF;
+    --guard-admiral: #CA86EA;
+    --guard-governor: #FEBF8B;
+
+    /* Gift name color */
+    --gift-name: #006FE6;
 }
 
 * {
