@@ -12,7 +12,20 @@
         </el-tag>
       </div>
       <div class="toolbar-right">
-        <el-select v-model="levelFilter" size="small" class="level-filter" placeholder="全部级别" clearable>
+        <el-select v-model="dateFilter" size="small" class="log-filter-select date-filter" placeholder="全部时间">
+          <el-option label="所有" value="all" />
+          <el-option label="最近一天" value="1d" />
+          <el-option label="最近4小时" value="4h" />
+          <el-option label="最近1小时" value="1h" />
+          <el-option label="最近10分钟" value="10m" />
+        </el-select>
+        <el-select v-model="lineLimit" size="small" class="log-filter-select line-limit" placeholder="条数" @change="switchLogFile">
+          <el-option label="200" value="200" />
+          <el-option label="500" value="500" />
+          <el-option label="1000" value="1000" />
+          <el-option label="所有" value="all" />
+        </el-select>
+        <el-select v-model="levelFilter" size="small" class="log-filter-select level-filter" placeholder="全部级别" clearable>
           <el-option label="全部" value="" />
           <el-option label="Error" value="error">
             <template #default>
@@ -35,7 +48,7 @@
             </template>
           </el-option>
         </el-select>
-        <el-input v-model="searchQuery" size="small" placeholder="搜索日志..." clearable class="log-search" @clear="onSearchClear" @keyup.enter="onSearchEnter">
+        <el-input v-model="searchQuery" size="small" placeholder="搜索日志..." clearable class="log-search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <el-tooltip content="自动滚动" placement="top">
@@ -80,7 +93,8 @@
         <span v-if="levelFilter" class="status-item level-badge" :class="`badge-${levelFilter}`">
           {{ { error: 'Error', warn: 'Warning', info: 'Info', debug: 'Debug' }[levelFilter] }}
         </span>
-        <span v-if="searchQuery" class="status-item search-info">搜索: {{ searchQuery }}</span>
+        <span class="status-item">{{ dateFilterLabel }}</span>
+        <span class="status-item">{{ lineLimitLabel }}</span>
       </div>
       <div class="status-right">
         <span v-if="isAtBottom" class="status-item">
@@ -115,8 +129,10 @@ const terminalRef = ref<HTMLElement>()
 const logFiles = ref<LogFileEntry[]>([])
 const currentFile = ref('')
 const lines = ref<LogLine[]>([])
-const searchQuery = ref('')
 const levelFilter = ref<string>('') // '' = all, 'error' | 'warn' | 'info' | 'debug'
+const searchQuery = ref('')
+const dateFilter = ref<'all' | '1d' | '4h' | '1h' | '10m'>('all')
+const lineLimit = ref<'200' | '500' | '1000' | 'all'>('200')
 const autoScroll = ref(true)
 const isAtBottom = ref(true)
 const connectionStatus = ref<ConnectionStatus>('disconnected')
@@ -124,7 +140,6 @@ const maxLines = 5000
 
 let eventSource: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let scrollScheduled = false
 
 const connectionStatusText = computed(() => {
@@ -134,11 +149,38 @@ const connectionStatusText = computed(() => {
 
 const totalLines = computed(() => lines.value.length)
 
+const dateFilterLabel = computed(() => ({
+  all: '所有时间',
+  '1d': '最近一天',
+  '4h': '最近4小时',
+  '1h': '最近1小时',
+  '10m': '最近10分钟'
+}[dateFilter.value]))
+
+const lineLimitLabel = computed(() => lineLimit.value === 'all' ? '条数: 所有' : `条数: ${lineLimit.value}`)
+
 const filteredLines = computed(() => {
   let result = lines.value
   // Level filter
   if (levelFilter.value) {
     result = result.filter(line => line.level === levelFilter.value)
+  }
+  // Date filter (only within currently loaded lines)
+  if (dateFilter.value !== 'all') {
+    const now = Date.now()
+    const ranges: Record<string, number> = {
+      '10m': 10 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '4h': 4 * 60 * 60 * 1000,
+      '1d': 24 * 60 * 60 * 1000,
+    }
+    const range = ranges[dateFilter.value]
+    result = result.filter(line => {
+      const m = line.raw.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})/)
+      if (!m) return false
+      const ts = new Date(m[1].replace(' ', 'T')).getTime()
+      return !isNaN(ts) && now - ts <= range
+    })
   }
   // Search filter
   if (searchQuery.value.trim()) {
@@ -181,17 +223,10 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function highlightSearch(text: string): string {
-  if (!searchQuery.value.trim()) return text
-  const q = escapeHtml(searchQuery.value)
-  const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-  return text.replace(regex, '<mark class="search-highlight">$1</mark>')
-}
-
 function processLine(raw: string): LogLine {
   const level = parseLogLevel(raw)
   const escaped = escapeHtml(raw)
-  const html = highlightSearch(escaped)
+  const html = escaped
   return { raw, html, level }
 }
 
@@ -211,7 +246,7 @@ function connectSSE() {
   connectionStatus.value = 'connecting'
   const base = getAdminBaseUrl()
   const token = localStorage.getItem('admin_token') || ''
-  const url = `${base}/admin/logs/stream?file=${encodeURIComponent(currentFile.value)}&token=${encodeURIComponent(token)}`
+  const url = `${base}/admin/logs/stream?file=${encodeURIComponent(currentFile.value)}&token=${encodeURIComponent(token)}&lines=${encodeURIComponent(lineLimit.value)}`
 
   eventSource = new EventSource(url)
 
@@ -291,10 +326,6 @@ function toggleAutoScroll() {
 }
 
 function clearScreen() { lines.value = [] }
-
-function onSearchClear() { searchQuery.value = '' }
-function onSearchEnter() { /* search is reactive via computed */ }
-
 async function downloadLog() {
   if (!currentFile.value) { ElMessage.warning('请先选择日志文件'); return }
   try {
@@ -319,17 +350,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
-
-watch(searchQuery, () => {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  searchDebounceTimer = setTimeout(() => {
-    searchDebounceTimer = null
-    lines.value = lines.value.map(line => ({
-      ...line,
-      html: highlightSearch(escapeHtml(line.raw))
-    }))
-  }, 200)
-})
 
 onMounted(() => { fetchLogFiles() })
 onBeforeUnmount(() => { disconnectSSE() })
@@ -381,10 +401,14 @@ onBeforeUnmount(() => { disconnectSSE() })
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-.log-search { width: 200px; }
+.log-filter-select { width: 160px; }
+.log-search { width: 260px; }
 .log-search :deep(.el-input__wrapper) { background-color: #1e1e1e; box-shadow: 0 0 0 1px #333 inset; }
 .log-search :deep(.el-input__inner) { color: #e0e0e0; font-family: inherit; }
 .log-search :deep(.el-input__icon) { color: #666; }
+
+.log-filter-select :deep(.el-input__wrapper) { background-color: #1e1e1e; box-shadow: 0 0 0 1px #333 inset; }
+.log-filter-select :deep(.el-input__inner) { color: #e0e0e0; font-family: inherit; }
 
 .terminal-body {
   flex: 1;
@@ -448,11 +472,6 @@ onBeforeUnmount(() => { disconnectSSE() })
   flex: 1; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere;
 }
 
-:deep(.search-highlight) {
-  background-color: rgba(234, 179, 8, 0.25);
-  color: #fbbf24; border-radius: 2px; padding: 0 1px; font-weight: bold;
-}
-
 .terminal-statusbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 16px; background-color: #171717; border-top: 1px solid #262626;
@@ -471,7 +490,8 @@ onBeforeUnmount(() => { disconnectSSE() })
   .log-toolbar { padding: 8px; }
   .toolbar-left, .toolbar-right { width: 100%; justify-content: space-between; }
   .log-file-select { width: 160px; }
-  .log-search { width: 140px; }
+  .log-filter-select { width: 120px; }
+  .log-search { width: 180px; }
   .log-line { padding: 1px 8px; }
   .line-number { width: 36px; padding-right: 8px; font-size: 11px; }
 }
@@ -514,6 +534,14 @@ onBeforeUnmount(() => { disconnectSSE() })
 }
 .log-viewer.light-theme .log-search :deep(.el-input__icon) {
   color: #999;
+}
+
+.log-viewer.light-theme .log-filter-select :deep(.el-input__wrapper) {
+  background-color: #fff;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+}
+.log-viewer.light-theme .log-filter-select :deep(.el-input__inner) {
+  color: #333;
 }
 
 .log-viewer.light-theme .terminal-body {

@@ -205,7 +205,7 @@ app.MapGet("/api/admin/logs/stream", async (HttpContext context, LogService logS
     context.Response.Headers.CacheControl = "no-cache";
     context.Response.Headers.Connection = "keep-alive";
 
-    // Send last 200 lines immediately
+    // Send last N lines immediately (default 200, supports 500/1000/all)
     using var initialStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
     using var initialReader = new StreamReader(initialStream);
     var allLines = new List<string>();
@@ -213,7 +213,15 @@ app.MapGet("/api/admin/logs/stream", async (HttpContext context, LogService logS
     {
         allLines.Add(line);
     }
-    var startIdx = Math.Max(0, allLines.Count - 200);
+    var linesParam = context.Request.Query["lines"].ToString();
+    var loadAllLines = string.Equals(linesParam, "all", StringComparison.OrdinalIgnoreCase);
+    var initialLineCount = 200;
+    if (int.TryParse(linesParam, out var parsedLineCount) && parsedLineCount > 0)
+    {
+        initialLineCount = parsedLineCount;
+    }
+
+    var startIdx = loadAllLines ? 0 : Math.Max(0, allLines.Count - initialLineCount);
     for (var i = startIdx; i < allLines.Count; i++)
     {
         await context.Response.WriteAsync($"data: {allLines[i]}\n\n", ct);
