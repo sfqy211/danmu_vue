@@ -180,7 +180,7 @@
       
       <template #footer>
         <div class="drawer-footer">
-          <p>BiliDanmu 弹幕时光机 v2.3</p>
+          <p>BiliDanmu</p>
         </div>
       </template>
     </el-drawer>
