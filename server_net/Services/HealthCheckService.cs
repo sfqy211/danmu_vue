@@ -81,6 +81,11 @@ public class HealthCheckService : BackgroundService
         {
             try
             {
+                if (process.Status != "online")
+                {
+                    continue;
+                }
+
                 if (process.RegisteredAt != default && DateTime.UtcNow - process.RegisteredAt < _startupGracePeriod)
                 {
                     continue;
