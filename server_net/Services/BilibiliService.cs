@@ -744,14 +744,14 @@ public class BilibiliService
         }
     }
 
-    public virtual async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId)
+    public virtual async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId, string? cookie = null)
     {
         var realRoomId = await GetRealRoomIdAsync(roomId);
         if (realRoomId <= 0) realRoomId = roomId;
+        cookie ??= GetCookie();
         // Try new API first
         try
         {
-            var cookie = GetCookie();
             var json = await SendBiliGetAsync(
                 BilibiliApiUrls.DanmuInfo,
                 new Dictionary<string, string?>
@@ -785,7 +785,6 @@ public class BilibiliService
         // Fallback to old API
         try 
         {
-            var cookie = GetCookie();
             var json = await SendBiliGetAsync(
                 BilibiliApiUrls.DanmuConf,
                 new Dictionary<string, string?>
