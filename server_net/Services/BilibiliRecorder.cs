@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Net.WebSockets;
 using System.Text;
@@ -32,6 +32,7 @@ public class BilibiliRecorder : IDisposable
     private bool _isDisposed;
     private string? _token;
     private string? _host;
+    private long _currentAccountUid;
     private string? _currentSessionKey;
     private Task? _recorderHeartbeatTask;
     private Task? _redisDumpTask;
@@ -319,15 +320,16 @@ public class BilibiliRecorder : IDisposable
             }
         }
          
-        if (_ws != null)
+        var ws = _ws;
+        _ws = null;
+        if (ws != null)
         {
             try
             {
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Stop", CancellationToken.None);
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Stop", CancellationToken.None);
             }
             catch { }
-            _ws.Dispose();
-            _ws = null;
+            ws.Dispose();
         }
 
         await ClearRecorderHeartbeatAsync();
@@ -456,14 +458,28 @@ public class BilibiliRecorder : IDisposable
         // Add headers if needed
         _ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         
-        long uid = 0;
-        var cookie = await GetCookieAsync();
-        if (!string.IsNullOrEmpty(cookie))
+        // Atomically get cookie AND account UID from the same account
+        var (cookie, accountUid) = await _accountService.GetCookieWithAccountForRoomAsync(_uid);
+        
+        if (string.IsNullOrEmpty(cookie) || !accountUid.HasValue)
+            throw new InvalidOperationException($"No available account for room {_roomId}");
+
+        _currentAccountUid = accountUid.Value;
+
+        // Refresh token using the SAME cookie that will be used for the auth packet.
+        // This ensures token and UID come from the same account, fixing the token/UID mismatch bug.
+        if (_bilibiliService != null)
         {
-            var match = Regex.Match(cookie, @"DedeUserID=([^;]+)");
-            if (match.Success && long.TryParse(match.Groups[1].Value, out var parsedUid))
+            try
             {
-                uid = parsedUid;
+                var (token, host, realRoomId) = await _bilibiliService.GetDanmakuConfAsync(_roomId, cookie);
+                _token = token;
+                if (!string.IsNullOrWhiteSpace(host)) _host = host;
+                if (realRoomId > 0) _realRoomId = realRoomId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to refresh token for room {RoomId}, using cached token as fallback", _roomId);
             }
         }
         
@@ -473,7 +489,7 @@ public class BilibiliRecorder : IDisposable
         
         var authBody = JsonSerializer.Serialize(new
         {
-            uid = uid,
+            uid = _currentAccountUid,
             roomid = _realRoomId > 0 ? _realRoomId : _roomId,
             protover = 2, // 2 = Zlib
             platform = "web",
@@ -483,7 +499,7 @@ public class BilibiliRecorder : IDisposable
         
         var bodyBytes = Encoding.UTF8.GetBytes(authBody);
         await SendPacketAsync(7, bodyBytes);
-        _logger.LogInformation($"Connected to room {_roomId}");
+        _logger.LogInformation("Connected to room {RoomId}, account={AccountUid}", _roomId, _currentAccountUid);
     }
 
     private async Task SendPacketAsync(int operation, byte[] body)
@@ -506,12 +522,13 @@ public class BilibiliRecorder : IDisposable
 
     private async Task<string?> GetCookieAsync()
     {
-        return await _accountService.GetCookieForRoomAsync(_uid);
+        var (cookie, _) = await _accountService.GetCookieWithAccountForRoomAsync(_uid);
+        return cookie;
     }
 
     private long? GetCurrentAccountUid()
     {
-        return _accountService.GetAssignedAccountUid(_uid);
+        return _currentAccountUid > 0 ? _currentAccountUid : null;
     }
 
     private async Task HeartbeatLoopAsync(CancellationToken token)
@@ -580,7 +597,9 @@ public class BilibiliRecorder : IDisposable
                 var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    return; // Server closed connection normally
+                    _logger.LogInformation("WebSocket closed for room {RoomId}: status={Status}, description={Desc}",
+                        _roomId, _ws?.CloseStatus, _ws?.CloseStatusDescription);
+                    return;
                 }
 
                 var data = new byte[result.Count];
