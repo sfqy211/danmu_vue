@@ -77,7 +77,10 @@
             <span class="filter-btn" :class="{ active: showGift }" @click="showGift = !showGift">礼物</span>
             <span class="filter-btn" :class="{ active: showGuard }" @click="showGuard = !showGuard">航海</span>
           </div>
-          <span class="badge">{{ filteredMonetaryList.length }}</span>
+          <div class="header-stats">
+            <span class="badge">{{ filteredMonetaryList.length }}</span>
+            <span class="total-price">¥{{ formatPrice(monetaryTotal) }}</span>
+          </div>
         </div>
         <div ref="monetaryScroller" class="scrollable-list" @scroll="onMonetaryScroll">
           <div :style="{ height: monetaryVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
@@ -352,6 +355,10 @@ const filteredMonetaryList = computed(() => {
     if (t === 'give_gift' || t === 'gift_combo') return showGift.value;
     return true;
   });
+});
+
+const monetaryTotal = computed(() => {
+  return filteredMonetaryList.value.reduce((sum, d) => sum + (d.price || 0), 0);
 });
 
 const shouldUseSCLayout = (item: Danmaku) => {
@@ -701,6 +708,19 @@ onUnmounted(() => {
   color: #fff;
   background: var(--accent);
   border-color: var(--accent);
+}
+
+.header-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.total-price {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #E2B52B;
+  white-space: nowrap;
 }
 
 /* ═══════ Scrollable List ═══════ */
