@@ -135,13 +135,9 @@
           <div class="drawer-item">
             <div class="item-left">
               <el-icon><Clock /></el-icon>
-              <span>显示实际时间</span>
+              <span>时间显示</span>
             </div>
-            <el-switch 
-              v-model="store.timeDisplayMode" 
-              active-value="absolute" 
-              inactive-value="relative"
-            />
+            <el-segmented v-model="store.timeDisplayMode" :options="timeDisplayOptions" size="small" />
           </div>
           <div class="drawer-item">
             <div class="item-left">
@@ -296,6 +292,12 @@ import TimelineAnalysis from './TimelineAnalysis.vue';
 const store = useDanmakuStore();
 const router = useRouter();
 const route = useRoute();
+
+const timeDisplayOptions = [
+  { label: '隐藏', value: 'hidden' },
+  { label: '相对', value: 'relative' },
+  { label: '实际', value: 'absolute' },
+];
 
 const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);

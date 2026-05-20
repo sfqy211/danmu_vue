@@ -30,7 +30,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const showDanmaku = ref(true);
   const isSidebarCollapsed = ref(true);
   const zoomLevel = ref(110);
-  const timeDisplayMode = ref<'relative' | 'absolute'>('relative');
+  const timeDisplayMode = ref<'relative' | 'absolute' | 'hidden'>('hidden');
 
   // Getters
   const currentVup = computed<VupInfo | null>(() => {

@@ -44,7 +44,7 @@
                 :data-index="virtualItem.index"
                 :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
                 class="danmaku-item">
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(normalList[virtualItem.index].timestamp) : normalList[virtualItem.index].timeStr }}</span>
+                <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(normalList[virtualItem.index].timestamp) : normalList[virtualItem.index].timeStr }}</span>
                 <div class="dm-info">
                   <img v-if="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" :alt="'财' + normalList[virtualItem.index].wealthLevel" />
                   <FansMedal :item="normalList[virtualItem.index]" />
@@ -117,7 +117,7 @@
                         <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
                       </template>
                     </span>
-                    <span class="sc-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
+                    <span v-if="store.timeDisplayMode !== 'hidden'" class="sc-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
                   </div>
                   <div v-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat'" class="sc-row sc-content-row">
                     {{ filteredMonetaryList[virtualItem.index].content }}
@@ -126,7 +126,7 @@
                 </div>
               </template>
               <template v-else>
-                <span class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
+                <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
                 <div class="dm-info">
                   <img v-if="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" :alt="'财' + filteredMonetaryList[virtualItem.index].wealthLevel" />
                   <FansMedal :item="filteredMonetaryList[virtualItem.index]" />
