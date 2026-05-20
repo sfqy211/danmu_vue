@@ -23,6 +23,7 @@ public class DanmakuMessage
     public string? CoinType { get; set; }
     public string? RawCommand { get; set; }
     public int? Duration { get; set; }
+    public string? Face { get; set; }
     public Sender Sender { get; set; } = new();
 }
 
@@ -52,6 +53,7 @@ public class RecordedDanmakuEvent
     public string? MessageJpn { get; set; }
     public int? Duration { get; set; }
     public string? RawCommand { get; set; }
+    public string? Face { get; set; }
 }
 
 public class Sender

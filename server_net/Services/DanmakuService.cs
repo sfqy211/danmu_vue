@@ -452,6 +452,7 @@ public class DanmakuService
                 wealthLevel = m.WealthLevel,
                 coinType = m.CoinType,
                 duration = m.Duration,
+                face = m.Face,
                 id = $"{m.Timestamp}-{m.Sender.Uid}"
             })
             .ToList();
@@ -1023,6 +1024,7 @@ public class DanmakuService
             CoinType = recordedEvent.CoinType,
             RawCommand = recordedEvent.RawCommand,
             Duration = recordedEvent.Duration,
+            Face = recordedEvent.Face,
             Sender = new Sender
             {
                 Name = recordedEvent.User ?? "",
@@ -1127,6 +1129,7 @@ public class DanmakuService
             GuardLevel = message.GuardLevel,
             User = message.Sender.Name,
             Uid = message.Sender.Uid,
+            Face = message.Face,
             RawCommand = message.Type switch
             {
                 "comment" => "DANMU_MSG",

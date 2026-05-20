@@ -47,6 +47,8 @@
               class="danmaku-item">
               <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
               <div class="dm-info">
+                <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="dm-avatar" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
                 <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
                 <FansMedal :item="virtualItem.item" />
                 <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
@@ -105,8 +107,11 @@
                       backgroundColor: getSCStyle(virtualItem.item.price || 0).lightBg,
                       borderColor: getSCStyle(virtualItem.item.price || 0).borderColor,
                     }">
-                    <div class="sc-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
-                      {{ virtualItem.item.user.charAt(0) }}
+                    <div class="sc-avatar-wrap">
+                      <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="sc-avatar-img" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                      <div v-else class="sc-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
+                        {{ virtualItem.item.user.charAt(0) }}
+                      </div>
                     </div>
                     <div class="sc-header-info">
                       <div class="sc-header-top">
@@ -138,8 +143,11 @@
                   :style="{
                     backgroundColor: getSCStyle(virtualItem.item.price || 0).darkBg,
                   }">
-                  <div class="guard-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
-                    {{ virtualItem.item.user.charAt(0) }}
+                  <div class="guard-avatar-wrap">
+                    <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="guard-avatar-img" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                    <div v-else class="guard-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
+                      {{ virtualItem.item.user.charAt(0) }}
+                    </div>
                   </div>
                   <div class="guard-content">
                     <div class="guard-top-row">
@@ -162,6 +170,8 @@
               <template v-else>
                 <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
                 <div class="dm-info">
+                  <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="dm-avatar" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                  <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
                   <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
                   <FansMedal :item="virtualItem.item" />
                   <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
@@ -318,6 +328,12 @@ const getAvatarColor = (name: string): string => {
 
 const formatPrice = (price: number) => Number(price.toFixed(2)).toString();
 
+/** Track avatar load failures so the template can fall back to placeholder */
+const failedAvatarKeys = ref(new Set<string>());
+const onAvatarError = (key: string) => {
+  failedAvatarKeys.value.add(key);
+};
+
 // ==================== Computed filtered lists ====================
 
 const applySearch = (list: Danmaku[], searchFields: ('content' | 'user' | 'name')[]) => {
@@ -419,11 +435,6 @@ const filteredMonetaryList = computed(() => {
 const monetaryTotal = computed(() => {
   return filteredMonetaryList.value.reduce((sum, d) => sum + actualTotalPrice(d), 0);
 });
-
-const shouldUseSCLayout = (item: Danmaku) => {
-  const t = getEventType(item);
-  return t === 'guard' || t === 'super_chat';
-};
 
 // ==================== Virtual Scrolling ====================
 
@@ -925,6 +936,33 @@ onUnmounted(() => {
   border-bottom: none !important;
 }
 
+/* ─── Avatar (normal danmaku & gift) ─── */
+.dm-avatar {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.dm-avatar-placeholder {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.65rem;
+  flex-shrink: 0;
+  vertical-align: middle;
+  line-height: 1;
+}
+
 .dm-time {
   display: inline-block;
   margin-right: 4px;
@@ -1004,11 +1042,6 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
-.monetary-item.type-guard,
-.monetary-item.type-super_chat {
-  /* card styling handled by .sc-card / .guard-card */
-}
-
 /* ═══════ SC Two-Segment Card ═══════ */
 .sc-card {
   border-radius: 8px;
@@ -1033,10 +1066,25 @@ onUnmounted(() => {
 }
 
 /* Avatar placeholder (shared between SC & Guard) */
-.sc-avatar {
+.sc-avatar-wrap {
   width: 36px;
   height: 36px;
   min-width: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sc-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.sc-avatar {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1044,7 +1092,6 @@ onUnmounted(() => {
   color: #fff;
   font-weight: 700;
   font-size: 0.9rem;
-  flex-shrink: 0;
 }
 
 .sc-header-info {
@@ -1116,10 +1163,35 @@ html.dark .guard-card {
   color: #fff;
 }
 
-.guard-avatar {
+.guard-avatar-wrap {
   width: 40px;
   height: 40px;
   min-width: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+html.dark-mode .guard-avatar-wrap,
+html.dark .guard-avatar-wrap {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+html:not(.dark-mode):not(.dark) .guard-avatar-wrap {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.guard-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.guard-avatar {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1127,17 +1199,6 @@ html.dark .guard-card {
   color: #fff;
   font-weight: 700;
   font-size: 0.9rem;
-  flex-shrink: 0;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-}
-
-html.dark-mode .guard-avatar,
-html.dark .guard-avatar {
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-html:not(.dark-mode):not(.dark) .guard-avatar {
-  border-color: rgba(0, 0, 0, 0.15);
 }
 
 .guard-content {

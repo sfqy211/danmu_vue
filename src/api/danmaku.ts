@@ -121,6 +121,7 @@ export interface Danmaku {
   wealthLevel?: number;
   coinType?: string;
   duration?: number;
+  face?: string;
 }
 
 export interface SessionInfo {
@@ -272,7 +273,8 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
     ulLevel: toNumber(msg.ulLevel ?? msg.UlLevel),
     wealthLevel: toNumber(msg.wealthLevel ?? msg.WealthLevel),
     coinType: msg.coinType ?? msg.CoinType,
-    duration: toNumber(msg.duration ?? msg.Duration)
+    duration: toNumber(msg.duration ?? msg.Duration),
+    face: msg.face ?? msg.Face
   }));
 
   const total = typeof res.data.total === 'number' ? res.data.total : danmaku.length;

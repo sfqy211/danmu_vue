@@ -754,6 +754,8 @@ public class BilibiliRecorder : IDisposable
             var guardLevel = TryGetInt32(info, 7);
             var wealthInfo = GetArrayElement(info, 16);
 
+            var faceUrl = GetString(info[0], 15);
+
             return new RecordedDanmakuEvent
             {
                 Type = "comment",
@@ -771,6 +773,7 @@ public class BilibiliRecorder : IDisposable
                 MedalAnchorUid = TryGetInt64(medalInfo, 12),
                 UlLevel = TryGetInt32(userLevelInfo, 0),
                 WealthLevel = TryGetInt32(wealthInfo, 0),
+                Face = NormalizeFaceUrl(faceUrl),
                 RawCommand = cmd
             };
         }
@@ -792,6 +795,7 @@ public class BilibiliRecorder : IDisposable
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "uname") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
+                Face = NormalizeFaceUrl(TryGetString(data, "face")),
                 RawCommand = cmd
             };
         }
@@ -819,6 +823,7 @@ public class BilibiliRecorder : IDisposable
                 MedalAnchorUid = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt64(medalInfo, "target_id") : null,
                 User = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uname") ?? "") : "",
                 Uid = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uid") ?? "") : "",
+                Face = NormalizeFaceUrl(userInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(userInfo, "face") : null),
                 RawCommand = cmd
             };
         }
@@ -837,6 +842,7 @@ public class BilibiliRecorder : IDisposable
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "username") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
+                Face = NormalizeFaceUrl(TryGetString(data, "face")),
                 RawCommand = cmd
             };
         }
@@ -863,6 +869,7 @@ public class BilibiliRecorder : IDisposable
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "uname") ?? "",
                 Uid = TryGetString(data, "uid") ?? TryGetString(data, "ruid") ?? "",
+                Face = NormalizeFaceUrl(TryGetString(data, "face")),
                 RawCommand = cmd
             };
         }
@@ -950,6 +957,18 @@ public class BilibiliRecorder : IDisposable
             JsonValueKind.Number => value.ToString(),
             _ => value.ToString()
         };
+    }
+
+    /// <summary>
+    /// Normalize Bilibili face URL: ensure it starts with https://, handle protocol-relative URLs.
+    /// </summary>
+    private static string? NormalizeFaceUrl(string? faceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(faceUrl)) return null;
+        // Ensure protocol prefix
+        if (faceUrl.StartsWith("//")) faceUrl = "https:" + faceUrl;
+        if (!faceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return null;
+        return faceUrl;
     }
 
     private static int? TryGetInt32(JsonElement element, string propertyName)
