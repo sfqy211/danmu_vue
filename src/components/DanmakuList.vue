@@ -201,6 +201,7 @@
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item command="filter"><span class="menu-icon">🔍</span><span>筛选此用户弹幕</span></el-dropdown-item>
+          <el-dropdown-item command="hide"><span class="menu-icon">🚫</span><span>不看此用户弹幕</span></el-dropdown-item>
           <el-dropdown-item command="profile"><span class="menu-icon">👤</span><span>打开用户主页</span></el-dropdown-item>
           <el-dropdown-item command="laplace"><span class="menu-icon">🧪</span><span>查成分 (Laplace)</span></el-dropdown-item>
         </el-dropdown-menu>
@@ -334,6 +335,13 @@ const onAvatarError = (key: string) => {
   failedAvatarKeys.value.add(key);
 };
 
+// ==================== Hidden Users (Block List) ====================
+
+const applyHiddenUsers = (list: Danmaku[]) => {
+  if (store.hiddenUsers.size === 0) return list;
+  return list.filter(d => !store.hiddenUsers.has(d.uid));
+};
+
 // ==================== Computed filtered lists ====================
 
 const applySearch = (list: Danmaku[], searchFields: ('content' | 'user' | 'name')[]) => {
@@ -350,6 +358,7 @@ const applySearch = (list: Danmaku[], searchFields: ('content' | 'user' | 'name'
 /** Left top: DANMU_MSG → type === 'comment' */
 const normalList = computed(() => {
   let list = danmakuList.value.filter(d => getEventType(d) === 'comment');
+  list = applyHiddenUsers(list);
   return applySearch(list, ['content', 'user']);
 });
 
@@ -357,6 +366,7 @@ const normalList = computed(() => {
 /** Middle: SUPER_CHAT_MESSAGE / JPN → type === 'super_chat' */
 const scList = computed(() => {
   let list = danmakuList.value.filter(d => getEventType(d) === 'super_chat');
+  list = applyHiddenUsers(list);
   return applySearch(list, ['content', 'user']);
 });
 
@@ -366,6 +376,7 @@ const giftList = computed(() => {
     const t = getEventType(d);
     return t === 'give_gift' || t === 'guard' || t === 'gift_combo';
   });
+  list = applyHiddenUsers(list);
   return applySearch(list, ['content', 'user', 'name']);
 });
 
@@ -516,6 +527,7 @@ const onUserMenuCommand = (command: string) => {
   const uid = activeUser.value.uid;
   switch (command) {
     case 'filter': store.searchText = user; break;
+    case 'hide': store.toggleHideUser(uid, user); break;
     case 'profile': if (uid) window.open(`https://space.bilibili.com/${uid}`, '_blank'); break;
     case 'laplace': if (uid) window.open(`https://laplace.live/user/${uid}`, '_blank'); break;
   }

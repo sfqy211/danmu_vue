@@ -52,6 +52,9 @@
           clearable
           class="header-search-input"
         />
+        <span v-if="isDanmakuPage && store.hiddenUsers.size > 0" class="hidden-users-badge" @click="hiddenUsersDialogVisible = true">
+          🚫 {{ store.hiddenUsers.size }}
+        </span>
       </div>
       <el-button v-if="!isHome" class="settings-btn" :icon="Setting" circle @click="drawerVisible = true" title="设置与工具" />
     </div>
@@ -264,6 +267,23 @@
         </template>
       </div>
     </el-dialog>
+
+    <!-- Hidden Users Dialog -->
+    <el-dialog
+      v-model="hiddenUsersDialogVisible"
+      title="已屏蔽用户"
+      width="360px"
+      append-to-body
+      align-center
+    >
+      <div v-if="store.hiddenUsers.size === 0" class="hidden-empty">暂无屏蔽用户</div>
+      <div v-else class="hidden-users-list">
+        <div v-for="[uid, displayName] in store.hiddenUsers" :key="uid" class="hidden-user-item">
+          <span class="hidden-user-name">{{ displayName }}</span>
+          <el-button size="small" text type="primary" @click="store.toggleHideUser(uid, displayName)">取消屏蔽</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -311,6 +331,7 @@ const statsDialogVisible = ref(false);
 const revenueDialogVisible = ref(false);
 const timelineDialogVisible = ref(false);
 const aboutDialogVisible = ref(false);
+const hiddenUsersDialogVisible = ref(false);
 const changelogEntries = ref<ChangelogEntry[]>([]);
 const changelogLoading = ref(false);
 const changelogError = ref('');
@@ -613,6 +634,7 @@ onUnmounted(() => {
 .header-search-container {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .header-search-input {
@@ -622,6 +644,61 @@ onUnmounted(() => {
 
 .header-search-input:focus-within {
   width: 280px;
+}
+
+/* ═══════ Hidden Users Badge & Dialog ═══════ */
+.hidden-users-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.hidden-users-badge:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+
+.hidden-users-row {
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.hidden-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 20px 0;
+}
+
+.hidden-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.hidden-user-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.hidden-user-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 0.9rem;
 }
 
 .mobile-drawer-search {

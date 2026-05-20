@@ -34,6 +34,18 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     window.innerWidth <= 768 ? 'hidden' : 'relative'
   );
 
+  // Hidden users (block list): uid -> displayName
+  const hiddenUsers = ref(new Map<string, string>());
+
+  const toggleHideUser = (uid: string, displayName: string) => {
+    if (!uid) return;
+    if (hiddenUsers.value.has(uid)) {
+      hiddenUsers.value.delete(uid);
+    } else {
+      hiddenUsers.value.set(uid, displayName);
+    }
+  };
+
   // Getters
   const currentVup = computed<VupInfo | null>(() => {
     if (currentVupUid.value) {
@@ -272,6 +284,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     currentPage.value = 0;
     totalPages.value = 0;
     isDanmakuLoaded.value = false;
+    hiddenUsers.value.clear();
   };
 
   return {
@@ -293,6 +306,8 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     isSidebarCollapsed,
     zoomLevel,
     timeDisplayMode,
+    hiddenUsers,
+    toggleHideUser,
     
     // Vup State
     vups,
