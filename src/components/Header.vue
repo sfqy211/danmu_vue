@@ -33,6 +33,14 @@
       </template>
     </div>
     
+    <div v-if="isDanmakuPage && store.currentSession && store.currentSession.start_time" class="center-panel">
+      <span class="time-value">{{ formatDateTime(store.currentSession.start_time) }}</span>
+      <span class="time-separator">-</span>
+      <span class="time-value">{{ store.currentSession.end_time ? formatDateTime(store.currentSession.end_time) : '直播中' }}</span>
+      <span class="time-divider">|</span>
+      <span class="time-value duration">{{ formatDuration(store.currentSession.start_time, store.currentSession.end_time) }}</span>
+    </div>
+
     <div class="right-panel">
       <div id="header-dynamic-actions" class="dynamic-actions"></div>
       <div class="header-search-container">
@@ -361,6 +369,29 @@ const formatShortDate = (timestamp: number) => {
   return `${date.getMonth() + 1}-${date.getDate()}`;
 };
 
+const formatDateTime = (timestamp: number) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${min}`;
+};
+
+const formatDuration = (startTime?: number, endTime?: number) => {
+  if (!startTime) return '—';
+  const end = endTime || Date.now();
+  const diffMs = end - startTime;
+  if (diffMs <= 0) return '—';
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+};
+
 const checkRecorderStatus = async () => {
   recorderStatus.value = 'loading';
   try {
@@ -449,8 +480,8 @@ onUnmounted(() => {
 
 <style scoped>
 .header-container {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   width: 100%;
 }
@@ -458,9 +489,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 15px;
-  flex: 1;
   min-width: 0;
   overflow: hidden;
+  grid-column: 1;
 }
 .back-btn {
   margin-right: 5px;
@@ -534,9 +565,40 @@ onUnmounted(() => {
 .right-panel {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 15px;
   flex-shrink: 0;
+  min-width: 0;
   margin-left: 10px;
+  grid-column: 3;
+}
+.center-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  grid-column: 2;
+}
+.time-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.time-value.duration {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+.time-separator {
+  color: var(--text-tertiary);
+  margin: 0 2px;
+}
+.time-divider {
+  color: var(--border);
+  margin: 0 6px;
 }
 .dynamic-actions {
   display: flex;
@@ -571,6 +633,9 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .center-panel {
+    display: none;
+  }
   .header-search-input {
     display: none;
   }
