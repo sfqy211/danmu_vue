@@ -30,7 +30,9 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const showDanmaku = ref(true);
   const isSidebarCollapsed = ref(true);
   const zoomLevel = ref(110);
-  const timeDisplayMode = ref<'relative' | 'absolute' | 'hidden'>('hidden');
+  const timeDisplayMode = ref<'relative' | 'absolute' | 'hidden'>(
+    window.innerWidth <= 768 ? 'hidden' : 'relative'
+  );
 
   // Getters
   const currentVup = computed<VupInfo | null>(() => {
@@ -150,10 +152,21 @@ export const useDanmakuStore = defineStore('danmaku', () => {
       const summaryRes = await getSessionSummary(sessionId);
       
       // 合并摘要字段，确保保留 gift_summary_json 等顶级字段
-      sessionSummary.value = {
+      const parsed: any = {
         ...summaryRes,
         ...(summaryRes.summary || {})
       };
+
+      // 解析 gift_summary_json 提取营收总额
+      if (summaryRes.gift_summary_json) {
+        try {
+          parsed.giftSummary = JSON.parse(summaryRes.gift_summary_json);
+        } catch (e) {
+          console.error('Failed to parse gift_summary_json:', e);
+        }
+      }
+
+      sessionSummary.value = parsed;
       
       // Get total count from summary if available
       if (sessionSummary.value && sessionSummary.value.totalCount) {

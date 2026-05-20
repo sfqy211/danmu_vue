@@ -14,6 +14,7 @@
         <div class="load-icon">💬</div>
         <h3>已加载统计数据</h3>
         <p>该场次共有 {{ totalDanmaku }} 条弹幕</p>
+        <p v-if="summaryTotalPrice !== null" class="summary-price">营收总额 <span class="price-value">¥{{ formatPrice(summaryTotalPrice) }}</span></p>
         <el-button type="primary" size="large" :loading="danmakuLoading" @click="store.fetchDanmaku">
           查询弹幕列表
         </el-button>
@@ -24,7 +25,7 @@
     <div v-else ref="splitContainer" class="split-container" :class="{ 'is-mobile': isMobile, 'is-resizing': isResizing }">
 
       <!-- ─── LEFT SECTION (flex column: top / bottom) ─── -->
-      <div ref="leftPanel" class="column-side column-left-section"
+      <div class="column-side column-left-section"
         :style="{ flex: flexLeft + ' 1 0px' }"
         :class="{ 'pane-hidden': isLeftHidden }">
 
@@ -38,20 +39,20 @@
           </div>
           <div ref="normalScroller" class="scrollable-list" @scroll="onNormalScroll">
             <div :style="{ height: normalVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
-              <div v-for="virtualItem in normalVirtualizer.getVirtualItems()"
-                :key="String(virtualItem.key)"
-                :ref="(el: any) => normalVirtualizer.measureElement(el as Element)"
-                :data-index="virtualItem.index"
-                :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
-                class="danmaku-item">
-                <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(normalList[virtualItem.index].timestamp) : normalList[virtualItem.index].timeStr }}</span>
-                <div class="dm-info">
-                  <img v-if="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(normalList[virtualItem.index].wealthLevel)" :alt="'财' + normalList[virtualItem.index].wealthLevel" />
-                  <FansMedal :item="normalList[virtualItem.index]" />
-                  <span class="dm-user" :class="getGuardClass(normalList[virtualItem.index].guardLevel)" @click="openUserMenu($event, normalList[virtualItem.index])">{{ normalList[virtualItem.index].user }}</span>
-                </div>
-                <span class="dm-message">{{ normalList[virtualItem.index].content }}</span>
+            <div v-for="virtualItem in normalVirtualItems"
+              :key="String(virtualItem.key)"
+              :ref="(el: any) => normalVirtualizer.measureElement(el as Element)"
+              :data-index="virtualItem.index"
+              :style="{ position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%' }"
+              class="danmaku-item">
+              <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
+              <div class="dm-info">
+                <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
+                <FansMedal :item="virtualItem.item" />
+                <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
               </div>
+              <span class="dm-message">{{ virtualItem.item.content }}</span>
+            </div>
             </div>
           </div>
           <div v-if="normalList.length === 0" class="pane-empty">暂无普通弹幕</div>
@@ -84,57 +85,90 @@
         </div>
         <div ref="monetaryScroller" class="scrollable-list" @scroll="onMonetaryScroll">
           <div :style="{ height: monetaryVirtualizer.getTotalSize() + 'px', width: '100%', position: 'relative' }">
-            <div v-for="virtualItem in monetaryVirtualizer.getVirtualItems()"
+            <div v-for="virtualItem in monetaryVirtualItems"
               :key="String(virtualItem.key)"
               :ref="(el: any) => monetaryVirtualizer.measureElement(el as Element)"
               :data-index="virtualItem.index"
-              :class="['danmaku-item', 'monetary-item', `type-${getEventType(filteredMonetaryList[virtualItem.index])}`]"
+              :class="['danmaku-item', 'monetary-item', `type-${getEventType(virtualItem.item)}`]"
               :style="{
                 position: 'absolute', top: virtualItem.start + 'px', left: 0, width: '100%',
-                borderLeftColor: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).main : getGiftStyle(filteredMonetaryList[virtualItem.index].price).main),
-                backgroundColor: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).bg : getGiftStyle(filteredMonetaryList[virtualItem.index].price).bg),
               }">
 
-              <template v-if="shouldUseSCLayout(filteredMonetaryList[virtualItem.index])">
-                <div class="sc-layout">
-                  <div class="sc-row sc-user-row">
-                    <FansMedal :item="filteredMonetaryList[virtualItem.index]" />
-                    <span class="dm-user" :class="getGuardClass(filteredMonetaryList[virtualItem.index].guardLevel)" @click="openUserMenu($event, filteredMonetaryList[virtualItem.index])">{{ filteredMonetaryList[virtualItem.index].user }}</span>
+              <!-- ═══ SC: Two-segment card ═══ -->
+              <template v-if="getEventType(virtualItem.item) === 'super_chat'">
+                <div class="sc-card"
+                  :style="{
+                    borderColor: getSCStyle(virtualItem.item.price || 0).borderColor,
+                  }">
+                  <div class="sc-card-header"
+                    :style="{
+                      backgroundColor: getSCStyle(virtualItem.item.price || 0).lightBg,
+                      borderColor: getSCStyle(virtualItem.item.price || 0).borderColor,
+                    }">
+                    <div class="sc-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
+                      {{ virtualItem.item.user.charAt(0) }}
+                    </div>
+                    <div class="sc-header-info">
+                      <div class="sc-header-top">
+                        <FansMedal :item="virtualItem.item" />
+                        <span class="sc-username" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
+                      </div>
+                      <div class="sc-header-bottom">
+                        <span class="sc-price" :style="{ color: getSCStyle(virtualItem.item.price || 0).priceColor }">
+                          ¥{{ formatPrice(virtualItem.item.price || 0) }}
+                        </span>
+                        <span v-if="store.timeDisplayMode !== 'hidden'" class="sc-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div class="sc-row sc-meta-row">
-                    <span class="sc-price" :style="{ color: (getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat' ? getSCStyle(filteredMonetaryList[virtualItem.index].price || 0).main : getGiftStyle(filteredMonetaryList[virtualItem.index].price).main) }">
-                      <template v-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat'">
-                        <span>¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
-                      </template>
-                      <template v-else-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'guard'">
-                        <span class="gift-name">{{ getGuardName(filteredMonetaryList[virtualItem.index].guardLevel) }}</span>
-                        <span class="gift-count">x1</span>
-                        <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
-                      </template>
-                      <template v-else>
-                        <span class="gift-name">{{ filteredMonetaryList[virtualItem.index].name }}</span>
-                        <span class="gift-count" :class="{ 'combo-count': getEventType(filteredMonetaryList[virtualItem.index]) === 'gift_combo' }">x{{ filteredMonetaryList[virtualItem.index].count || 1 }}</span>
-                        <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
-                      </template>
-                    </span>
-                    <span v-if="store.timeDisplayMode !== 'hidden'" class="sc-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
-                  </div>
-                  <div v-if="getEventType(filteredMonetaryList[virtualItem.index]) === 'super_chat'" class="sc-row sc-content-row">
-                    {{ filteredMonetaryList[virtualItem.index].content }}
-                    <span v-if="filteredMonetaryList[virtualItem.index].contentJpn" class="dm-jpn">{{ filteredMonetaryList[virtualItem.index].contentJpn }}</span>
+                  <div class="sc-card-body"
+                    :style="{
+                      backgroundColor: getSCStyle(virtualItem.item.price || 0).darkBg,
+                      color: getSCStyle(virtualItem.item.price || 0).msgColor,
+                    }">
+                    {{ virtualItem.item.content }}
+                    <span v-if="virtualItem.item.contentJpn" class="sc-jpn">{{ virtualItem.item.contentJpn }}</span>
                   </div>
                 </div>
               </template>
+
+              <!-- ═══ Guard: Toast-style card ═══ -->
+              <template v-else-if="getEventType(virtualItem.item) === 'guard'">
+                <div class="guard-card"
+                  :style="{
+                    backgroundColor: getSCStyle(virtualItem.item.price || 0).darkBg,
+                  }">
+                  <div class="guard-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
+                    {{ virtualItem.item.user.charAt(0) }}
+                  </div>
+                  <div class="guard-content">
+                    <div class="guard-top-row">
+                      <span class="guard-username" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
+                    </div>
+                    <div class="guard-price-row">
+                      <span class="guard-price-currency">CN¥</span>
+                      <span class="guard-price-figure">{{ formatPrice(virtualItem.item.price || 0) }}</span>
+                    </div>
+                    <div class="guard-message">
+                      <span class="guard-action">{{ getGuardName(virtualItem.item.guardLevel) }}</span>
+                      <span v-if="store.timeDisplayMode !== 'hidden'" class="guard-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
+                    </div>
+                  </div>
+                  <img v-if="getGuardIconUrl(virtualItem.item.guardLevel)" class="guard-icon" :src="getGuardIconUrl(virtualItem.item.guardLevel)" :alt="getGuardName(virtualItem.item.guardLevel)" />
+                </div>
+              </template>
+
+              <!-- ═══ Gift: compact inline ═══ -->
               <template v-else>
-                <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(filteredMonetaryList[virtualItem.index].timestamp) : filteredMonetaryList[virtualItem.index].timeStr }}</span>
+                <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
                 <div class="dm-info">
-                  <img v-if="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(filteredMonetaryList[virtualItem.index].wealthLevel)" :alt="'财' + filteredMonetaryList[virtualItem.index].wealthLevel" />
-                  <FansMedal :item="filteredMonetaryList[virtualItem.index]" />
-                  <span class="dm-user" :class="getGuardClass(filteredMonetaryList[virtualItem.index].guardLevel)" @click="openUserMenu($event, filteredMonetaryList[virtualItem.index])">{{ filteredMonetaryList[virtualItem.index].user }}</span>
+                  <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
+                  <FansMedal :item="virtualItem.item" />
+                  <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
                   <span class="dm-meta">
-                    <span class="gift-name">{{ filteredMonetaryList[virtualItem.index].name }}</span>
-                    <span class="gift-count" :class="{ 'combo-count': getEventType(filteredMonetaryList[virtualItem.index]) === 'gift_combo' }">x{{ filteredMonetaryList[virtualItem.index].count || 1 }}</span>
-                    <span v-if="filteredMonetaryList[virtualItem.index].price" class="gift-price">¥{{ formatPrice(filteredMonetaryList[virtualItem.index].price || 0) }}</span>
+                    <span class="gift-name">{{ virtualItem.item.name }}</span>
+                    <span class="gift-count" :class="{ 'combo-count': getEventType(virtualItem.item) === 'gift_combo' }">x{{ virtualItem.item.count || 1 }}</span>
+                    <span v-if="virtualItem.item.price" class="gift-price">¥{{ formatPrice(unitPrice(virtualItem.item)) }}</span>
                   </span>
                 </div>
               </template>
@@ -166,7 +200,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useVirtualizer, measureElement } from '@tanstack/vue-virtual';
 import { useDanmakuStore } from '../stores/danmakuStore';
 import { storeToRefs } from 'pinia';
@@ -176,6 +210,8 @@ import FansMedal from './FansMedal.vue';
 import { getWealthLevelUrl } from '../constants/wealthLevel';
 import { getGuardIconUrl } from '../constants/guardIcon';
 
+
+
 const store = useDanmakuStore();
 const {
   danmakuList,
@@ -184,10 +220,28 @@ const {
   isDanmakuLoaded,
   currentSession,
   totalDanmaku,
+  sessionSummary,
   searchText
 } = storeToRefs(store);
 
+// ==================== Debounced Search ====================
+const debouncedSearchText = ref('');
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(searchText, (val) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    debouncedSearchText.value = val;
+  }, 300);
+});
+
 // ==================== Helpers ====================
+
+const summaryTotalPrice = computed(() => {
+  const gs = sessionSummary.value?.giftSummary;
+  if (!gs) return null;
+  return gs.totalPrice ?? gs.TotalPrice ?? null;
+});
 
 const getEventType = (d: Danmaku): string => {
   if (d.type) return d.type;
@@ -212,28 +266,8 @@ const getGuardClass = (level?: number) => {
   }
 };
 
-const getEventTypeLabel = (d: Danmaku): string => {
-  const t = getEventType(d);
-  switch (t) {
-    case 'comment': return '弹幕';
-    case 'super_chat': return 'SC';
-    case 'give_gift': return '礼物';
-    case 'guard': return '上舰';
-    case 'gift_combo': return '连击';
-    default: return t;
-  }
-};
 
-const getEventTypeColor = (d: Danmaku): string => {
-  const t = getEventType(d);
-  switch (t) {
-    case 'super_chat': return '#E54D4D';
-    case 'give_gift': return '#E2B52B';
-    case 'guard': return '#AB1A32';
-    case 'gift_combo': return '#E09443';
-    default: return '#409eff';
-  }
-};
+
 
 const formatAbsoluteTime = (timestamp: number) => {
   if (!timestamp) return '';
@@ -249,31 +283,46 @@ const getSCLevel = (price: number) => {
   return 1;
 };
 
-const getSCStyle = (price: number) => {
+interface SCStyleResult {
+  main: string;
+  bg: string;
+  lightBg: string;
+  darkBg: string;
+  priceColor: string;
+  msgColor: string;
+  borderColor: string;
+}
+
+const getSCStyle = (price: number): SCStyleResult => {
   const level = getSCLevel(price);
-  const styles: Record<number, { main: string; bg: string }> = {
-    1: { main: '#2A60B2', bg: 'rgba(42, 96, 178, 0.08)' },
-    2: { main: '#427D9E', bg: 'rgba(66, 125, 158, 0.08)' },
-    3: { main: '#E2B52B', bg: 'rgba(226, 181, 43, 0.08)' },
-    4: { main: '#E09443', bg: 'rgba(224, 148, 67, 0.08)' },
-    5: { main: '#E54D4D', bg: 'rgba(229, 77, 77, 0.08)' },
-    6: { main: '#AB1A32', bg: 'rgba(171, 26, 50, 0.08)' }
+  const styles: Record<number, SCStyleResult> = {
+    1: { main: '#2A60B2', bg: 'rgba(42, 96, 178, 0.08)', lightBg: '#EDF5FF', darkBg: '#2A60B2', priceColor: '#7497CD', msgColor: '#FFFFFF', borderColor: '#2A60B2' },
+    2: { main: '#427D9E', bg: 'rgba(66, 125, 158, 0.08)', lightBg: '#EBF4F8', darkBg: '#427D9E', priceColor: '#6DAABB', msgColor: '#FFFFFF', borderColor: '#427D9E' },
+    3: { main: '#E2B52B', bg: 'rgba(226, 181, 43, 0.08)', lightBg: '#FFF8E1', darkBg: '#E2B52B', priceColor: '#C9A020', msgColor: '#FFFFFF', borderColor: '#E2B52B' },
+    4: { main: '#E09443', bg: 'rgba(224, 148, 67, 0.08)', lightBg: '#FFF3E0', darkBg: '#E09443', priceColor: '#D08030', msgColor: '#FFFFFF', borderColor: '#E09443' },
+    5: { main: '#E54D4D', bg: 'rgba(229, 77, 77, 0.08)', lightBg: '#FFEBEE', darkBg: '#E54D4D', priceColor: '#D43030', msgColor: '#FFFFFF', borderColor: '#E54D4D' },
+    6: { main: '#AB1A32', bg: 'rgba(171, 26, 50, 0.08)', lightBg: '#FCE4EC', darkBg: '#AB1A32', priceColor: '#AB1A32', msgColor: '#FFFFFF', borderColor: '#AB1A32' }
   };
   return styles[level] || styles[1];
 };
 
-const formatPrice = (price: number) => Number(price.toFixed(2)).toString();
-
-const getGiftStyle = (price?: number) => {
-  if (price && price >= 30) return getSCStyle(price);
-  return { main: 'transparent', bg: 'transparent' };
+/** Generate a placeholder avatar color from username for visual consistency */
+const getAvatarColor = (name: string): string => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 45%, 55%)`;
 };
+
+const formatPrice = (price: number) => Number(price.toFixed(2)).toString();
 
 // ==================== Computed filtered lists ====================
 
 const applySearch = (list: Danmaku[], searchFields: ('content' | 'user' | 'name')[]) => {
-  if (!searchText.value) return list;
-  const lower = searchText.value.toLowerCase();
+  if (!debouncedSearchText.value) return list;
+  const lower = debouncedSearchText.value.toLowerCase();
   return list.filter(d =>
     searchFields.some(f => {
       const val = d[f];
@@ -304,6 +353,20 @@ const giftList = computed(() => {
   return applySearch(list, ['content', 'user', 'name']);
 });
 
+/** Compute the actual total price for a single gift record */
+const actualTotalPrice = (d: Danmaku): number => {
+  if (!d.price) return 0;
+  if (d.isPriceTotal) return d.price;
+  return d.price * (d.count || 1);
+};
+
+/** Compute the unit price for display (original per-unit price, not accumulated total) */
+const unitPrice = (d: Danmaku): number => {
+  if (!d.price) return 0;
+  if (d.isPriceTotal) return d.price / (d.count || 1);
+  return d.price;
+};
+
 /** Group consecutive gifts with same user + name (give_gift & gift_combo treated as same) */
 const groupedGiftList = computed(() => {
   const result: Danmaku[] = [];
@@ -313,20 +376,16 @@ const groupedGiftList = computed(() => {
     const prevType = prev ? getEventType(prev) : '';
     if (prev && t !== 'guard' && prevType !== 'guard'
         && prev.user === d.user && prev.name === d.name) {
-      const merged = { ...prev };
-      const prevCount = merged.count || 1;
+      const prevTotal = actualTotalPrice(prev);
+      const currTotal = actualTotalPrice(d);
+      const prevCount = prev.count || 1;
       const currCount = d.count || 1;
-      merged.count = prevCount + currCount;
+      const totalCount = prevCount + currCount;
+      const total = prevTotal + currTotal;
+      const merged = { ...prev };
+      merged.count = totalCount;
       merged.type = 'give_gift'; // normalize to give_gift for unified rendering
-      // Infer unit price
-      const prevUnitPrice = merged.price
-        ? (merged.isPriceTotal ? merged.price / prevCount : merged.price)
-        : 0;
-      const currUnitPrice = d.price
-        ? (d.isPriceTotal ? d.price / currCount : d.price)
-        : 0;
-      const unitPrice = currUnitPrice > 0 ? currUnitPrice : prevUnitPrice;
-      merged.price = unitPrice * merged.count;
+      merged.price = total;
       merged.isPriceTotal = true;
       result[result.length - 1] = merged;
     } else {
@@ -358,18 +417,19 @@ const filteredMonetaryList = computed(() => {
 });
 
 const monetaryTotal = computed(() => {
-  return filteredMonetaryList.value.reduce((sum, d) => sum + (d.price || 0), 0);
+  return filteredMonetaryList.value.reduce((sum, d) => sum + actualTotalPrice(d), 0);
 });
 
 const shouldUseSCLayout = (item: Danmaku) => {
   const t = getEventType(item);
-  if (t === 'guard' || t === 'super_chat') return true;
-  return (item.price || 0) >= 30;
+  return t === 'guard' || t === 'super_chat';
 };
 
 // ==================== Virtual Scrolling ====================
 
-const ROW_HEIGHT = 32;
+const NORMAL_ROW_HEIGHT = 32;
+const SC_CARD_HEIGHT = 90;
+const GUARD_CARD_HEIGHT = 80;
 
 const normalScroller = ref<HTMLElement | null>(null);
 const monetaryScroller = ref<HTMLElement | null>(null);
@@ -377,7 +437,7 @@ const monetaryScroller = ref<HTMLElement | null>(null);
 const normalVirtualizer = useVirtualizer(computed(() => ({
   count: normalList.value.length,
   getScrollElement: () => normalScroller.value,
-  estimateSize: () => ROW_HEIGHT,
+  estimateSize: () => NORMAL_ROW_HEIGHT,
   overscan: 10,
   measureElement,
 })));
@@ -385,10 +445,29 @@ const normalVirtualizer = useVirtualizer(computed(() => ({
 const monetaryVirtualizer = useVirtualizer(computed(() => ({
   count: filteredMonetaryList.value.length,
   getScrollElement: () => monetaryScroller.value,
-  estimateSize: () => ROW_HEIGHT,
+  estimateSize: (index: number) => {
+    const item = filteredMonetaryList.value[index];
+    if (!item) return NORMAL_ROW_HEIGHT;
+    const t = getEventType(item);
+    if (t === 'super_chat') return SC_CARD_HEIGHT;
+    if (t === 'guard') return GUARD_CARD_HEIGHT;
+    return NORMAL_ROW_HEIGHT;
+  },
   overscan: 10,
   measureElement,
 })));
+
+const normalVirtualItems = computed(() => {
+  const items = normalVirtualizer.value.getVirtualItems();
+  const list = normalList.value;
+  return items.map((vi: any) => ({ ...vi, item: list[vi.index] }));
+});
+
+const monetaryVirtualItems = computed(() => {
+  const items = monetaryVirtualizer.value.getVirtualItems();
+  const list = filteredMonetaryList.value;
+  return items.map((vi: any) => ({ ...vi, item: list[vi.index] }));
+});
 
 // ==================== Scroll / Load More ====================
 
@@ -434,7 +513,7 @@ const onUserMenuCommand = (command: string) => {
 // ==================== Resizer State ====================
 
 const splitContainer = ref<HTMLElement | null>(null);
-const leftPanel = ref<HTMLElement | null>(null);
+
 
 const isResizing = ref(false);
 const activeResizer = ref<string | null>(null);
@@ -463,6 +542,10 @@ onMounted(() => {
   if (isMobile.value) {
     flexRight.value = 0;
   }
+  window.addEventListener('resize', updateMobileStatus);
+  window.addEventListener('mouseup', stopResize);
+  window.addEventListener('touchend', stopResize);
+  window.addEventListener('touchcancel', stopResize);
 });
 
 const updateMobileStatus = () => {
@@ -477,7 +560,7 @@ const startResize = (id: string, e: MouseEvent | TouchEvent) => {
   activeResizer.value = id;
   isResizing.value = true;
   const cursorMap: Record<string, string> = {
-    v1: 'col-resize', v2: 'col-resize',
+    v1: 'col-resize',
   };
   document.body.style.cursor = cursorMap[id] || 'col-resize';
   document.body.style.userSelect = 'none';
@@ -565,19 +648,13 @@ const handleResizeMove = (clientX: number, clientY: number) => {
 
 // ==================== Lifecycle ====================
 
-onMounted(() => {
-  window.addEventListener('resize', updateMobileStatus);
-  window.addEventListener('mouseup', stopResize);
-  window.addEventListener('touchend', stopResize);
-  window.addEventListener('touchcancel', stopResize);
-});
-
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
   window.removeEventListener('mouseup', stopResize);
   window.removeEventListener('touchend', stopResize);
   window.removeEventListener('touchcancel', stopResize);
   if (rafId) cancelAnimationFrame(rafId);
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 });
 </script>
 
@@ -611,7 +688,9 @@ onUnmounted(() => {
 
 .load-icon { font-size: 48px; margin-bottom: 16px; }
 .load-card h3 { margin: 0 0 8px; color: var(--text-primary); font-size: 1.2rem; }
-.load-card p { margin: 0 0 24px; color: var(--text-secondary); font-size: 0.9rem; }
+.load-card p { margin: 0 0 8px; color: var(--text-secondary); font-size: 0.9rem; }
+.load-card .summary-price { margin-bottom: 24px; }
+.load-card .price-value { font-weight: 700; color: #E2B52B; font-size: 1.1rem; }
 
 /* ═══════ Split Container ═══════ */
 .split-container {
@@ -848,9 +927,8 @@ onUnmounted(() => {
 
 .dm-time {
   display: inline-block;
-  width: 42px;
   margin-right: 4px;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   line-height: 1.5;
   color: var(--text-tertiary);
   opacity: 0.45;
@@ -881,7 +959,7 @@ onUnmounted(() => {
   white-space: nowrap;
   font-weight: 600;
   color: var(--text-primary);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   cursor: pointer;
   line-height: 1.5;
   vertical-align: middle;
@@ -910,6 +988,7 @@ onUnmounted(() => {
   word-break: break-all;
   line-height: 1.5;
   vertical-align: middle;
+  margin-left: 6px;
 }
 
 .dm-jpn {
@@ -921,63 +1000,222 @@ onUnmounted(() => {
 
 /* ═══════ Monetary Items ═══════ */
 .monetary-item {
-  border-left: 3px solid transparent;
-  padding-left: 7px;
+  padding: 4px 8px;
   line-height: 1.5;
 }
 
-.monetary-item.type-give_gift {
-  border-left-color: #E2B52B;
-  background-color: rgba(226, 181, 43, 0.06);
+.monetary-item.type-guard,
+.monetary-item.type-super_chat {
+  /* card styling handled by .sc-card / .guard-card */
 }
-.monetary-item.type-guard {
-  border-left-color: #AB1A32;
-  background-color: rgba(171, 26, 50, 0.06);
+
+/* ═══════ SC Two-Segment Card ═══════ */
+.sc-card {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1.5px solid transparent;
+  margin: 2px 0;
 }
-.monetary-item.type-gift_combo {
-  border-left-color: #E09443;
-  background-color: rgba(224, 148, 67, 0.06);
+
+.sc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1.5px solid transparent;
+}
+
+.sc-card-body {
+  padding: 8px 10px;
+  line-height: 1.6;
+  word-break: break-all;
+  font-size: 0.9rem;
+}
+
+/* Avatar placeholder (shared between SC & Guard) */
+.sc-avatar {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.sc-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sc-header-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sc-header-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-username {
+  font-weight: 600;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.sc-username:hover {
+  text-decoration: underline;
 }
 
 .sc-price {
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   flex-shrink: 0;
 }
 
-/* ═══════ SC Layout ═══════ */
-.monetary-item.type-super_chat {
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-
-.sc-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sc-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.sc-meta-row {
-  justify-content: space-between;
-}
-
 .sc-time {
-  font-size: 0.8rem;
-  color: var(--text-tertiary);
+  font-size: 0.9rem;
   opacity: 0.55;
   white-space: nowrap;
 }
 
-.sc-content-row {
-  line-height: 1.5;
-  word-break: break-all;
+.sc-jpn {
+  opacity: 0.7;
+  font-size: 0.9rem;
+  margin-left: 4px;
+}
+
+/* ═══════ Guard Toast-Style Card ═══════ */
+.guard-card {
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 2px 0;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+html.dark-mode .guard-card,
+html.dark .guard-card {
+  color: #fff;
+}
+
+.guard-avatar {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+html.dark-mode .guard-avatar,
+html.dark .guard-avatar {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+html:not(.dark-mode):not(.dark) .guard-avatar {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.guard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.guard-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.guard-username {
+  font-weight: 600;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
   color: var(--text-primary);
+}
+
+.guard-username:hover {
+  text-decoration: underline;
+  opacity: 0.9;
+}
+
+.guard-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.guard-price-currency {
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.guard-price-figure {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.guard-message {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guard-action {
+  font-weight: 600;
+}
+
+.guard-time {
+  font-size: 0.9rem;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+.guard-icon {
+  height: 60px;
+  min-height: 60px;
+  width: auto;
+  flex-shrink: 0;
+  object-fit: contain;
+  align-self: center;
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
 }
 
 .gift-name {
@@ -1000,7 +1238,7 @@ onUnmounted(() => {
 
 .gift-price {
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   opacity: 0.8;
 }
 
