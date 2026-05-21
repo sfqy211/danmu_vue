@@ -453,6 +453,8 @@ public class DanmakuService
                 coinType = m.CoinType,
                 duration = m.Duration,
                 face = m.Face,
+                emots = m.Emots,
+                dmType = m.DmType,
                 id = $"{m.Timestamp}-{m.Sender.Uid}"
             })
             .ToList();
@@ -1025,6 +1027,8 @@ public class DanmakuService
             RawCommand = recordedEvent.RawCommand,
             Duration = recordedEvent.Duration,
             Face = recordedEvent.Face,
+            Emots = recordedEvent.Emots,
+            DmType = recordedEvent.DmType,
             Sender = new Sender
             {
                 Name = recordedEvent.User ?? "",
@@ -1130,6 +1134,8 @@ public class DanmakuService
             User = message.Sender.Name,
             Uid = message.Sender.Uid,
             Face = message.Face,
+            Emots = message.Emots,
+            DmType = message.DmType,
             RawCommand = message.Type switch
             {
                 "comment" => "DANMU_MSG",

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Danmu.Server.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Danmu.Server.Services;
@@ -1116,5 +1117,70 @@ public class BilibiliService
         }
 
         return (followers, guardNum, videoCount);
+    }
+
+    /// <summary>
+    /// Fetch room-specific emoticon packages from Bilibili API.
+    /// Returns a dictionary keyed by trigger text (e.g. "打call", "[桃几表情包_好听]") to EmoticonInfo.
+    /// Requires cookie authentication.
+    /// </summary>
+    public async Task<Dictionary<string, EmoticonInfo>?> GetRoomEmoticonsAsync(long roomId, string cookie)
+    {
+        try
+        {
+            var json = await SendBiliGetAsync(
+                "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+                new Dictionary<string, string?>
+                {
+                    ["platform"] = "pc",
+                    ["room_id"] = roomId.ToString()
+                },
+                cookie);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("code", out var code) && code.GetInt32() != 0) return null;
+
+            if (!root.TryGetProperty("data", out var data)) return null;
+            if (!data.TryGetProperty("data", out var packagesElement)) return null;
+            if (packagesElement.ValueKind != JsonValueKind.Array) return null;
+
+            var result = new Dictionary<string, EmoticonInfo>();
+            foreach (var package in packagesElement.EnumerateArray())
+            {
+                if (!package.TryGetProperty("emoticons", out var emoticonsElement)) continue;
+                if (emoticonsElement.ValueKind != JsonValueKind.Array) continue;
+
+                foreach (var emoticon in emoticonsElement.EnumerateArray())
+                {
+                    if (emoticon.ValueKind != JsonValueKind.Object) continue;
+
+                    var emoji = BilibiliRecorder.TryGetString(emoticon, "emoji");
+                    if (string.IsNullOrWhiteSpace(emoji)) continue;
+
+                    var url = BilibiliRecorder.TryGetString(emoticon, "url");
+                    if (string.IsNullOrWhiteSpace(url)) continue;
+
+                    // Normalize URL to https://
+                    if (url.StartsWith("//")) url = "https:" + url;
+
+                    result[emoji] = new EmoticonInfo
+                    {
+                        Url = url,
+                        EmoticonId = BilibiliRecorder.TryGetInt32(emoticon, "emoticon_id"),
+                        EmoticonUnique = BilibiliRecorder.TryGetString(emoticon, "emoticon_unique"),
+                        Height = BilibiliRecorder.TryGetInt32(emoticon, "height"),
+                        Width = BilibiliRecorder.TryGetInt32(emoticon, "width")
+                    };
+                }
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch room emoticons for room {RoomId}", roomId);
+            return null;
+        }
     }
 }

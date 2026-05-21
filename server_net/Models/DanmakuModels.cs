@@ -24,6 +24,8 @@ public class DanmakuMessage
     public string? RawCommand { get; set; }
     public int? Duration { get; set; }
     public string? Face { get; set; }
+    public Dictionary<string, EmoticonInfo>? Emots { get; set; }
+    public int? DmType { get; set; }
     public Sender Sender { get; set; } = new();
 }
 
@@ -54,6 +56,7 @@ public class RecordedDanmakuEvent
     public int? Duration { get; set; }
     public string? RawCommand { get; set; }
     public string? Face { get; set; }
+    public int? DmType { get; set; }
     /// <summary>
     /// Emoticon map from DANMU_MSG: key is trigger text (e.g. "[热]"), value contains url and metadata.
     /// </summary>

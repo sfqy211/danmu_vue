@@ -123,6 +123,7 @@ export interface Danmaku {
   duration?: number;
   face?: string;
   emots?: Record<string, EmoticonInfo>;
+  dmType?: number;
 }
 
 export interface EmoticonInfo {
@@ -284,7 +285,8 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
     coinType: msg.coinType ?? msg.CoinType,
     duration: toNumber(msg.duration ?? msg.Duration),
     face: msg.face ?? msg.Face,
-    emots: normalizeEmots(msg.emots ?? msg.Emots)
+    emots: normalizeEmots(msg.emots ?? msg.Emots),
+    dmType: toNumber(msg.dmType ?? msg.DmType)
   }));
 
   const total = typeof res.data.total === 'number' ? res.data.total : danmaku.length;

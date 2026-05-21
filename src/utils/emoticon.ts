@@ -32,10 +32,11 @@ export function renderTextWithEmoticons(
       if (text.startsWith(trigger, i)) {
         const emot = emots[trigger];
         if (emot?.url) {
+          const src = normalizeEmotUrl(emot.url);
           const size = emot.width && emot.height
             ? `width="${emot.width}" height="${emot.height}"`
             : 'width="20" height="20"';
-          result += `<img class="emoticon-img" src="${escapeAttr(emot.url)}" alt="${escapeAttr(trigger)}" ${size} loading="lazy" />`;
+          result += `<img class="emoticon-img" src="${escapeAttr(src)}" alt="${escapeAttr(trigger)}" ${size} loading="lazy" referrerpolicy="no-referrer" />`;
         } else {
           result += escapeHtml(trigger);
         }
@@ -70,4 +71,10 @@ function escapeAttr(str: string): string {
     .replace(/'/g, '&#039;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function normalizeEmotUrl(url: string): string {
+  if (url.startsWith('//')) return `https:${url}`;
+  if (url.startsWith('http://')) return url.replace(/^http:\/\//i, 'https://');
+  return url;
 }

@@ -41,7 +41,9 @@ public class BilibiliRecorder : IDisposable
     private string _userName = "未知主播";
     private long _realRoomId;
     private volatile bool _stopRequestedAfterOfflineDetected;
-    
+    /// <summary>Room-specific emoticon map keyed by trigger text (e.g. "[桃几表情包_好听]"), fetched from GetEmoticons API.</summary>
+    private Dictionary<string, EmoticonInfo>? _roomEmoticonMap;
+
     // Delegate to check for active session key
     public Func<string, long, Task<string?>>? CheckActiveSession;
     // Delegate to update last live time and stats in DB
@@ -94,7 +96,7 @@ public class BilibiliRecorder : IDisposable
         _bilibiliService = bilibiliService;
         _realRoomId = realRoomId > 0 ? realRoomId : _roomId;
 
-        try 
+        try
         {
              await RefreshRoomInfoAsync(syncCurrentSession: false);
              _logger.LogInformation($"Room Info: {_title} (@{_userName})");
@@ -102,6 +104,28 @@ public class BilibiliRecorder : IDisposable
         catch (Exception ex)
         {
              _logger.LogError(ex, "Failed to get room info on start");
+        }
+
+        // Fetch room-specific emoticon packages for merging into DANMU_MSG emots
+        try
+        {
+            var cookie = await GetCookieAsync();
+            if (!string.IsNullOrEmpty(cookie))
+            {
+                _roomEmoticonMap = await bilibiliService.GetRoomEmoticonsAsync(_realRoomId, cookie);
+                if (_roomEmoticonMap != null)
+                {
+                    _logger.LogInformation("Fetched {Count} room emoticons for room {RoomId}", _roomEmoticonMap.Count, _realRoomId);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("No cookie available, skipping room emoticon fetch");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch room emoticons, will fall back to default emoticons only");
         }
 
         _token = token;
@@ -723,6 +747,9 @@ public class BilibiliRecorder : IDisposable
                 var recordedEvent = CreateRecordedEvent(root, cmd);
                 if (recordedEvent != null)
                 {
+                    // Merge room-specific emoticons into emots when text contains matching triggers
+                    MergeRoomEmoticons(recordedEvent);
+
                     _ = WriteEventToRedisAsync(recordedEvent);
                 }
                 else if (!string.IsNullOrWhiteSpace(cmd))
@@ -735,6 +762,24 @@ public class BilibiliRecorder : IDisposable
         {
             if (ex is EndOfStreamException) throw;
             _logger.LogWarning(ex, "Failed to handle websocket message for uid {Uid}", _uid);
+        }
+    }
+
+    /// <summary>
+    /// For dmType=1 (emoticon-only) messages, look up the emoticon URL from the room emoticon map
+    /// if it wasn't provided by the WebSocket (info[0][15].extra.emots / info[0][13]).
+    /// Does NOT merge for dmType=0 (text) messages to avoid misidentifying typed text as emoticons.
+    /// </summary>
+    private void MergeRoomEmoticons(RecordedDanmakuEvent e)
+    {
+        if (_roomEmoticonMap == null || string.IsNullOrEmpty(e.Text)) return;
+        if (e.DmType != 1) return;
+        if (e.Emots != null && e.Emots.Count > 0) return;
+
+        // Try to find the emoticon by matching the whole message text as trigger key
+        if (_roomEmoticonMap.TryGetValue(e.Text, out var emot))
+        {
+            e.Emots = new Dictionary<string, EmoticonInfo> { [e.Text] = emot };
         }
     }
 
@@ -756,7 +801,13 @@ public class BilibiliRecorder : IDisposable
 
             var modeInfo = GetArrayElement(info[0], 15);
             var faceUrl = TryGetNestedFace(modeInfo);
+            var dmType = TryGetInt32(info[0], 12) ?? 0;
             var emots = TryExtractEmots(modeInfo);
+            // For dmType=1 (emoticon-only), also try info[0][13] which has url/height/width
+            if (dmType == 1 && emots == null)
+            {
+                emots = TryExtractEmoticonFromOptions(info[0], 13, GetString(info, 1) ?? "");
+            }
 
             return new RecordedDanmakuEvent
             {
@@ -776,6 +827,7 @@ public class BilibiliRecorder : IDisposable
                 UlLevel = TryGetInt32(userLevelInfo, 0),
                 WealthLevel = TryGetInt32(wealthInfo, 0),
                 Face = NormalizeFaceUrl(faceUrl),
+                DmType = dmType,
                 Emots = emots,
                 RawCommand = cmd
             };
@@ -947,7 +999,7 @@ public class BilibiliRecorder : IDisposable
         };
     }
 
-    private static string? TryGetString(JsonElement element, string propertyName)
+    internal static string? TryGetString(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var value))
         {
@@ -1044,7 +1096,52 @@ public class BilibiliRecorder : IDisposable
         }
     }
 
-    private static int? TryGetInt32(JsonElement element, string propertyName)
+    /// <summary>
+    /// Extract emoticon info from info[0][13] (emoticon_options) for dmType=1 messages.
+    /// The field is a JSON string like {"url": "...", "height": 60, "width": 183, "emoticon_unique": "room_xxx"}.
+    /// </summary>
+    private static Dictionary<string, EmoticonInfo>? TryExtractEmoticonFromOptions(JsonElement info0, int index, string triggerText)
+    {
+        var optionsElement = GetArrayElement(info0, index);
+        string? optionsJson = null;
+
+        if (optionsElement.ValueKind == JsonValueKind.String)
+        {
+            optionsJson = optionsElement.GetString();
+        }
+        else if (optionsElement.ValueKind == JsonValueKind.Object)
+        {
+            optionsJson = optionsElement.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(optionsJson) || optionsJson == "{}") return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(optionsJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var url = TryGetString(root, "url");
+            if (string.IsNullOrEmpty(url)) return null;
+
+            var emoticon = new EmoticonInfo
+            {
+                Url = NormalizeFaceUrl(url),
+                EmoticonUnique = TryGetString(root, "emoticon_unique"),
+                Height = TryGetInt32(root, "height"),
+                Width = TryGetInt32(root, "width")
+            };
+
+            return new Dictionary<string, EmoticonInfo> { [triggerText] = emoticon };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static int? TryGetInt32(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var value))
         {
