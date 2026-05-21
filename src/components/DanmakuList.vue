@@ -47,7 +47,7 @@
               class="danmaku-item">
               <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
               <div class="dm-info">
-                <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="dm-avatar" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                 <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
                 <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
                 <FansMedal :item="virtualItem.item" />
@@ -108,7 +108,7 @@
                       borderColor: getSCStyle(virtualItem.item.price || 0).borderColor,
                     }">
                     <div class="sc-avatar-wrap">
-                      <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="sc-avatar-img" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                      <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="sc-avatar-img" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                       <div v-else class="sc-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
                         {{ virtualItem.item.user.charAt(0) }}
                       </div>
@@ -144,7 +144,7 @@
                     backgroundColor: getSCStyle(virtualItem.item.price || 0).darkBg,
                   }">
                   <div class="guard-avatar-wrap">
-                    <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="guard-avatar-img" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                    <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="guard-avatar-img" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                     <div v-else class="guard-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
                       {{ virtualItem.item.user.charAt(0) }}
                     </div>
@@ -170,7 +170,7 @@
               <template v-else>
                 <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
                 <div class="dm-info">
-                  <img v-if="virtualItem.item.face && !failedAvatarKeys.has(virtualItem.item.id)" class="dm-avatar" :src="virtualItem.item.face" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.id)" />
+                <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                   <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
                   <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
                   <FansMedal :item="virtualItem.item" />
@@ -244,6 +244,12 @@ watch(searchText, (val) => {
   searchDebounceTimer = setTimeout(() => {
     debouncedSearchText.value = val;
   }, 300);
+});
+
+// Clear failed avatar URLs when session changes to prevent unbounded growth
+watch(currentSession, () => {
+  failedAvatarUrls.value = new Set();
+  avatarUrlCache.clear();
 });
 
 // ==================== Helpers ====================
@@ -329,10 +335,35 @@ const getAvatarColor = (name: string): string => {
 
 const formatPrice = (price: number) => Number(price.toFixed(2)).toString();
 
-/** Track avatar load failures so the template can fall back to placeholder */
-const failedAvatarKeys = ref(new Set<string>());
-const onAvatarError = (key: string) => {
-  failedAvatarKeys.value.add(key);
+const normalizeAvatarUrl = (face?: string) => {
+  if (!face) return '';
+  if (face.startsWith('//')) return `https:${face}`;
+  if (face.startsWith('http://')) return face.replace(/^http:\/\//i, 'https://');
+  return face;
+};
+
+/** Cached normalization to avoid triple calls in template (v-if, :src, @error) */
+const avatarUrlCache = new Map<string, string>();
+const getAvatarUrl = (face?: string): string => {
+  if (!face) return '';
+  const cached = avatarUrlCache.get(face);
+  if (cached !== undefined) return cached;
+  const normalized = normalizeAvatarUrl(face);
+  avatarUrlCache.set(face, normalized);
+  return normalized;
+};
+
+/** Track avatar URL failures so repeated rows do not re-request the same CDN image */
+const failedAvatarUrls = ref(new Set<string>());
+const onAvatarError = (face?: string) => {
+  const normalized = getAvatarUrl(face);
+  if (normalized) failedAvatarUrls.value.add(normalized);
+};
+
+/** Check if avatar has failed (uses cache) */
+const isAvatarFailed = (face?: string): boolean => {
+  const normalized = getAvatarUrl(face);
+  return normalized ? failedAvatarUrls.value.has(normalized) : false;
 };
 
 // ==================== Hidden Users (Block List) ====================

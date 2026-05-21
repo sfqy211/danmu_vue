@@ -754,7 +754,8 @@ public class BilibiliRecorder : IDisposable
             var guardLevel = TryGetInt32(info, 7);
             var wealthInfo = GetArrayElement(info, 16);
 
-            var faceUrl = GetString(info[0], 15);
+            var modeInfo = GetArrayElement(info[0], 15);
+            var faceUrl = TryGetNestedFace(modeInfo);
 
             return new RecordedDanmakuEvent
             {
@@ -969,6 +970,19 @@ public class BilibiliRecorder : IDisposable
         if (faceUrl.StartsWith("//")) faceUrl = "https:" + faceUrl;
         if (!faceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return null;
         return faceUrl;
+    }
+
+    /// <summary>
+    /// Extract face URL from nested user.base.face structure in DANMU_MSG info[0][15].
+    /// </summary>
+    private static string? TryGetNestedFace(JsonElement modeInfo)
+    {
+        if (modeInfo.ValueKind != JsonValueKind.Object) return null;
+        if (!modeInfo.TryGetProperty("user", out var user)) return null;
+        if (user.ValueKind != JsonValueKind.Object) return null;
+        if (!user.TryGetProperty("base", out var baseObj)) return null;
+        if (baseObj.ValueKind != JsonValueKind.Object) return null;
+        return TryGetString(baseObj, "face");
     }
 
     private static int? TryGetInt32(JsonElement element, string propertyName)
