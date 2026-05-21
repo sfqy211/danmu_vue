@@ -122,6 +122,15 @@ export interface Danmaku {
   coinType?: string;
   duration?: number;
   face?: string;
+  emots?: Record<string, EmoticonInfo>;
+}
+
+export interface EmoticonInfo {
+  url?: string;
+  emoticonId?: number;
+  emoticonUnique?: string;
+  height?: number;
+  width?: number;
 }
 
 export interface SessionInfo {
@@ -274,7 +283,8 @@ export const getSessionDanmaku = async (sessionId: number, page: number = 1, pag
     wealthLevel: toNumber(msg.wealthLevel ?? msg.WealthLevel),
     coinType: msg.coinType ?? msg.CoinType,
     duration: toNumber(msg.duration ?? msg.Duration),
-    face: msg.face ?? msg.Face
+    face: msg.face ?? msg.Face,
+    emots: normalizeEmots(msg.emots ?? msg.Emots)
   }));
 
   const total = typeof res.data.total === 'number' ? res.data.total : danmaku.length;
@@ -582,6 +592,24 @@ const normalizeChangelogEntry = (row: any): ChangelogEntry => ({
   content: row.content ?? row.Content ?? '',
   created_at: row.created_at ?? row.createdAt ?? row.CreatedAt ?? ''
 });
+
+const normalizeEmots = (emots: any): Record<string, EmoticonInfo> | undefined => {
+  if (!emots || typeof emots !== 'object') return undefined;
+  const result: Record<string, EmoticonInfo> = {};
+  for (const [key, value] of Object.entries(emots)) {
+    if (value && typeof value === 'object') {
+      const emot = value as any;
+      result[key] = {
+        url: emot.url ?? emot.Url,
+        emoticonId: emot.emoticon_id ?? emot.emoticonId ?? emot.EmoticonId,
+        emoticonUnique: emot.emoticon_unique ?? emot.emoticonUnique ?? emot.EmoticonUnique,
+        height: emot.height ?? emot.Height,
+        width: emot.width ?? emot.Width
+      };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+};
 
 export const getChangelog = async (): Promise<ChangelogEntry[]> => {
   const res = await api.get<any[]>('/changelog');

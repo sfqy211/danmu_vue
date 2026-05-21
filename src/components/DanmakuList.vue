@@ -53,7 +53,7 @@
                 <FansMedal :item="virtualItem.item" />
                 <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
               </div>
-              <span class="dm-message">{{ virtualItem.item.content }}</span>
+              <span class="dm-message" v-html="renderTextWithEmoticons(virtualItem.item.content, virtualItem.item.emots)"></span>
             </div>
             </div>
           </div>
@@ -220,6 +220,7 @@ import FansMedal from './FansMedal.vue';
 
 import { getWealthLevelUrl } from '../constants/wealthLevel';
 import { getGuardIconUrl } from '../constants/guardIcon';
+import { renderTextWithEmoticons } from '../utils/emoticon';
 
 
 
@@ -1423,6 +1424,17 @@ html:not(.dark-mode):not(.dark) .guard-avatar-wrap {
   width: auto;
   object-fit: contain;
   vertical-align: middle;
+}
+
+/* ═══════ Emoticons (表情) ═══════ */
+:deep(.emoticon-img) {
+  display: inline-block;
+  height: 1.2em;
+  width: auto;
+  max-height: 24px;
+  vertical-align: middle;
+  margin: 0 1px;
+  object-fit: contain;
 }
 
 </style>

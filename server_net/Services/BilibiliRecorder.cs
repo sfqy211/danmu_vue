@@ -756,6 +756,7 @@ public class BilibiliRecorder : IDisposable
 
             var modeInfo = GetArrayElement(info[0], 15);
             var faceUrl = TryGetNestedFace(modeInfo);
+            var emots = TryExtractEmots(modeInfo);
 
             return new RecordedDanmakuEvent
             {
@@ -775,6 +776,7 @@ public class BilibiliRecorder : IDisposable
                 UlLevel = TryGetInt32(userLevelInfo, 0),
                 WealthLevel = TryGetInt32(wealthInfo, 0),
                 Face = NormalizeFaceUrl(faceUrl),
+                Emots = emots,
                 RawCommand = cmd
             };
         }
@@ -983,6 +985,63 @@ public class BilibiliRecorder : IDisposable
         if (!user.TryGetProperty("base", out var baseObj)) return null;
         if (baseObj.ValueKind != JsonValueKind.Object) return null;
         return TryGetString(baseObj, "face");
+    }
+
+    /// <summary>
+    /// Extract emoticon map from info[0][15].extra JSON string.
+    /// The extra field contains an "emots" object keyed by trigger text (e.g. "[热]").
+    /// </summary>
+    private static Dictionary<string, EmoticonInfo>? TryExtractEmots(JsonElement modeInfo)
+    {
+        if (modeInfo.ValueKind != JsonValueKind.Object) return null;
+        if (!modeInfo.TryGetProperty("extra", out var extraElement)) return null;
+
+        string? extraJson = extraElement.ValueKind switch
+        {
+            JsonValueKind.String => extraElement.GetString(),
+            _ => extraElement.ToString()
+        };
+
+        if (string.IsNullOrWhiteSpace(extraJson)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(extraJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (!root.TryGetProperty("emots", out var emotsElement)) return null;
+            if (emotsElement.ValueKind != JsonValueKind.Object) return null;
+
+            var result = new Dictionary<string, EmoticonInfo>();
+            foreach (var prop in emotsElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind != JsonValueKind.Object) continue;
+
+                var emoticon = new EmoticonInfo
+                {
+                    Url = TryGetString(prop.Value, "url"),
+                    EmoticonId = TryGetInt32(prop.Value, "emoticon_id"),
+                    EmoticonUnique = TryGetString(prop.Value, "emoticon_unique"),
+                    Height = TryGetInt32(prop.Value, "height"),
+                    Width = TryGetInt32(prop.Value, "width")
+                };
+
+                // Normalize URL
+                if (!string.IsNullOrEmpty(emoticon.Url))
+                {
+                    emoticon.Url = NormalizeFaceUrl(emoticon.Url);
+                }
+
+                result[prop.Name] = emoticon;
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+        catch
+        {
+            // Failed to parse extra JSON, ignore emots
+            return null;
+        }
     }
 
     private static int? TryGetInt32(JsonElement element, string propertyName)
