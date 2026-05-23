@@ -17,18 +17,20 @@ public class DanmakuController : ControllerBase
     private readonly DanmakuService _service;
     private readonly ProcessManager _pm;
     private readonly BilibiliService _bilibili;
+    private readonly LiveStatusService _liveStatus;
     private readonly ILogger<DanmakuController> _logger;
 
-    public DanmakuController(DanmuContext db, DanmakuService service, ProcessManager pm, BilibiliService bilibili, ILogger<DanmakuController> logger)
+    public DanmakuController(DanmuContext db, DanmakuService service, ProcessManager pm, BilibiliService bilibili, LiveStatusService liveStatus, ILogger<DanmakuController> logger)
     {
         _db = db;
         _service = service;
         _pm = pm;
         _bilibili = bilibili;
+        _liveStatus = liveStatus;
         _logger = logger;
     }
 
-    private static object MapVup(Room room)
+    private static object MapVup(Room room, bool isLiving = false)
     {
         return new
         {
@@ -42,7 +44,8 @@ public class DanmakuController : ControllerBase
             followers = room.Followers,
             guardNum = room.GuardNum,
             videoCount = room.VideoCount,
-            lastLiveTime = room.LastLiveTime
+            lastLiveTime = room.LastLiveTime,
+            isLiving
         };
     }
 
@@ -288,7 +291,29 @@ public class DanmakuController : ControllerBase
             .ThenBy(r => r.Id)
             .ToListAsync();
 
-        return Ok(vups.Select(MapVup));
+        // 录制器已有的房间直接用录制器状态，其余查 LiveStatusService 缓存
+        var recorderLiveRooms = _pm.GetProcesses()
+            .Where(p => p.LiveStatus == 1)
+            .Select(p => p.RoomId)
+            .ToHashSet();
+
+        var results = new List<object>();
+        foreach (var room in vups)
+        {
+            bool isLiving;
+            if (recorderLiveRooms.Contains(room.RoomId))
+            {
+                isLiving = true;
+            }
+            else
+            {
+                var state = await _liveStatus.GetCachedStatusAsync(room.RoomId);
+                isLiving = state?.LiveStatus == 1;
+            }
+            results.Add(MapVup(room, isLiving));
+        }
+
+        return Ok(results);
     }
 
     [HttpGet("vup/{uid}")]
@@ -297,6 +322,12 @@ public class DanmakuController : ControllerBase
         var vup = await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == uid);
         if (vup == null) return NotFound(new { error = "VUP not found" });
 
-        return Ok(MapVup(vup));
+        var isLiving = _pm.GetProcesses().Any(p => p.RoomId == vup.RoomId && p.LiveStatus == 1);
+        if (!isLiving)
+        {
+            var state = await _liveStatus.GetCachedStatusAsync(vup.RoomId);
+            isLiving = state?.LiveStatus == 1;
+        }
+        return Ok(MapVup(vup, isLiving));
     }
 }

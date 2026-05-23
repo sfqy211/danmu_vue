@@ -201,7 +201,7 @@ const normalizeVup = (vup: any): VupInfo => {
     imageUrl: buildAvatarUrl(uid, roomId),
     coverUrl: buildCoverUrl(uid, roomId),
     avatarUrl: buildAvatarUrl(uid, roomId),
-    isLiving: false
+    isLiving: !!(vup.is_living ?? vup.isLiving ?? vup.IsLiving)
   };
 };
 

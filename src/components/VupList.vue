@@ -24,7 +24,7 @@
             class="streamer-item"
             @click="selectStreamer(artist.uid)"
           >
-            <img :src="artist.avatarUrl" :alt="artist.name" class="streamer-avatar" />
+            <img :src="artist.avatarUrl" :alt="artist.name" class="streamer-avatar" :class="{ living: artist.isLiving }" />
             <div class="streamer-info">
               <span class="streamer-name">{{ artist.name }}</span>
               <span v-if="artist.hasMonitor" class="monitor-indicator">
@@ -208,9 +208,18 @@ const selectStreamer = (uid: string) => {
   flex-shrink: 0;
 }
 
+.streamer-avatar.living {
+  border-color: #f56c6c;
+  box-shadow: 0 0 8px rgba(245, 108, 108, 0.4);
+}
+
 .streamer-item:hover .streamer-avatar {
   border-color: rgba(255, 255, 255, 0.5);
   transform: scale(1.05);
+}
+
+.streamer-item:hover .streamer-avatar.living {
+  border-color: #f56c6c;
 }
 
 .streamer-info {
