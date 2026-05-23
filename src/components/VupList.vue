@@ -6,12 +6,20 @@
       <div class="list-container">
         <div class="list-header">
           <h2 class="list-title">VUP 列表</h2>
-          <span class="list-count">{{ vups.length }}</span>
+          <span class="list-count">{{ filteredVups.length }}</span>
+          <div class="search-bar">
+            <el-input
+              v-model="searchQuery"
+              placeholder="搜索 UID 或名字"
+              clearable
+              :prefix-icon="Search"
+            />
+          </div>
         </div>
 
-        <div v-if="vups.length > 0" class="streamer-grid">
+        <div v-if="filteredVups.length > 0" class="streamer-grid">
           <div
-            v-for="artist in vups"
+            v-for="artist in filteredVups"
             :key="artist.uid"
             class="streamer-item"
             @click="selectStreamer(artist.uid)"
@@ -27,7 +35,7 @@
         </div>
 
         <div v-else class="empty-state">
-          <el-empty :description="store.vupLoading ? '正在加载 VUP 列表...' : '暂无可展示的 VUP'" />
+          <el-empty :description="store.vupLoading ? '正在加载 VUP 列表...' : searchQuery ? '未找到匹配的 VUP' : '暂无可展示的 VUP'" />
         </div>
       </div>
     </div>
@@ -35,15 +43,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import TopNav from './TopNav.vue';
-import { DataLine } from '@element-plus/icons-vue';
+import { DataLine, Search } from '@element-plus/icons-vue';
 import { useDanmakuStore } from '../stores/danmakuStore';
 
 const router = useRouter();
 const store = useDanmakuStore();
 const vups = computed(() => store.vups);
+const searchQuery = ref('');
+
+const filteredVups = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return vups.value;
+  return vups.value.filter(v => v.name.toLowerCase().includes(q) || v.uid.includes(q));
+});
 
 onMounted(() => {
   store.loadVups();
@@ -108,6 +123,40 @@ const selectStreamer = (uid: string) => {
   color: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+/* ===== 搜索栏 ===== */
+.search-bar {
+  margin-left: auto;
+  width: 260px;
+}
+
+.search-bar :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.search-bar :deep(.el-input__wrapper:hover),
+.search-bar :deep(.el-input__wrapper.is-focus) {
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+}
+
+.search-bar :deep(.el-input__inner) {
+  color: white;
+}
+
+.search-bar :deep(.el-input__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.search-bar :deep(.el-input__prefix .el-icon),
+.search-bar :deep(.el-input__suffix .el-icon) {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 /* ===== 主播网格 ===== */

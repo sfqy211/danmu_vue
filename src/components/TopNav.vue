@@ -112,4 +112,10 @@ const route = useRoute();
 .nav-btn .el-icon {
   font-size: 16px;
 }
+
+@media (max-width: 768px) {
+  .logo-text {
+    display: none;
+  }
+}
 </style>
