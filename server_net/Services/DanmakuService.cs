@@ -380,7 +380,8 @@ public class DanmakuService
         }
     }
 
-    public async Task<object> GetDanmakuPagedAsync(int sessionId, int page, int pageSize)
+    public async Task<object> GetDanmakuPagedAsync(int sessionId, int page, int pageSize,
+        bool excludeAvatar = false, bool excludeWealthLevel = false, bool excludeFanMedal = false)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = GetDb(scope);
@@ -441,18 +442,18 @@ public class DanmakuService
                 price = m.Price,
                 isPriceTotal = m.IsPriceTotal,
                 guardLevel = m.GuardLevel,
-                medalLevel = m.MedalLevel,
-                medalName = m.MedalName,
-                medalAnchor = m.MedalAnchor,
-                medalRoomId = m.MedalRoomId,
-                medalGuardLevel = m.MedalGuardLevel,
-                medalIsLight = m.MedalIsLight,
-                medalAnchorUid = m.MedalAnchorUid,
-                ulLevel = m.UlLevel,
-                wealthLevel = m.WealthLevel,
+                medalLevel = excludeFanMedal ? null : m.MedalLevel,
+                medalName = excludeFanMedal ? null : m.MedalName,
+                medalAnchor = excludeFanMedal ? null : m.MedalAnchor,
+                medalRoomId = excludeFanMedal ? null : m.MedalRoomId,
+                medalGuardLevel = excludeFanMedal ? null : m.MedalGuardLevel,
+                medalIsLight = excludeFanMedal ? null : m.MedalIsLight,
+                medalAnchorUid = excludeFanMedal ? null : m.MedalAnchorUid,
+                ulLevel = excludeWealthLevel ? null : m.UlLevel,
+                wealthLevel = excludeWealthLevel ? null : m.WealthLevel,
                 coinType = m.CoinType,
                 duration = m.Duration,
-                face = m.Face,
+                face = excludeAvatar ? null : m.Face,
                 emots = m.Emots,
                 dmType = m.DmType,
                 id = $"{m.Timestamp}-{m.Sender.Uid}"

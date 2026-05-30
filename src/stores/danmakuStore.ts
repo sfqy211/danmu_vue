@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed, shallowRef } from 'vue';
+import { ref, computed, shallowRef, watch } from 'vue';
 import { getSessionDanmaku, getSessionSummary, getVups, type Danmaku, type SessionInfo, type VupInfo } from '../api/danmaku';
 
 export const useDanmakuStore = defineStore('danmaku', () => {
@@ -34,10 +34,26 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     window.innerWidth <= 768 ? 'hidden' : 'relative'
   );
 
-  // Display toggles
-  const showAvatar = ref(true);
-  const showWealthLevel = ref(true);
-  const showFanMedal = ref(true);
+  // Display toggles (persisted to localStorage)
+  const DISPLAY_STORAGE_KEY = 'danmu_display';
+  const loadDisplaySettings = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DISPLAY_STORAGE_KEY) || '{}');
+      return { showAvatar: saved.showAvatar ?? true, showWealthLevel: saved.showWealthLevel ?? true, showFanMedal: saved.showFanMedal ?? true };
+    } catch { return { showAvatar: true, showWealthLevel: true, showFanMedal: true }; }
+  };
+  const saved = loadDisplaySettings();
+  const showAvatar = ref(saved.showAvatar);
+  const showWealthLevel = ref(saved.showWealthLevel);
+  const showFanMedal = ref(saved.showFanMedal);
+
+  watch([showAvatar, showWealthLevel, showFanMedal], () => {
+    localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({
+      showAvatar: showAvatar.value,
+      showWealthLevel: showWealthLevel.value,
+      showFanMedal: showFanMedal.value,
+    }));
+  });
 
   // Hidden users (block list): uid -> displayName
   const hiddenUsers = ref(new Map<string, string>());
@@ -220,12 +236,18 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     return result;
   };
 
+  const getDisplayOptions = () => ({
+    excludeAvatar: !showAvatar.value,
+    excludeWealthLevel: !showWealthLevel.value,
+    excludeFanMedal: !showFanMedal.value,
+  });
+
   const fetchDanmaku = async () => {
     if (!currentSession.value || danmakuLoading.value || isDanmakuLoaded.value) return;
 
     danmakuLoading.value = true;
     try {
-      const res = await getSessionDanmaku(currentSession.value.id, 1, 5000);
+      const res = await getSessionDanmaku(currentSession.value.id, 1, 5000, getDisplayOptions());
       const deduplicated = deduplicateDanmaku(res.danmaku);
       danmakuList.value = deduplicated;
       scList.value = deduplicated.filter(d => d.isSC);
@@ -246,7 +268,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     loading.value = true;
     try {
       const nextPage = currentPage.value + 1;
-      const res = await getSessionDanmaku(currentSession.value!.id, nextPage, 5000);
+      const res = await getSessionDanmaku(currentSession.value!.id, nextPage, 5000, getDisplayOptions());
       const deduplicated = deduplicateDanmaku([...danmakuList.value, ...res.danmaku]);
       danmakuList.value = deduplicated;
       scList.value = deduplicated.filter(d => d.isSC);

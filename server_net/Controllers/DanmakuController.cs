@@ -170,11 +170,12 @@ public class DanmakuController : ControllerBase
     }
 
     [HttpGet("danmaku")]
-    public async Task<IActionResult> GetDanmaku([FromQuery] int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 200)
+    public async Task<IActionResult> GetDanmaku([FromQuery] int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 200,
+        [FromQuery] bool excludeAvatar = false, [FromQuery] bool excludeWealthLevel = false, [FromQuery] bool excludeFanMedal = false)
     {
         try
         {
-            var result = await _service.GetDanmakuPagedAsync(id, page, pageSize);
+            var result = await _service.GetDanmakuPagedAsync(id, page, pageSize, excludeAvatar, excludeWealthLevel, excludeFanMedal);
             return Ok(result);
         }
         catch (Exception ex)
