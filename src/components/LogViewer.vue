@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject, type Ref } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, inject, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Bottom, Delete, Download, Top } from '@element-plus/icons-vue'
 import { getLogFiles, downloadLogFile, type LogFileEntry } from '../api/danmaku'

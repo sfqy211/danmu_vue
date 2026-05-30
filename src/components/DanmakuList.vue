@@ -47,10 +47,12 @@
               class="danmaku-item">
               <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
               <div class="dm-info">
-                <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
-                <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
-                <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
-                <FansMedal :item="virtualItem.item" />
+                <template v-if="store.showAvatar">
+                  <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
+                  <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
+                </template>
+                <img v-if="store.showWealthLevel && getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
+                <FansMedal v-if="store.showFanMedal" :item="virtualItem.item" />
                 <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
               </div>
               <span class="dm-message" v-html="renderTextWithEmoticons(virtualItem.item.content, virtualItem.item.emots)"></span>
@@ -107,7 +109,7 @@
                       backgroundColor: getSCStyle(virtualItem.item.price || 0).lightBg,
                       borderColor: getSCStyle(virtualItem.item.price || 0).borderColor,
                     }">
-                    <div class="sc-avatar-wrap">
+                    <div v-if="store.showAvatar" class="sc-avatar-wrap">
                       <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="sc-avatar-img" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                       <div v-else class="sc-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
                         {{ virtualItem.item.user.charAt(0) }}
@@ -115,7 +117,7 @@
                     </div>
                     <div class="sc-header-info">
                       <div class="sc-header-top">
-                        <FansMedal :item="virtualItem.item" />
+                        <FansMedal v-if="store.showFanMedal" :item="virtualItem.item" />
                         <span class="sc-username" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
                       </div>
                       <div class="sc-header-bottom">
@@ -143,7 +145,7 @@
                   :style="{
                     backgroundColor: getSCStyle(virtualItem.item.price || 0).darkBg,
                   }">
-                  <div class="guard-avatar-wrap">
+                  <div v-if="store.showAvatar" class="guard-avatar-wrap">
                     <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="guard-avatar-img" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                     <div v-else class="guard-avatar" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">
                       {{ virtualItem.item.user.charAt(0) }}
@@ -170,10 +172,12 @@
               <template v-else>
                 <span v-if="store.timeDisplayMode !== 'hidden'" class="dm-time">{{ store.timeDisplayMode === 'absolute' ? formatAbsoluteTime(virtualItem.item.timestamp) : virtualItem.item.timeStr }}</span>
                 <div class="dm-info">
-                <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
+                <template v-if="store.showAvatar">
+                  <img v-if="virtualItem.item.face && !isAvatarFailed(virtualItem.item.face)" class="dm-avatar" :src="getAvatarUrl(virtualItem.item.face)" referrerpolicy="no-referrer" @error="onAvatarError(virtualItem.item.face)" />
                   <span v-else class="dm-avatar-placeholder" :style="{ backgroundColor: getAvatarColor(virtualItem.item.user) }">{{ virtualItem.item.user.charAt(0) }}</span>
-                  <img v-if="getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
-                  <FansMedal :item="virtualItem.item" />
+                </template>
+                  <img v-if="store.showWealthLevel && getWealthLevelUrl(virtualItem.item.wealthLevel)" class="wealth-level-img" :src="getWealthLevelUrl(virtualItem.item.wealthLevel)" :alt="'财' + virtualItem.item.wealthLevel" />
+                  <FansMedal v-if="store.showFanMedal" :item="virtualItem.item" />
                   <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
                   <span class="dm-meta">
                     <span class="gift-name">{{ virtualItem.item.name }}</span>

@@ -34,6 +34,11 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     window.innerWidth <= 768 ? 'hidden' : 'relative'
   );
 
+  // Display toggles
+  const showAvatar = ref(true);
+  const showWealthLevel = ref(true);
+  const showFanMedal = ref(true);
+
   // Hidden users (block list): uid -> displayName
   const hiddenUsers = ref(new Map<string, string>());
 
@@ -306,6 +311,9 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     isSidebarCollapsed,
     zoomLevel,
     timeDisplayMode,
+    showAvatar,
+    showWealthLevel,
+    showFanMedal,
     hiddenUsers,
     toggleHideUser,
     

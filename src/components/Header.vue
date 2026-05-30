@@ -160,6 +160,27 @@
               <span class="zoom-value">{{ store.zoomLevel }}%</span>
             </div>
           </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><User /></el-icon>
+              <span>显示头像</span>
+            </div>
+            <el-switch v-model="store.showAvatar" />
+          </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><Trophy /></el-icon>
+              <span>显示荣耀等级</span>
+            </div>
+            <el-switch v-model="store.showWealthLevel" />
+          </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><Medal /></el-icon>
+              <span>显示粉丝勋章</span>
+            </div>
+            <el-switch v-model="store.showFanMedal" />
+          </div>
         </div>
         
         <el-divider />
@@ -311,7 +332,10 @@ import {
   Wallet,
   Headset,
   ChatDotRound,
-  Clock
+  Clock,
+  User,
+  Trophy,
+  Medal
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';

@@ -1043,19 +1043,6 @@ const deleteSongRequest = async (row: AdminSongRequest) => {
 
 // --- Helpers ---
 
-const formatUptime = (val: number | string) => {
-  if (!val) return '-';
-  if (typeof val === 'string') return val;
-  
-  const ms = val;
-  const seconds = Math.floor((Date.now() - ms) / 1000);
-  if (seconds < 60) return `${seconds}秒`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}小时`;
-};
-
 const formatLiveDuration = (liveStatus: number, liveStartTime: number | null) => {
   if (liveStatus !== 1) return '未开播';
   if (!liveStartTime || liveStartTime === 0) return '直播中';
