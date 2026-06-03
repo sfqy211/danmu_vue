@@ -1472,11 +1472,16 @@ public class BilibiliRecorder : IDisposable
         }
     }
     
+    private int _isEndingSession;
+
     private async Task EndRedisSessionAsync(bool isFinal)
     {
         if (_currentSessionKey == null) return;
         if (!isFinal) return; // We only dump on final stop now
-        
+
+        // Prevent concurrent execution (e.g., StopAsync and receive loop both triggering)
+        if (Interlocked.CompareExchange(ref _isEndingSession, 1, 0) != 0) return;
+
         try
         {
             _logger.LogInformation($"Finalizing session {_currentSessionKey}...");
@@ -1565,6 +1570,10 @@ public class BilibiliRecorder : IDisposable
             {
                 _logger.LogError(fallbackEx, "Failed to notify session end in fallback");
             }
+        }
+        finally
+        {
+            Volatile.Write(ref _isEndingSession, 0);
         }
     }
 
