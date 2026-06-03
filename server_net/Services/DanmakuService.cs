@@ -667,48 +667,79 @@ public class DanmakuService
             RecordStartTimestamp = new DateTimeOffset(File.GetLastWriteTimeUtc(filePath)).ToUnixTimeMilliseconds()
         };
 
-        foreach (var rawLine in lines)
+        var errorCount = 0;
+        for (var i = 0; i < lines.Length; i++)
         {
+            var rawLine = lines[i];
             var line = rawLine.Trim();
             if (string.IsNullOrEmpty(line)) continue;
 
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-            var kind = TryGetString(root, "kind");
-            if (kind == "meta")
+            JsonDocument? doc = null;
+            try
             {
-                meta = new SessionFileMeta
+                doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                var kind = TryGetString(root, "kind");
+                if (kind == "meta")
                 {
-                    Title = TryGetString(root, "title") ?? meta.Title,
-                    UserName = TryGetString(root, "userName") ?? meta.UserName,
-                    RoomId = TryGetString(root, "roomId") ?? meta.RoomId,
-                    Uid = TryGetString(root, "uid") ?? meta.Uid,
-                    RecordStartTimestamp = TryGetInt64(root, "startTime") ?? meta.RecordStartTimestamp
-                };
-                continue;
-            }
-
-            var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(line, JsonOptions);
-            if (recordedEvent == null) continue;
-
-            // For JPN SC, merge text into previous SC if same user/timestamp/price
-            if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
-            {
-                var last = messages[^1];
-                if (last.Type == "super_chat"
-                    && last.Sender.Uid == (recordedEvent.Uid ?? "")
-                    && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
-                    && last.Price == recordedEvent.Price)
-                {
-                    if (last.Text != recordedEvent.Text)
+                    meta = new SessionFileMeta
                     {
-                        last.TextJpn = recordedEvent.Text;
-                    }
+                        Title = TryGetString(root, "title") ?? meta.Title,
+                        UserName = TryGetString(root, "userName") ?? meta.UserName,
+                        RoomId = TryGetString(root, "roomId") ?? meta.RoomId,
+                        Uid = TryGetString(root, "uid") ?? meta.Uid,
+                        RecordStartTimestamp = TryGetInt64(root, "startTime") ?? meta.RecordStartTimestamp
+                    };
                     continue;
                 }
-            }
 
-            messages.Add(MapRecordedEvent(recordedEvent));
+                var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(root.GetRawText(), JsonOptions);
+                if (recordedEvent == null) continue;
+
+                // For JPN SC, merge text into previous SC if same user/timestamp/price
+                if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
+                {
+                    var last = messages[^1];
+                    if (last.Type == "super_chat"
+                        && last.Sender.Uid == (recordedEvent.Uid ?? "")
+                        && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
+                        && last.Price == recordedEvent.Price)
+                    {
+                        if (last.Text != recordedEvent.Text)
+                        {
+                            last.TextJpn = recordedEvent.Text;
+                        }
+                        continue;
+                    }
+                }
+
+                messages.Add(MapRecordedEvent(recordedEvent));
+            }
+            catch (JsonException ex)
+            {
+                errorCount++;
+                if (errorCount <= 5)
+                {
+                    _logger.LogWarning(ex,
+                        "Skipping malformed line {LineIndex} in {FilePath}: {Snippet}",
+                        i + 1, filePath,
+                        line.Length > 200 ? line[..200] + "..." : line);
+                }
+                else if (errorCount == 6)
+                {
+                    _logger.LogWarning("Too many malformed lines in {FilePath}, suppressing further warnings. Total errors so far: {ErrorCount}", filePath, errorCount);
+                }
+            }
+            finally
+            {
+                doc?.Dispose();
+            }
+        }
+
+        if (errorCount > 0)
+        {
+            _logger.LogWarning("Parsed {FilePath} with {ErrorCount} malformed line(s) skipped out of {TotalLines} lines",
+                filePath, errorCount, lines.Length);
         }
 
         messages.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
@@ -745,30 +776,38 @@ public class DanmakuService
     private List<DanmakuMessage> ParseRecordedEventLines(IEnumerable<string> lines)
     {
         var messages = new List<DanmakuMessage>();
-        foreach (var line in lines)
+        foreach (var rawLine in lines)
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(line, JsonOptions);
-            if (recordedEvent == null) continue;
-
-            // For JPN SC, merge text into previous SC if same user/timestamp/price
-            if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
+            if (string.IsNullOrWhiteSpace(rawLine)) continue;
+            try
             {
-                var last = messages[^1];
-                if (last.Type == "super_chat"
-                    && last.Sender.Uid == (recordedEvent.Uid ?? "")
-                    && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
-                    && last.Price == recordedEvent.Price)
-                {
-                    if (last.Text != recordedEvent.Text)
-                    {
-                        last.TextJpn = recordedEvent.Text;
-                    }
-                    continue;
-                }
-            }
+                var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(rawLine, JsonOptions);
+                if (recordedEvent == null) continue;
 
-            messages.Add(MapRecordedEvent(recordedEvent));
+                // For JPN SC, merge text into previous SC if same user/timestamp/price
+                if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
+                {
+                    var last = messages[^1];
+                    if (last.Type == "super_chat"
+                        && last.Sender.Uid == (recordedEvent.Uid ?? "")
+                        && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
+                        && last.Price == recordedEvent.Price)
+                    {
+                        if (last.Text != recordedEvent.Text)
+                        {
+                            last.TextJpn = recordedEvent.Text;
+                        }
+                        continue;
+                    }
+                }
+
+                messages.Add(MapRecordedEvent(recordedEvent));
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Skipping malformed Redis message: {Snippet}",
+                    rawLine.Length > 200 ? rawLine[..200] + "..." : rawLine);
+            }
         }
 
         messages.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
