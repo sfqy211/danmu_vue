@@ -25,6 +25,8 @@ jobs:
             TARGET_DIR="/opt/1panel/apps/danmu-tools"
             # 使用国内加速代理
             PROXY_URL="https://gh.jasonzeng.dev/https://github.com/sfqy211/danmu_vue.git"
+            # 容器名，必须与 docker-compose.yml 中的 container_name 保持一致
+            CONTAINER_NAME="danmu-viewer"
 
             # 确保目录存在
             if [ ! -d "$TARGET_DIR" ]; then
@@ -77,13 +79,13 @@ jobs:
             MAX_WAIT=60
             WAITED=0
             while [ $WAITED -lt $MAX_WAIT ]; do
-              HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' danmu-viewer 2>/dev/null || echo "none")
+              HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' $CONTAINER_NAME 2>/dev/null || echo "none")
               if [ "$HEALTH" = "healthy" ]; then
                 echo "New container is healthy after ${WAITED}s"
                 break
               fi
               # 容器可能没有 healthcheck，检查是否在运行
-              RUNNING=$(sudo docker inspect --format='{{.State.Running}}' danmu-viewer 2>/dev/null || echo "false")
+              RUNNING=$(sudo docker inspect --format='{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
               if [ "$RUNNING" = "true" ] && [ "$HEALTH" = "none" ]; then
                 # 没有 healthcheck，等待应用启动（给足够时间恢复录制会话）
                 echo "No healthcheck configured, waiting 10s for app startup..."
