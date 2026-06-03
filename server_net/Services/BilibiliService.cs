@@ -732,17 +732,26 @@ public class BilibiliService
         return (0, null);
     }
 
-    public async Task<byte[]?> DownloadImageAsync(string url)
+    public async Task<byte[]?> DownloadImageAsync(string url, int maxRetries = 2)
     {
-        try
+        for (var attempt = 0; attempt <= maxRetries; attempt++)
         {
-            return await _httpClient.GetByteArrayAsync(url);
+            try
+            {
+                return await _httpClient.GetByteArrayAsync(url);
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(ex, "Download image attempt {Attempt}/{MaxRetries} failed: {Url}, retrying...",
+                    attempt + 1, maxRetries + 1, url);
+                await Task.Delay(500 * (attempt + 1));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download image after {Attempts} attempts: {Url}", maxRetries + 1, url);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to download image: {Url}", url);
-            return null;
-        }
+        return null;
     }
 
     public virtual async Task<(string Token, string Host, long RealRoomId)> GetDanmakuConfAsync(long roomId, string? cookie = null)
