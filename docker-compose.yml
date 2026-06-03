@@ -23,6 +23,14 @@ services:
       - VITE_COS_BASE_URL=${VITE_COS_BASE_URL}
       - DANMAKU_DIR=/app/server/data/danmaku
     restart: unless-stopped
+    # 优雅停机：给应用 30 秒时间完成弹幕刷盘和录制会话关闭
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 networks:
   default:
     external: true

@@ -318,6 +318,35 @@ app.Lifetime.ApplicationStarted.Register(() =>
     });
 });
 
+// Graceful shutdown: flush danmaku data and finalize recording sessions before exit
+var shutdownCts = new CancellationTokenSource();
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("Application stopping: beginning graceful shutdown of recording sessions...");
+
+    shutdownCts.Cancel();
+
+    try
+    {
+        var pm = app.Services.GetRequiredService<ProcessManager>();
+        var task = pm.GracefulShutdownAsync();
+        // Block the stopping thread for up to 20 seconds to allow flush
+        if (!task.Wait(TimeSpan.FromSeconds(20)))
+        {
+            logger.LogWarning("Graceful shutdown timed out after 20s, some sessions may not be fully flushed");
+        }
+        else
+        {
+            logger.LogInformation("Graceful shutdown completed successfully");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error during graceful shutdown");
+    }
+});
+
 app.Run();
 
 public partial class Program { }

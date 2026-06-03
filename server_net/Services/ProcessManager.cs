@@ -234,32 +234,51 @@ public class ProcessManager
         try
         {
             var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
-            
+            var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
+            var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
+
             var rooms = await db.Rooms.Where(r => r.AutoRecord == 1).ToListAsync();
-            foreach (var room in rooms)
+
+            // Phase 1: Reconcile tmp files and check live status concurrently (limited to 3 concurrent API calls)
+            using var semaphore = new SemaphoreSlim(3);
+            var checkTasks = rooms.Select(async room =>
             {
-                try 
+                await semaphore.WaitAsync();
+                try
                 {
-                    var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
-                    var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
                     var liveState = await biliService.GetRoomStatusByRoomIdAsync(room.RoomId);
                     var isLive = liveState?.LiveStatus == 1;
                     await danmakuService.ReconcileTmpFilesAsync(room.Uid ?? room.RoomId.ToString(), room.RoomId, liveState?.LiveStartTime, isLive);
-
-                    if (!isLive)
-                    {
-                        _logger.LogInformation("Skipping recorder restore for offline room {RoomName} (Uid: {Uid}, RoomId: {RoomId}) after tmp reconciliation.", room.Name, room.Uid, room.RoomId);
-                        continue;
-                    }
-
-                    _logger.LogInformation($"Restoring recorder for {room.Name} (Uid: {room.Uid}, RoomId: {room.RoomId})...");
-                    await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
-                    // Add a delay between starting each recorder to avoid Bilibili rate limit (412)
-                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    return (room, liveState, isLive);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Failed to restore recorder for {room.Name}");
+                    _logger.LogError(ex, "Failed to check live status for {RoomName}", room.Name);
+                    return (room, (LiveState?)null, false);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }).ToList();
+
+            var results = await Task.WhenAll(checkTasks);
+            var liveRooms = results.Where(r => r.Item3).ToList();
+
+            _logger.LogInformation("Restore check: {Total} auto-record rooms, {Live} currently live", rooms.Count, liveRooms.Count);
+
+            // Phase 2: Start recorders for live rooms sequentially (with delay to avoid 412)
+            foreach (var (room, liveState, isLive) in liveRooms)
+            {
+                try
+                {
+                    _logger.LogInformation("Restoring recorder for {RoomName} (Uid: {Uid}, RoomId: {RoomId})...", room.Name, room.Uid, room.RoomId);
+                    await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
+                    await Task.Delay(TimeSpan.FromSeconds(3));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to restore recorder for {RoomName}", room.Name);
                 }
             }
         }
@@ -310,5 +329,50 @@ public class ProcessManager
         var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
         var room = await db.Rooms.FirstOrDefaultAsync(r => r.RoomId == roomId);
         return room?.Uid;
+    }
+
+    /// <summary>
+    /// Graceful shutdown: flush all active recorders' Redis data to disk and finalize sessions.
+    /// Called during ApplicationStopping to minimize data loss on container restart.
+    /// </summary>
+    public virtual async Task GracefulShutdownAsync()
+    {
+        List<BilibiliRecorder> activeRecorders;
+        lock (_recorders)
+        {
+            activeRecorders = _recorders.Values.Where(r => r.Status == "online").ToList();
+        }
+
+        if (activeRecorders.Count == 0)
+        {
+            _logger.LogInformation("No active recorders to shut down gracefully");
+            return;
+        }
+
+        _logger.LogInformation("Gracefully shutting down {Count} active recorder(s)...", activeRecorders.Count);
+
+        // Stop all recorders concurrently — each will flush Redis data and finalize session
+        var tasks = activeRecorders.Select(async recorder =>
+        {
+            try
+            {
+                await recorder.StopAsync();
+                _logger.LogInformation("Gracefully stopped recorder for uid {Uid}, room {RoomId}", recorder.Uid, recorder.RoomId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to gracefully stop recorder for uid {Uid}, room {RoomId}", recorder.Uid, recorder.RoomId);
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
+
+        // Clear recorder dictionary
+        lock (_recorders)
+        {
+            _recorders.Clear();
+        }
+
+        _logger.LogInformation("All recorders shut down gracefully");
     }
 }

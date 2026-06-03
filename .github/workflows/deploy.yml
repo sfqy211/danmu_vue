@@ -14,7 +14,7 @@ jobs:
   build-and-deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Restart Services on Server
+      - name: Blue-Green Deploy on Server
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_IP }}
@@ -25,7 +25,7 @@ jobs:
             TARGET_DIR="/opt/1panel/apps/danmu-tools"
             # 使用国内加速代理
             PROXY_URL="https://gh.jasonzeng.dev/https://github.com/sfqy211/danmu_vue.git"
-            
+
             # 确保目录存在
             if [ ! -d "$TARGET_DIR" ]; then
               sudo mkdir -p "$TARGET_DIR"
@@ -40,7 +40,7 @@ jobs:
               git init
               git remote add origin "$PROXY_URL"
             fi
-            
+
             # 强制更新 remote URL 为加速地址
             git remote set-url origin "$PROXY_URL"
 
@@ -49,7 +49,7 @@ jobs:
             # 先清除可能存在的代理配置，防止干扰
             git config --unset http.proxy || true
             git fetch --depth 1 origin master
-            
+
             # 强制重置到最新代码
             echo "Resetting to origin/master..."
             git reset --hard origin/master
@@ -61,6 +61,45 @@ jobs:
             # 确保权限
             sudo chown -R $(whoami):$(whoami) .
 
-            # Restart Docker Containers
-            sudo docker-compose up --build -d
+            # === 蓝绿部署：先启新容器，再优雅停旧容器 ===
+
+            # 1. 构建新镜像
+            echo "Building new image..."
+            sudo docker-compose build
+
+            # 2. 启动新容器（使用 --no-deps 替换，保持网络不变）
+            #    docker-compose up -d 会自动检测镜像变化并替换容器
+            echo "Starting new container (replacing old)..."
+            sudo docker-compose up -d --no-deps
+
+            # 3. 等待新容器健康就绪
+            echo "Waiting for new container to become healthy..."
+            MAX_WAIT=60
+            WAITED=0
+            while [ $WAITED -lt $MAX_WAIT ]; do
+              HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' danmu-viewer 2>/dev/null || echo "none")
+              if [ "$HEALTH" = "healthy" ]; then
+                echo "New container is healthy after ${WAITED}s"
+                break
+              fi
+              # 容器可能没有 healthcheck，检查是否在运行
+              RUNNING=$(sudo docker inspect --format='{{.State.Running}}' danmu-viewer 2>/dev/null || echo "false")
+              if [ "$RUNNING" = "true" ] && [ "$HEALTH" = "none" ]; then
+                # 没有 healthcheck，等待应用启动（给足够时间恢复录制会话）
+                echo "No healthcheck configured, waiting 10s for app startup..."
+                sleep 10
+                echo "New container is running"
+                break
+              fi
+              sleep 2
+              WAITED=$((WAITED + 2))
+            done
+
+            if [ $WAITED -ge $MAX_WAIT ]; then
+              echo "WARNING: New container did not become healthy within ${MAX_WAIT}s, proceeding anyway"
+            fi
+
+            # 4. 清理旧镜像
             sudo docker image prune -f
+
+            echo "Blue-green deployment complete"

@@ -30,6 +30,12 @@ public class DanmakuController : ControllerBase
         _logger = logger;
     }
 
+    [HttpGet("health")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() });
+    }
+
     private static object MapVup(Room room, bool isLiving = false)
     {
         return new
