@@ -32,6 +32,8 @@ __pycache__/
 *.sln
 *.sw?
 *.cache
+.trae/*
+.qoder/*
 
 # Temporary or archived directories
 example/
