@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Net.WebSockets;
 using System.Text;
@@ -855,7 +855,13 @@ public class BilibiliRecorder : IDisposable
             };
         }
 
-        if (cmd.StartsWith("SUPER_CHAT_MESSAGE", StringComparison.Ordinal))
+        // SUPER_CHAT_MESSAGE_JPN 是同一 SC 的重复推送，信息已包含在 SUPER_CHAT_MESSAGE 中，跳过以避免重复存储
+        if (cmd == "SUPER_CHAT_MESSAGE_JPN")
+        {
+            return null;
+        }
+
+        if (cmd == "SUPER_CHAT_MESSAGE")
         {
             var data = root.GetProperty("data");
             var userInfo = data.TryGetProperty("user_info", out var u) ? u : default;
@@ -868,6 +874,7 @@ public class BilibiliRecorder : IDisposable
                 IsPriceTotal = true,
                 Text = TryGetString(data, "message") ?? "",
                 MessageJpn = TryGetString(data, "message_jpn"),
+                MessageTrans = TryGetString(data, "message_trans"),
                 Duration = TryGetInt32(data, "time"),
                 MedalLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "medal_level") : null,
                 MedalName = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "medal_name") : null,

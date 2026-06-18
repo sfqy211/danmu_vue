@@ -417,9 +417,6 @@ public class DanmakuService
             m.Type == "guard" ||
             m.Type == "gift_combo").ToList();
 
-        // Merge bilingual SC: if consecutive SC have same user/uid/timestamp/price, keep only the first one
-        displayable = MergeBilingualSuperChats(displayable);
-
         var total = displayable.Count;
         var safePageSize = Math.Max(1, pageSize);
         var safePage = Math.Max(1, page);
@@ -696,23 +693,6 @@ public class DanmakuService
                 var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(root.GetRawText(), JsonOptions);
                 if (recordedEvent == null) continue;
 
-                // For JPN SC, merge text into previous SC if same user/timestamp/price
-                if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
-                {
-                    var last = messages[^1];
-                    if (last.Type == "super_chat"
-                        && last.Sender.Uid == (recordedEvent.Uid ?? "")
-                        && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
-                        && last.Price == recordedEvent.Price)
-                    {
-                        if (last.Text != recordedEvent.Text)
-                        {
-                            last.TextJpn = recordedEvent.Text;
-                        }
-                        continue;
-                    }
-                }
-
                 messages.Add(MapRecordedEvent(recordedEvent));
             }
             catch (JsonException ex)
@@ -783,23 +763,6 @@ public class DanmakuService
             {
                 var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(rawLine, JsonOptions);
                 if (recordedEvent == null) continue;
-
-                // For JPN SC, merge text into previous SC if same user/timestamp/price
-                if (recordedEvent.RawCommand == "SUPER_CHAT_MESSAGE_JPN" && messages.Count > 0)
-                {
-                    var last = messages[^1];
-                    if (last.Type == "super_chat"
-                        && last.Sender.Uid == (recordedEvent.Uid ?? "")
-                        && Math.Abs(last.Timestamp - recordedEvent.Timestamp) <= 2000
-                        && last.Price == recordedEvent.Price)
-                    {
-                        if (last.Text != recordedEvent.Text)
-                        {
-                            last.TextJpn = recordedEvent.Text;
-                        }
-                        continue;
-                    }
-                }
 
                 messages.Add(MapRecordedEvent(recordedEvent));
             }
@@ -1048,7 +1011,7 @@ public class DanmakuService
             },
             Timestamp = recordedEvent.Timestamp,
             Text = recordedEvent.Text,
-            TextJpn = recordedEvent.TextJpn,
+            TextJpn = recordedEvent.MessageJpn ?? recordedEvent.TextJpn,
             Price = recordedEvent.Price,
             IsPriceTotal = recordedEvent.IsPriceTotal,
             Name = recordedEvent.Name,
@@ -1075,43 +1038,6 @@ public class DanmakuService
                 Uid = recordedEvent.Uid ?? ""
             }
         };
-    }
-
-    private static List<DanmakuMessage> MergeBilingualSuperChats(List<DanmakuMessage> messages)
-    {
-        var result = new List<DanmakuMessage>();
-        DanmakuMessage? lastSc = null;
-
-        foreach (var msg in messages)
-        {
-            if (msg.Type != "super_chat")
-            {
-                result.Add(msg);
-                lastSc = null;
-                continue;
-            }
-
-            if (lastSc != null
-                && lastSc.Sender.Uid == msg.Sender.Uid
-                && lastSc.Sender.Name == msg.Sender.Name
-                && Math.Abs(lastSc.Timestamp - msg.Timestamp) <= 2000
-                && lastSc.Price == msg.Price)
-            {
-                // Same SC, check if content is different
-                if (lastSc.Text != msg.Text)
-                {
-                    // Different content = bilingual, attach JPN text
-                    lastSc.TextJpn = msg.Text;
-                }
-                // Skip duplicate
-                continue;
-            }
-
-            result.Add(msg);
-            lastSc = msg;
-        }
-
-        return result;
     }
 
     private string? ResolveSessionFilePath(Session session)

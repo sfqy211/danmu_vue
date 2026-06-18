@@ -53,6 +53,7 @@ public class RecordedDanmakuEvent
     public int? WealthLevel { get; set; }
     public string? CoinType { get; set; }
     public string? MessageJpn { get; set; }
+    public string? MessageTrans { get; set; }
     public int? Duration { get; set; }
     public string? RawCommand { get; set; }
     public string? Face { get; set; }
