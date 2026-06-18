@@ -449,6 +449,7 @@ public class DanmakuService
                 ulLevel = excludeWealthLevel ? null : m.UlLevel,
                 wealthLevel = excludeWealthLevel ? null : m.WealthLevel,
                 coinType = m.CoinType,
+                totalCoin = m.TotalCoin,
                 duration = m.Duration,
                 face = excludeAvatar ? null : m.Face,
                 emots = m.Emots,
@@ -916,6 +917,19 @@ public class DanmakuService
         var giftTimelineMap = new Dictionary<long, double>();
         var giftCountMap = new Dictionary<string, GiftStat>();
 
+        // 舰长去重：同一用户的 GUARD_BUY 和 USER_TOAST_MSG 只计一次，优先 USER_TOAST_MSG
+        var guardHasToast = new HashSet<string>(); // key: uid
+
+        // 第一遍：收集有 USER_TOAST_MSG 的用户
+        foreach (var msg in messages)
+        {
+            if (msg.Type != "guard") continue;
+            if (msg.RawCommand == "USER_TOAST_MSG")
+            {
+                guardHasToast.Add(msg.Sender.Uid ?? "");
+            }
+        }
+
         foreach (var msg in messages)
         {
             if (msg.Type != "give_gift" && msg.Type != "gift_combo" && msg.Type != "super_chat" && msg.Type != "guard")
@@ -923,14 +937,38 @@ public class DanmakuService
                 continue;
             }
 
+            // 舰长去重：跳过已有 USER_TOAST_MSG 的 GUARD_BUY
+            if (msg.Type == "guard" && msg.RawCommand == "GUARD_BUY"
+                && guardHasToast.Contains(msg.Sender.Uid ?? ""))
+            {
+                continue;
+            }
+
             var userName = msg.Sender.Name ?? "Unknown";
             if (!giftAnalysis.UserStats.ContainsKey(userName))
             {
-                giftAnalysis.UserStats[userName] = new GiftUserStat { Uid = msg.Sender.Uid };
+                giftAnalysis.UserStats[userName] = new GiftUserStat { Uid = msg.Sender.Uid ?? "" };
             }
 
             var count = msg.Count ?? 1;
-            var eventAmount = msg.IsPriceTotal ? (msg.Price ?? 0) : (msg.Price ?? 0) * count;
+            // 礼物金额：优先使用 TotalCoin（实付总价），回退到 Price × Count
+            double eventAmount;
+            if (msg.Type == "guard")
+            {
+                // 舰长：Price 已是总价（IsPriceTotal=true），直接使用
+                eventAmount = msg.Price ?? 0;
+            }
+            else if (msg.TotalCoin.HasValue && msg.TotalCoin.Value > 0)
+            {
+                // 礼物/SC：有实付总价则优先使用
+                eventAmount = msg.TotalCoin.Value;
+            }
+            else
+            {
+                // 回退：Price × Count 或 Price（IsPriceTotal）
+                eventAmount = msg.IsPriceTotal ? (msg.Price ?? 0) : (msg.Price ?? 0) * count;
+            }
+
             var stats = giftAnalysis.UserStats[userName];
             stats.TotalPrice += eventAmount;
             giftAnalysis.TotalPrice += eventAmount;
@@ -1027,6 +1065,7 @@ public class DanmakuService
             UlLevel = recordedEvent.UlLevel,
             WealthLevel = recordedEvent.WealthLevel,
             CoinType = recordedEvent.CoinType,
+            TotalCoin = recordedEvent.TotalCoin,
             RawCommand = recordedEvent.RawCommand,
             Duration = recordedEvent.Duration,
             Face = recordedEvent.Face,
@@ -1096,6 +1135,7 @@ public class DanmakuService
             Count = message.Count ?? 1,
             Price = message.Price,
             IsPriceTotal = message.IsPriceTotal,
+            TotalCoin = message.TotalCoin,
             GuardLevel = message.GuardLevel,
             User = message.Sender.Name,
             Uid = message.Sender.Uid,

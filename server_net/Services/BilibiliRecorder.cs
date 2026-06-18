@@ -838,6 +838,9 @@ public class BilibiliRecorder : IDisposable
             var data = root.GetProperty("data");
             var count = TryGetInt32(data, "num") ?? 1;
             var priceRaw = TryGetDouble(data, "price") ?? 0;
+            var totalCoinRaw = TryGetDouble(data, "total_coin");
+            var discountPriceRaw = TryGetDouble(data, "discount_price");
+            var coinType = TryGetString(data, "coin_type");
             return new RecordedDanmakuEvent
             {
                 Type = "gift",
@@ -845,8 +848,10 @@ public class BilibiliRecorder : IDisposable
                 Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
                 Count = count > 0 ? count : 1,
                 Price = NormalizeGoldSeeds(priceRaw),
+                TotalCoin = totalCoinRaw.HasValue ? NormalizeGoldSeeds(totalCoinRaw.Value) : null,
+                DiscountPrice = discountPriceRaw.HasValue ? NormalizeGoldSeeds(discountPriceRaw.Value) : null,
                 IsPriceTotal = false,
-                CoinType = TryGetString(data, "coin_type"),
+                CoinType = coinType,
                 GuardLevel = TryGetInt32(data, "guard_level"),
                 User = TryGetString(data, "uname") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
@@ -905,6 +910,25 @@ public class BilibiliRecorder : IDisposable
                 User = TryGetString(data, "username") ?? "",
                 Uid = TryGetString(data, "uid") ?? "",
                 Face = NormalizeFaceUrl(TryGetString(data, "face")),
+                RawCommand = cmd
+            };
+        }
+
+        if (cmd == "USER_TOAST_MSG")
+        {
+            var data = root.GetProperty("data");
+            return new RecordedDanmakuEvent
+            {
+                Type = "guard",
+                Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                Name = TryGetString(data, "role_name") ?? "guard",
+                Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
+                IsPriceTotal = true,
+                GuardLevel = TryGetInt32(data, "guard_level"),
+                User = TryGetString(data, "username") ?? "",
+                Uid = TryGetString(data, "uid") ?? "",
+                Text = TryGetString(data, "toast_msg"),
                 RawCommand = cmd
             };
         }

@@ -21,6 +21,7 @@ public class DanmakuMessage
     public int? UlLevel { get; set; }
     public int? WealthLevel { get; set; }
     public string? CoinType { get; set; }
+    public double? TotalCoin { get; set; }       // 实际支付总金瓜子数（已转为元）
     public string? RawCommand { get; set; }
     public int? Duration { get; set; }
     public string? Face { get; set; }
@@ -54,6 +55,8 @@ public class RecordedDanmakuEvent
     public string? CoinType { get; set; }
     public string? MessageJpn { get; set; }
     public string? MessageTrans { get; set; }
+    public double? TotalCoin { get; set; }       // 实际支付总金瓜子数（已转为元）
+    public double? DiscountPrice { get; set; }   // 折扣单价金瓜子数（已转为元）
     public int? Duration { get; set; }
     public string? RawCommand { get; set; }
     public string? Face { get; set; }
