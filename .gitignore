@@ -16,6 +16,12 @@ server/data/
 server_net/bin/
 server_net/obj/
 
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
 # Python cache
 __pycache__/
 *.pyc

@@ -22,21 +22,10 @@ public static class DbInitializer
         logger.LogInformation("Seeding VUP data from SQL script...");
         try
         {
-            var seedPath = Path.Combine(Directory.GetCurrentDirectory(), "Data/seed_vups.sql");
+            var seedPath = Path.Combine(Directory.GetCurrentDirectory(), "Data/seed_vups_sqlite.sql");
             if (File.Exists(seedPath))
             {
                 var sql = await File.ReadAllTextAsync(seedPath);
-                
-                // If using MySQL, replace SQLite syntax with MySQL syntax
-                if (db.Database.IsMySql())
-                {
-                    sql = sql.Replace("ON CONFLICT(uid) DO UPDATE SET", "ON DUPLICATE KEY UPDATE");
-                    sql = sql.Replace("excluded.", "VALUES(");
-                    // This simple replace might not work perfectly for complex SQL, 
-                    // but for the current seed_vups.sql it might.
-                    // Let's do a better replacement or just provide a MySQL-ready script.
-                }
-
                 await db.Database.ExecuteSqlRawAsync(sql);
                 logger.LogInformation("Database seeded/updated successfully.");
             }
@@ -57,7 +46,7 @@ public static class DbInitializer
         {
             if (!await ColumnExistsAsync(db, "sessions", "uid"))
             {
-                await db.Database.ExecuteSqlRawAsync("ALTER TABLE sessions ADD COLUMN uid VARCHAR(64) NULL");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE sessions ADD COLUMN uid TEXT");
                 logger.LogInformation("Added sessions.uid column.");
             }
 
@@ -69,52 +58,31 @@ public static class DbInitializer
 
             if (!await TableExistsAsync(db, "bili_accounts"))
             {
-                var createSql = db.Database.IsMySql()
-                    ? @"CREATE TABLE bili_accounts (
-                        uid BIGINT NOT NULL PRIMARY KEY,
-                        name VARCHAR(255) NULL,
-                        face VARCHAR(512) NULL,
-                        access_token TEXT NULL,
-                        refresh_token TEXT NULL,
-                        cookie_json LONGTEXT NULL,
-                        expires_at DATETIME NULL,
-                        is_active TINYINT(1) NOT NULL DEFAULT 0,
-                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                    )"
-                    : @"CREATE TABLE bili_accounts (
-                        uid INTEGER NOT NULL PRIMARY KEY,
-                        name TEXT,
-                        face TEXT,
-                        access_token TEXT,
-                        refresh_token TEXT,
-                        cookie_json TEXT,
-                        expires_at TEXT,
-                        is_active INTEGER NOT NULL DEFAULT 0,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )";
+                var createSql = @"CREATE TABLE bili_accounts (
+                    uid INTEGER NOT NULL PRIMARY KEY,
+                    name TEXT,
+                    face TEXT,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    cookie_json TEXT,
+                    expires_at TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )";
                 await db.Database.ExecuteSqlRawAsync(createSql);
                 logger.LogInformation("Created bili_accounts table.");
             }
 
             if (!await TableExistsAsync(db, "changelog_entries"))
             {
-                var createSql = db.Database.IsMySql()
-                    ? @"CREATE TABLE changelog_entries (
-                        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                        version VARCHAR(32) NOT NULL,
-                        date DATETIME NOT NULL,
-                        content LONGTEXT NOT NULL,
-                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )"
-                    : @"CREATE TABLE changelog_entries (
-                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                        version TEXT NOT NULL,
-                        date TEXT NOT NULL,
-                        content TEXT NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )";
+                var createSql = @"CREATE TABLE changelog_entries (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    version TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )";
                 await db.Database.ExecuteSqlRawAsync(createSql);
                 logger.LogInformation("Created changelog_entries table.");
             }
@@ -130,19 +98,8 @@ public static class DbInitializer
         var escapedTable = EscapeSqlLiteral(tableName);
         var escapedColumn = EscapeSqlLiteral(columnName);
 
-        if (db.Database.IsMySql())
-        {
-            var sql = $@"
-SELECT COUNT(*)
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = '{escapedTable}'
-  AND COLUMN_NAME = '{escapedColumn}'";
-            return await ExecuteScalarLongAsync(db, sql) > 0;
-        }
-
-        var sqliteSql = $"SELECT COUNT(*) FROM pragma_table_info('{escapedTable}') WHERE name = '{escapedColumn}'";
-        return await ExecuteScalarLongAsync(db, sqliteSql) > 0;
+        var sql = $"SELECT COUNT(*) FROM pragma_table_info('{escapedTable}') WHERE name = '{escapedColumn}'";
+        return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
     private static async Task<bool> IndexExistsAsync(DanmuContext db, string tableName, string indexName)
@@ -150,36 +107,16 @@ WHERE TABLE_SCHEMA = DATABASE()
         var escapedTable = EscapeSqlLiteral(tableName);
         var escapedIndex = EscapeSqlLiteral(indexName);
 
-        if (db.Database.IsMySql())
-        {
-            var sql = $@"
-SELECT COUNT(*)
-FROM INFORMATION_SCHEMA.STATISTICS
-WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = '{escapedTable}'
-  AND INDEX_NAME = '{escapedIndex}'";
-            return await ExecuteScalarLongAsync(db, sql) > 0;
-        }
-
-        var sqliteSql = $"SELECT COUNT(*) FROM pragma_index_list('{escapedTable}') WHERE name = '{escapedIndex}'";
-        return await ExecuteScalarLongAsync(db, sqliteSql) > 0;
+        var sql = $"SELECT COUNT(*) FROM pragma_index_list('{escapedTable}') WHERE name = '{escapedIndex}'";
+        return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
     private static async Task<bool> TableExistsAsync(DanmuContext db, string tableName)
     {
         var escapedTable = EscapeSqlLiteral(tableName);
-        if (db.Database.IsMySql())
-        {
-            var sql = $@"
-SELECT COUNT(*)
-FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = '{escapedTable}'";
-            return await ExecuteScalarLongAsync(db, sql) > 0;
-        }
 
-        var sqliteSql = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{escapedTable}'";
-        return await ExecuteScalarLongAsync(db, sqliteSql) > 0;
+        var sql = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{escapedTable}'";
+        return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
     private static async Task<long> ExecuteScalarLongAsync(DanmuContext db, string sql)

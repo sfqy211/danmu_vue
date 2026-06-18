@@ -67,21 +67,23 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Database
-var connectionString = builder.Configuration["MYSQL_CONNECTION_STRING"] 
-                    ?? builder.Configuration.GetConnectionString("DefaultConnection");
-
-if (string.IsNullOrEmpty(connectionString))
+// Database - SQLite
+var dbPath = builder.Configuration["SQLITE_DB_PATH"] ?? "server/data/danmaku.db";
+// Resolve path relative to project root (parent of server_net)
+var projectRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ".."));
+var fullDbPath = Path.GetFullPath(Path.Combine(projectRoot, dbPath));
+// Ensure the directory exists for the SQLite file
+var dbDir = Path.GetDirectoryName(fullDbPath);
+if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
 {
-    throw new InvalidOperationException("Connection string 'MYSQL_CONNECTION_STRING' not found.");
+    Directory.CreateDirectory(dbDir);
 }
 
 builder.Services.AddDbContext<DanmuContext>(options =>
 {
-    var serverVersion = new MySqlServerVersion(new Version(8, 4, 8));
-    options.UseMySql(connectionString, serverVersion, mySqlOptions =>
+    options.UseSqlite($"Data Source={fullDbPath}", sqliteOptions =>
     {
-        mySqlOptions.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null);
+        sqliteOptions.CommandTimeout(30);
     });
 });
 
