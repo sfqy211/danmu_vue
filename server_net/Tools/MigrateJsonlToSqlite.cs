@@ -382,6 +382,8 @@ public static class MigrateJsonlToSqlite
             Face = e.Face,
             Emots = e.Emots,
             DmType = e.DmType,
+            UlLevel = e.UlLevel,
+            WealthLevel = e.WealthLevel,
             Sender = new Sender { Name = e.User ?? "", Uid = e.Uid ?? "" }
         };
     }

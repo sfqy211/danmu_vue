@@ -170,7 +170,9 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                 face              TEXT,
                 emots             TEXT,
                 dm_type           INTEGER,
-                raw_command       TEXT
+                raw_command       TEXT,
+                ul_level          INTEGER,
+                wealth_level      INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_danmaku_timestamp ON danmaku_messages(timestamp);
             CREATE INDEX IF NOT EXISTS idx_danmaku_type ON danmaku_messages(type);
@@ -200,11 +202,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             INSERT INTO danmaku_messages
                 (type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                  total_coin, discount_price, guard_level, medal_level, medal_name, coin_type,
-                 duration, face, emots, dm_type, raw_command)
+                 duration, face, emots, dm_type, raw_command, ul_level, wealth_level)
             VALUES
                 (@type, @timestamp, @user, @uid, @text, @text_jpn, @name, @count, @price, @is_price_total,
                  @total_coin, @discount_price, @guard_level, @medal_level, @medal_name, @coin_type,
-                 @duration, @face, @emots, @dm_type, @raw_command);
+                 @duration, @face, @emots, @dm_type, @raw_command, @ul_level, @wealth_level);
             """;
 
         // 预创建参数（Issue #14: 使用正确的 SQLite 类型）
@@ -229,6 +231,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         var pEmots = AddParam(cmd, "@emots", SqliteType.Text);
         var pDmType = AddParam(cmd, "@dm_type", SqliteType.Integer);
         var pRawCommand = AddParam(cmd, "@raw_command", SqliteType.Text);
+        var pUlLevel = AddParam(cmd, "@ul_level", SqliteType.Integer);
+        var pWealthLevel = AddParam(cmd, "@wealth_level", SqliteType.Integer);
 
         foreach (var e in events)
         {
@@ -254,6 +258,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             pEmots.Value = e.Emots != null ? JsonSerializer.Serialize(e.Emots, EmotJsonOptions) : DBNull.Value;
             pDmType.Value = (object?)e.DmType ?? DBNull.Value;
             pRawCommand.Value = (object?)e.RawCommand ?? DBNull.Value;
+            pUlLevel.Value = (object?)e.UlLevel ?? DBNull.Value;
+            pWealthLevel.Value = (object?)e.WealthLevel ?? DBNull.Value;
 
             await cmd.ExecuteNonQueryAsync();
         }
@@ -308,7 +314,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         await using var selectCmd = conn.CreateCommand();
         selectCmd.CommandText = $"""
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
-                   total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command
+                   total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
+                   ul_level, wealth_level
             FROM danmaku_messages
             WHERE type IN {DisplayableTypesSql}
             ORDER BY timestamp ASC, id ASC
@@ -352,7 +359,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
-                   total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command
+                   total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
+                   ul_level, wealth_level
             FROM danmaku_messages
             ORDER BY timestamp ASC, id ASC;
             """;
@@ -465,6 +473,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             Face = m.Face,
             Emots = m.Emots,
             DmType = m.DmType,
+            UlLevel = m.UlLevel,
+            WealthLevel = m.WealthLevel,
             RawCommand = m.RawCommand
         };
     }
@@ -475,7 +485,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
     private static readonly string[] ColumnNames = [
         "type", "timestamp", "user", "uid", "text", "text_jpn", "name", "count",
         "price", "is_price_total", "total_coin", "guard_level", "medal_level",
-        "medal_name", "coin_type", "duration", "face", "emots", "dm_type", "raw_command"
+        "medal_name", "coin_type", "duration", "face", "emots", "dm_type", "raw_command",
+        "ul_level", "wealth_level"
     ];
 
     private static DanmakuMessage ReadRowToMessage(SqliteDataReader reader)
@@ -532,6 +543,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             Emots = emots,
             DmType = reader.IsDBNull(ordinals[18]) ? null : reader.GetInt32(ordinals[18]), // dm_type
             RawCommand = reader.IsDBNull(ordinals[19]) ? null : reader.GetString(ordinals[19]), // raw_command
+            UlLevel = reader.IsDBNull(ordinals[20]) ? null : reader.GetInt32(ordinals[20]), // ul_level
+            WealthLevel = reader.IsDBNull(ordinals[21]) ? null : reader.GetInt32(ordinals[21]), // wealth_level
             Sender = new Sender
             {
                 Name = reader.GetString(ordinals[2]), // user
