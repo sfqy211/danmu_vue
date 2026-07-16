@@ -27,15 +27,17 @@ public class ProcessManager
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly RedisService _redis;
     private readonly BiliAccountService _accountService;
+    private readonly SessionDbService _sessionDb;
     private volatile bool _isRestoring;
 
-    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService)
+    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService, SessionDbService sessionDb)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _scopeFactory = scopeFactory;
         _redis = redis;
         _accountService = accountService;
+        _sessionDb = sessionDb;
     }
 
     public virtual List<ProcessInfo> GetProcesses()
@@ -235,11 +237,10 @@ public class ProcessManager
         {
             var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
             var biliService = scope.ServiceProvider.GetRequiredService<BilibiliService>();
-            var danmakuService = scope.ServiceProvider.GetRequiredService<DanmakuService>();
 
             var rooms = await db.Rooms.Where(r => r.AutoRecord == 1).ToListAsync();
 
-            // Phase 1: Reconcile tmp files and check live status concurrently (limited to 3 concurrent API calls)
+            // Phase 1: Check live status concurrently (limited to 3 concurrent API calls)
             using var semaphore = new SemaphoreSlim(3);
             var checkTasks = rooms.Select(async room =>
             {
@@ -248,7 +249,6 @@ public class ProcessManager
                 {
                     var liveState = await biliService.GetRoomStatusByRoomIdAsync(room.RoomId);
                     var isLive = liveState?.LiveStatus == 1;
-                    await danmakuService.ReconcileTmpFilesAsync(room.Uid ?? room.RoomId.ToString(), room.RoomId, liveState?.LiveStartTime, isLive);
                     return (room, liveState, isLive);
                 }
                 catch (Exception ex)
@@ -320,7 +320,7 @@ public class ProcessManager
 
     protected virtual BilibiliRecorder CreateRecorder(long roomId, string uid, string name, ILogger logger)
     {
-        return new BilibiliRecorder(roomId, uid, name, logger, _redis, _accountService);
+        return new BilibiliRecorder(roomId, uid, name, logger, _redis, _accountService, _sessionDb);
     }
 
     private async Task<string?> ResolveUidAsync(long roomId)

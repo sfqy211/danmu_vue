@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Danmu.Server.Models;
 using Danmu.Server.Utils;
+using Microsoft.Data.Sqlite;
 
 namespace Danmu.Server.Services;
 
@@ -22,13 +23,12 @@ public class BilibiliRecorder : IDisposable
     private readonly ILogger _logger;
     private readonly RedisService _redis;
     private readonly BiliAccountService _accountService;
+    private readonly SessionDbService _sessionDb;
     private BilibiliService? _bilibiliService;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
     private Task? _heartbeatTask;
-    private readonly string _danmakuDir;
-    private readonly string _danmakuTmpDir;
     private bool _isDisposed;
     private string? _token;
     private string? _host;
@@ -37,6 +37,8 @@ public class BilibiliRecorder : IDisposable
     private Task? _recorderHeartbeatTask;
     private Task? _redisDumpTask;
     private long _dumpOffset;
+    private long _sessionStartTimestamp;
+    private SqliteConnection? _sessionDbConn;
     private string _title = "未知直播";
     private string _userName = "未知主播";
     private long _realRoomId;
@@ -73,7 +75,7 @@ public class BilibiliRecorder : IDisposable
     public int LiveStatus { get; private set; }
     public long? LiveStartTime { get; private set; }
 
-    public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis, BiliAccountService accountService)
+    public BilibiliRecorder(long roomId, string uid, string? name, ILogger logger, RedisService redis, BiliAccountService accountService, SessionDbService sessionDb)
     {
         _roomId = roomId;
         _uid = string.IsNullOrWhiteSpace(uid) ? roomId.ToString() : uid;
@@ -81,12 +83,7 @@ public class BilibiliRecorder : IDisposable
         _logger = logger;
         _redis = redis;
         _accountService = accountService;
-
-        var root = Directory.GetCurrentDirectory();
-        _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
-                       ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku"));
-        _danmakuTmpDir = Environment.GetEnvironmentVariable("DANMAKU_TMP_DIR")
-                         ?? Path.GetFullPath(Path.Combine(root, "../server/data/danmaku_tmp"));
+        _sessionDb = sessionDb;
     }
 
     public async Task StartAsync(string token, string host, BilibiliService bilibiliService, long realRoomId)
@@ -99,7 +96,8 @@ public class BilibiliRecorder : IDisposable
         try
         {
              await RefreshRoomInfoAsync(syncCurrentSession: false);
-             _logger.LogInformation($"Room Info: {_title} (@{_userName})");
+             // Issue #20: Use structured logging instead of string interpolation
+             _logger.LogInformation("Room Info: {Title} (@{UserName})", _title, _userName);
         }
         catch (Exception ex)
         {
@@ -387,6 +385,9 @@ public class BilibiliRecorder : IDisposable
     private async Task FlushRedisIncrementallyAsync()
     {
         if (string.IsNullOrWhiteSpace(_currentSessionKey)) return;
+        // Issue #3: Capture connection to local variable to avoid TOCTOU race
+        var conn = _sessionDbConn;
+        if (conn == null) return;
 
         try
         {
@@ -408,32 +409,47 @@ public class BilibiliRecorder : IDisposable
                 return;
             }
 
-            var roomDir = Path.Combine(_danmakuTmpDir, _uid);
-            if (!Directory.Exists(roomDir)) Directory.CreateDirectory(roomDir);
-
-            var meta = await _redis.GetMetadataAsync(metaKey);
-            var filename = await EnsureTmpFilenameAsync(metaKey, meta);
-            var filePath = Path.Combine(roomDir, filename);
-
-            if (!File.Exists(filePath) || new FileInfo(filePath).Length == 0)
+            var events = DeserializeEvents(messages);
+            if (events.Count > 0)
             {
-                var initialLines = new List<string> { BuildSessionMetaLine(meta) };
-                initialLines.AddRange(messages);
-                await File.WriteAllLinesAsync(filePath, initialLines, Encoding.UTF8);
-            }
-            else
-            {
-                await File.AppendAllLinesAsync(filePath, messages, Encoding.UTF8);
+                await _sessionDb.WriteBatchAsync(conn, events);
             }
 
             _dumpOffset = totalCount;
             await _redis.SetMetadataFieldAsync(metaKey, "dump_offset", _dumpOffset.ToString());
-            _logger.LogDebug("Incrementally dumped {Count} messages to {FilePath} (offset={Offset})", messages.Count, filePath, _dumpOffset);
+            _logger.LogDebug("Incrementally dumped {Count} messages to SQLite (offset={Offset})", events.Count, _dumpOffset);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to incrementally dump Redis session for uid {Uid}, room {RoomId}", _uid, _roomId);
+            _logger.LogError(ex, "Failed to incrementally dump Redis session to SQLite for uid {Uid}, room {RoomId}", _uid, _roomId);
         }
+    }
+
+    private List<RecordedDanmakuEvent> DeserializeEvents(List<string> jsonMessages)
+    {
+        var events = new List<RecordedDanmakuEvent>(jsonMessages.Count);
+        foreach (var json in jsonMessages)
+        {
+            if (string.IsNullOrWhiteSpace(json)) continue;
+            try
+            {
+                var evt = JsonSerializer.Deserialize<RecordedDanmakuEvent>(json, EventJsonOptions);
+                if (evt != null) events.Add(evt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize danmaku event for SQLite write");
+            }
+        }
+        return events;
+    }
+
+    private static async Task<long> GetSqliteRowCountAsync(SqliteConnection conn)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM danmaku_messages";
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt64(result);
     }
 
     private async Task RecorderHeartbeatLoopAsync(CancellationToken token)
@@ -571,7 +587,8 @@ public class BilibiliRecorder : IDisposable
                     var (liveStatus, _, _, _, _) = await RefreshRoomInfoAsync(syncCurrentSession: true);
                     if (liveStatus != 1)
                     {
-                        _logger.LogInformation($"Detected offline via API check for {_roomId}");
+                        // Issue #20: Use structured logging
+                        _logger.LogInformation("Detected offline via API check for {RoomId}", _roomId);
                         LiveStatus = 0;
                         LiveStartTime = null;
                         await CheckAndCloseStaleSessionAsync();
@@ -589,7 +606,8 @@ public class BilibiliRecorder : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"Failed to check live status in heartbeat: {ex.Message}");
+                    // Issue #20: Use structured logging
+                    _logger.LogWarning(ex, "Failed to check live status in heartbeat for room {RoomId}", _roomId);
                 }
             }
 
@@ -698,8 +716,9 @@ public class BilibiliRecorder : IDisposable
             }
             else if (op == 8) // CONNECT_SUCCESS
             {
-                _logger.LogInformation($"Room {_roomId} auth success");
-                _ = StartRedisSessionAsync();
+                _logger.LogInformation("Room {RoomId} auth success", _roomId);
+                // Issue #11: Fire-and-forget with error handling
+                _ = FireAndForgetAsync(StartRedisSessionAsync(), "StartRedisSession");
             }
             else if (op == 3) // HEARTBEAT_REPLY
             {
@@ -734,7 +753,7 @@ public class BilibiliRecorder : IDisposable
                         var newTitle = titleProp.GetString();
                         if (!string.IsNullOrWhiteSpace(newTitle))
                         {
-                            _ = UpdateTitleAsync(newTitle);
+                            _ = FireAndForgetAsync(UpdateTitleAsync(newTitle), "UpdateTitle");
                         }
                     }
                 }
@@ -750,7 +769,7 @@ public class BilibiliRecorder : IDisposable
                     // Merge room-specific emoticons into emots when text contains matching triggers
                     MergeRoomEmoticons(recordedEvent);
 
-                    _ = WriteEventToRedisAsync(recordedEvent);
+                    _ = FireAndForgetAsync(WriteEventToRedisAsync(recordedEvent), "WriteEventToRedis");
                 }
                 else if (!string.IsNullOrWhiteSpace(cmd))
                 {
@@ -1237,44 +1256,13 @@ public class BilibiliRecorder : IDisposable
                 if (!string.IsNullOrEmpty(existingKey))
                 {
                     _currentSessionKey = existingKey;
-                    var existingMeta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
-                    if (existingMeta.TryGetValue("dump_offset", out var dumpOffsetText) && long.TryParse(dumpOffsetText, out var dumpOffset))
-                    {
-                        _dumpOffset = dumpOffset;
-                    }
-
-                    // Recover dumpOffset from tmp file if Redis was cleared or stale
-                    var tmpFileName = await EnsureTmpFilenameAsync(_currentSessionKey + ":meta", existingMeta);
-                    var tmpFilePath = Path.Combine(_danmakuTmpDir, _uid, tmpFileName);
-                    if (File.Exists(tmpFilePath))
-                    {
-                        try
-                        {
-                            var lines = await File.ReadAllLinesAsync(tmpFilePath, Encoding.UTF8);
-                            var messageCount = lines.Count(l => !string.IsNullOrWhiteSpace(l));
-                            if (messageCount > 0 && LooksLikeMetaLine(lines[0]))
-                            {
-                                messageCount--;
-                            }
-                            if (messageCount > _dumpOffset)
-                            {
-                                _logger.LogInformation("Recovered _dumpOffset from tmp file: {FileCount} vs Redis {RedisOffset}, using file count for session {SessionKey}", messageCount, _dumpOffset, _currentSessionKey);
-                                _dumpOffset = messageCount;
-                                await _redis.SetMetadataFieldAsync(_currentSessionKey + ":meta", "dump_offset", _dumpOffset.ToString());
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to recover _dumpOffset from tmp file {TmpFile} for session {SessionKey}", tmpFilePath, _currentSessionKey);
-                        }
-                    }
-
-                    await SyncCurrentSessionMetadataAsync(updateFilename: true);
+                    await RecoverSessionStateAsync();
+                    await SyncCurrentSessionMetadataAsync();
                     if (OnTitleChanged != null)
                     {
                         await OnTitleChanged.Invoke(_uid, _roomId, _title);
                     }
-                    _logger.LogInformation($"Resuming existing Redis session: {_currentSessionKey}");
+                    _logger.LogInformation("Resuming existing Redis session: {SessionKey}", _currentSessionKey);
                     return;
                 }
             }
@@ -1286,9 +1274,9 @@ public class BilibiliRecorder : IDisposable
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 startTimeIsFallback = true;
             }
+            _sessionStartTimestamp = timestamp;
             _currentSessionKey = $"danmaku:session:{_uid}:{timestamp}";
-            var filename = BuildTmpFilename(timestamp);
-            
+
             var meta = new Dictionary<string, string>
             {
                 { "uid", _uid },
@@ -1299,24 +1287,48 @@ public class BilibiliRecorder : IDisposable
                 { "video_start_time", timestamp.ToString() },
                 { "recording_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString() },
                 { "start_time_is_fallback", startTimeIsFallback ? "1" : "0" },
-                { "filename", filename },
                 { "dump_offset", "0" }
             };
-            
+
             await _redis.SetMetadataAsync(_currentSessionKey + ":meta", meta);
             await _redis.SetLiveSessionKeyAsync(_uid, _currentSessionKey);
-            
+
+            // Open SQLite connection for the new session
+            _sessionDbConn = await _sessionDb.OpenSessionAsync(_uid, _sessionStartTimestamp);
+
             if (OnSessionStarted != null)
             {
                 await OnSessionStarted.Invoke(_uid, _roomId, _title, _userName, timestamp, _currentSessionKey);
             }
-            
-            _logger.LogInformation($"Started recording to Redis: {_currentSessionKey}");
+
+            _logger.LogInformation("Started recording to Redis: {SessionKey}", _currentSessionKey);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start Redis session");
         }
+    }
+
+    /// <summary>
+    /// 恢复 session 状态：打开 SQLite 连接，从 SQLite 行数恢复 dump_offset。
+    /// 若 Redis 被清空（长度 < SQLite 行数），dump_offset 归零以重新写入新消息。
+    /// </summary>
+    private async Task RecoverSessionStateAsync()
+    {
+        var meta = await _redis.GetMetadataAsync(_currentSessionKey + ":meta");
+        _sessionStartTimestamp = GetSessionStartTimestamp(meta);
+        _sessionDbConn = await _sessionDb.OpenSessionAsync(_uid, _sessionStartTimestamp);
+
+        var listKey = _currentSessionKey + ":list";
+        var redisLen = await _redis.GetListLengthAsync(listKey);
+        var sqliteCount = _sessionDbConn != null ? await GetSqliteRowCountAsync(_sessionDbConn) : 0;
+        // SQLite 已有 sqliteCount 行 = 已从 Redis 前 sqliteCount 条写入过
+        // 无论 Redis 是否被部分清除，dumpOffset 都应等于已写入的行数，
+        // 避免重复写入已存在于 SQLite 的消息
+        _dumpOffset = sqliteCount;
+        await _redis.SetMetadataFieldAsync(_currentSessionKey + ":meta", "dump_offset", _dumpOffset.ToString());
+        _logger.LogInformation("Recovered session state: SQLite rows={SqliteCount}, Redis len={RedisLen}, dump_offset={DumpOffset}",
+            sqliteCount, redisLen, _dumpOffset);
     }
 
     private async Task WriteToRedisAsync(string content)
@@ -1337,7 +1349,7 @@ public class BilibiliRecorder : IDisposable
         if (string.IsNullOrWhiteSpace(title) || title == _title) return;
         _title = title;
 
-        await SyncCurrentSessionMetadataAsync(updateFilename: true);
+        await SyncCurrentSessionMetadataAsync();
 
         if (OnTitleChanged != null)
         {
@@ -1369,7 +1381,7 @@ public class BilibiliRecorder : IDisposable
 
         if (syncCurrentSession && _currentSessionKey != null && (titleChanged || userNameChanged))
         {
-            await SyncCurrentSessionMetadataAsync(updateFilename: titleChanged);
+            await SyncCurrentSessionMetadataAsync();
             if (titleChanged && OnTitleChanged != null)
             {
                 await OnTitleChanged.Invoke(_uid, _roomId, _title);
@@ -1378,7 +1390,8 @@ public class BilibiliRecorder : IDisposable
 
         if (UpdateVupStats != null)
         {
-            _ = UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount);
+            // Issue #11: Fire-and-forget with error handling
+            _ = FireAndForgetAsync(UpdateVupStats(_uid, _roomId, liveStartTime ?? 0, followers, guardNum, videoCount), "UpdateVupStats");
         }
 
         LiveStatus = liveStatus;
@@ -1387,26 +1400,13 @@ public class BilibiliRecorder : IDisposable
         return (liveStatus, liveStartTime, followers, guardNum, videoCount);
     }
 
-    private async Task SyncCurrentSessionMetadataAsync(bool updateFilename)
+    private async Task SyncCurrentSessionMetadataAsync()
     {
         if (_currentSessionKey == null) return;
 
         var metaKey = _currentSessionKey + ":meta";
         await _redis.SetMetadataFieldAsync(metaKey, "room_title", _title);
         await _redis.SetMetadataFieldAsync(metaKey, "user_name", _userName);
-
-        if (!updateFilename) return;
-
-        var meta = await _redis.GetMetadataAsync(metaKey);
-        if (long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp))
-        {
-            await _redis.SetMetadataFieldAsync(metaKey, "filename", BuildTmpFilename(startTimestamp));
-        }
-    }
-
-    internal static string BuildTmpFilename(long startTimestamp)
-    {
-        return $"{startTimestamp}.jsonl";
     }
 
     internal static long GetSessionStartTimestamp(IReadOnlyDictionary<string, string> meta)
@@ -1414,53 +1414,6 @@ public class BilibiliRecorder : IDisposable
         return long.TryParse(meta.GetValueOrDefault("video_start_time"), out var startTimestamp) && startTimestamp > 0
             ? startTimestamp
             : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-    }
-
-    private string BuildSessionFilename(long startTimestamp)
-    {
-        return BuildSessionFilename(startTimestamp, _title);
-    }
-
-    private static string BuildSessionFilename(long startTimestamp, string title)
-    {
-        var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
-        return $"{dateStr} {SanitizeFileName(title)}.jsonl";
-    }
-
-    private async Task<string> EnsureTmpFilenameAsync(string metaKey, Dictionary<string, string> meta)
-    {
-        if (meta.TryGetValue("filename", out var existingFilename) && !string.IsNullOrWhiteSpace(existingFilename))
-        {
-            return existingFilename;
-        }
-
-        long startTimestamp;
-        if (!long.TryParse(meta.GetValueOrDefault("video_start_time"), out startTimestamp) || startTimestamp <= 0)
-        {
-            startTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        }
-
-        var filename = BuildTmpFilename(startTimestamp);
-        await _redis.SetMetadataFieldAsync(metaKey, "filename", filename);
-        meta["filename"] = filename;
-        return filename;
-    }
-
-    private string BuildSessionMetaLine(IReadOnlyDictionary<string, string> meta)
-    {
-        return JsonSerializer.Serialize(new
-        {
-            kind = "meta",
-            version = "danmu-jsonl-v1",
-            uid = meta.GetValueOrDefault("uid", _uid),
-            roomId = meta.GetValueOrDefault("room_id", _roomId.ToString()),
-            realRoomId = meta.GetValueOrDefault("real_room_id", _realRoomId.ToString()),
-            title = meta.GetValueOrDefault("room_title", _title),
-            userName = meta.GetValueOrDefault("user_name", _userName),
-            startTime = meta.GetValueOrDefault("video_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()),
-            recordingStartTime = meta.GetValueOrDefault("recording_start_time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()),
-            startTimeIsFallback = meta.GetValueOrDefault("start_time_is_fallback", "0") == "1"
-        }, EventJsonOptions);
     }
 
     internal static string SanitizeFileName(string title)
@@ -1479,20 +1432,21 @@ public class BilibiliRecorder : IDisposable
     {
         if (_currentSessionKey != null)
         {
-             _logger.LogInformation($"Closing active session {_currentSessionKey} because room is offline.");
+             _logger.LogInformation("Closing active session {SessionKey} because room is offline.", _currentSessionKey);
              await EndRedisSessionAsync(isFinal: true);
              return;
         }
 
         if (CheckActiveSession != null)
         {
-            try 
+            try
             {
                 var sessionKey = await CheckActiveSession(_uid, _roomId);
                 if (!string.IsNullOrEmpty(sessionKey))
                 {
                     _logger.LogInformation("Found stale session {SessionKey} for uid {Uid}. Closing it.", sessionKey, _uid);
                     _currentSessionKey = sessionKey;
+                    await RecoverSessionStateAsync();
                     await EndRedisSessionAsync(isFinal: true);
                 }
             }
@@ -1515,68 +1469,40 @@ public class BilibiliRecorder : IDisposable
 
         try
         {
-            _logger.LogInformation($"Finalizing session {_currentSessionKey}...");
-            
+            _logger.LogInformation("Finalizing session {SessionKey}...", _currentSessionKey);
+
             var listKey = _currentSessionKey + ":list";
             var metaKey = _currentSessionKey + ":meta";
             var meta = await _redis.GetMetadataAsync(metaKey);
 
-            var tmpFileName = await EnsureTmpFilenameAsync(metaKey, meta);
-            var tmpRoomDir = Path.Combine(_danmakuTmpDir, _uid);
-            if (!Directory.Exists(tmpRoomDir)) Directory.CreateDirectory(tmpRoomDir);
-            var tmpFilePath = Path.Combine(tmpRoomDir, tmpFileName);
-
-            var lines = new List<string>();
-            var metaLine = BuildSessionMetaLine(meta);
-
-            if (File.Exists(tmpFilePath))
-            {
-                var existingLines = await File.ReadAllLinesAsync(tmpFilePath, Encoding.UTF8);
-                if (existingLines.Length > 0)
-                {
-                    if (LooksLikeMetaLine(existingLines[0]))
-                    {
-                        existingLines[0] = metaLine;
-                        lines.AddRange(existingLines);
-                    }
-                    else
-                    {
-                        lines.Add(metaLine);
-                        lines.AddRange(existingLines);
-                    }
-                }
-                else
-                {
-                    lines.Add(metaLine);
-                }
-            }
-            else
-            {
-                lines.Add(metaLine);
-            }
-
+            // Flush remaining Redis tail to SQLite
             var totalCount = await _redis.GetListLengthAsync(listKey);
             var remainingCount = totalCount - _dumpOffset;
-            if (remainingCount > 0)
+            // Issue #3: Capture connection to local variable
+            var conn = _sessionDbConn;
+            if (remainingCount > 0 && conn != null)
             {
                 var remaining = await _redis.GetListRangeAsync(listKey, _dumpOffset, totalCount - 1);
-                lines.AddRange(remaining);
+                var events = DeserializeEvents(remaining);
+                if (events.Count > 0)
+                {
+                    await _sessionDb.WriteBatchAsync(conn, events);
+                }
+                _dumpOffset = totalCount;
+                _logger.LogInformation("Flushed final Redis tail ({Count} messages) to SQLite", events.Count);
             }
 
-            await File.WriteAllLinesAsync(tmpFilePath, lines, Encoding.UTF8);
-            _logger.LogInformation($"Flushed final Redis tail to tmp file {tmpFilePath}");
-            
+            // Close SQLite connection
+            await _sessionDb.CloseSessionAsync(_uid);
+            _sessionDbConn = null;
+
             var endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            
+            var startTimestamp = GetSessionStartTimestamp(meta);
+            var sqliteRelativePath = "sqlite:" + _sessionDb.GetRelativeDbPath(_uid, startTimestamp);
+
             if (OnSessionEnded != null)
             {
-                var finalFileName = BuildSessionFilename(GetSessionStartTimestamp(meta), meta.GetValueOrDefault("room_title", _title));
-                var finalRoomDir = Path.Combine(_danmakuDir, _uid);
-                if (!Directory.Exists(finalRoomDir)) Directory.CreateDirectory(finalRoomDir);
-                var finalFilePath = Path.Combine(finalRoomDir, finalFileName);
-                FileUtils.MoveFileWithFallback(tmpFilePath, finalFilePath, _logger);
-                _logger.LogInformation("Promoted tmp file {TmpFile} to final file {FinalFile}", tmpFilePath, finalFilePath);
-                await OnSessionEnded.Invoke(_uid, _roomId, endTime, finalFilePath);
+                await OnSessionEnded.Invoke(_uid, _roomId, endTime, sqliteRelativePath);
             }
 
             await _redis.DeleteKeyAsync(_currentSessionKey + ":list");
@@ -1587,14 +1513,17 @@ public class BilibiliRecorder : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to dump Redis to JSONL");
-            // 保底：即使归档失败，也要把 session 标记为已结束
+            _logger.LogError(ex, "Failed to finalize Redis session to SQLite");
+            // 保底：即使归档失败，也要关闭连接并把 session 标记为已结束
             try
             {
+                await _sessionDb.CloseSessionAsync(_uid);
+                _sessionDbConn = null;
                 var endTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 if (OnSessionEnded != null)
                 {
-                    await OnSessionEnded.Invoke(_uid, _roomId, endTime, string.Empty);
+                    var sqliteRelativePath = "sqlite:" + _sessionDb.GetRelativeDbPath(_uid, _sessionStartTimestamp);
+                    await OnSessionEnded.Invoke(_uid, _roomId, endTime, sqliteRelativePath);
                 }
             }
             catch (Exception fallbackEx)
@@ -1608,31 +1537,48 @@ public class BilibiliRecorder : IDisposable
         }
     }
 
+    /// <summary>
+    /// Issue #11: Helper to observe exceptions from fire-and-forget async calls.
+    /// </summary>
+    private async Task FireAndForgetAsync(Task task, string operationName)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fire-and-forget operation {Operation} failed for uid {Uid}", operationName, _uid);
+        }
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
         _isDisposed = true;
-        StopAsync().Wait();
-        _cts?.Dispose();
-    }
-
-    internal static bool LooksLikeMetaLine(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
+        // Issue #9: Use Task.Run to avoid deadlock from synchronous blocking on async method
+        // In ASP.NET Core there's no SynchronizationContext, but this is safer for all contexts
+        Task.Run(async () =>
         {
-            return false;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(line);
-            return doc.RootElement.TryGetProperty("kind", out var kind)
-                && kind.ValueKind == JsonValueKind.String
-                && kind.GetString() == "meta";
-        }
-        catch
-        {
-            return false;
-        }
+            try
+            {
+                await StopAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during StopAsync in Dispose for uid {Uid}", _uid);
+            }
+            finally
+            {
+                // 确保 SQLite 连接不泄漏：StopAsync 可能因异常未走到 CloseSessionAsync
+                if (_sessionDbConn != null)
+                {
+                    try { await _sessionDbConn.CloseAsync(); } catch { /* best effort */ }
+                    try { await _sessionDbConn.DisposeAsync(); } catch { /* best effort */ }
+                    _sessionDbConn = null;
+                }
+                _cts?.Dispose();
+            }
+        }).Wait(TimeSpan.FromSeconds(10)); // Wait with timeout to prevent infinite hang
     }
 }

@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Danmu.Server.Data;
 using Danmu.Server.Models;
 using Danmu.Server.Utils;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Danmu.Server.Services;
@@ -21,18 +22,17 @@ public class DanmakuService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DanmakuService> _logger;
     private readonly RedisService _redis;
+    private readonly SessionDbService _sessionDb;
     private readonly string _danmakuDir;
-    private readonly string _danmakuTmpDir;
 
-    public DanmakuService(IServiceScopeFactory scopeFactory, ILogger<DanmakuService> logger, RedisService redis)
+    public DanmakuService(IServiceScopeFactory scopeFactory, ILogger<DanmakuService> logger, RedisService redis, SessionDbService sessionDb)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _redis = redis;
+        _sessionDb = sessionDb;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
             ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
-        _danmakuTmpDir = Environment.GetEnvironmentVariable("DANMAKU_TMP_DIR")
-            ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku_tmp"));
     }
 
     private DanmuContext GetDb(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<DanmuContext>();
@@ -49,241 +49,6 @@ public class DanmakuService
                          (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)))
             .OrderByDescending(s => s.StartTime)
             .FirstOrDefaultAsync();
-    }
-
-    public async Task ReconcileTmpFilesAsync(string uid, long roomId, long? currentLiveStartTime, bool isLive)
-    {
-        if (string.IsNullOrWhiteSpace(uid))
-        {
-            uid = roomId.ToString();
-        }
-
-        var roomTmpDir = Path.Combine(_danmakuTmpDir, uid);
-        if (!Directory.Exists(roomTmpDir))
-        {
-            return;
-        }
-
-        var tmpFiles = Directory.GetFiles(roomTmpDir, "*.jsonl", SearchOption.TopDirectoryOnly);
-        if (tmpFiles.Length == 0)
-        {
-            return;
-        }
-
-        var keepFileName = isLive && currentLiveStartTime.HasValue && currentLiveStartTime.Value > 0
-            ? $"{currentLiveStartTime.Value}.jsonl"
-            : null;
-
-        foreach (var tmpFile in tmpFiles)
-        {
-            if (!string.IsNullOrEmpty(keepFileName)
-                && string.Equals(Path.GetFileName(tmpFile), keepFileName, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("Restoring tmp file to Redis for active live session: {TmpFile}", tmpFile);
-                await RestoreTmpToRedisAsync(uid, roomId, tmpFile, currentLiveStartTime!.Value);
-                continue;
-            }
-
-            await PromoteTmpFileAsync(uid, roomId, tmpFile);
-        }
-    }
-
-    private async Task RestoreTmpToRedisAsync(string uid, long roomId, string tmpFilePath, long liveStartTime)
-    {
-        try
-        {
-            var lines = await File.ReadAllLinesAsync(tmpFilePath);
-            var messageLines = new List<string>();
-            SessionFileMeta? metaInfo = null;
-
-            foreach (var rawLine in lines)
-            {
-                var line = rawLine.Trim();
-                if (string.IsNullOrEmpty(line)) continue;
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-                    if (TryGetString(root, "kind") == "meta")
-                    {
-                        metaInfo = new SessionFileMeta
-                        {
-                            Title = TryGetString(root, "title") ?? "未知直播",
-                            UserName = TryGetString(root, "userName") ?? "未知主播",
-                            RoomId = TryGetString(root, "roomId") ?? roomId.ToString(),
-                            Uid = TryGetString(root, "uid") ?? uid,
-                            RecordStartTimestamp = TryGetInt64(root, "startTime") ?? liveStartTime
-                        };
-                        continue;
-                    }
-                }
-                catch { }
-
-                messageLines.Add(line);
-            }
-
-            if (messageLines.Count == 0 && metaInfo == null)
-            {
-                _logger.LogWarning("Tmp file {TmpFile} is empty or has no valid data, deleting", tmpFilePath);
-                File.Delete(tmpFilePath);
-                return;
-            }
-
-            var sessionKey = $"danmaku:session:{uid}:{liveStartTime}";
-            var listKey = sessionKey + ":list";
-            var metaKey = sessionKey + ":meta";
-
-            var existingRedisCount = await _redis.GetListLengthAsync(listKey);
-            var restoredMessageCount = messageLines.Count;
-
-            if (existingRedisCount > messageLines.Count)
-            {
-                var redisTail = await _redis.GetListRangeAsync(listKey, messageLines.Count, existingRedisCount - 1);
-                if (redisTail.Count > 0)
-                {
-                    await File.AppendAllLinesAsync(tmpFilePath, redisTail, System.Text.Encoding.UTF8);
-                    restoredMessageCount += redisTail.Count;
-                    _logger.LogInformation(
-                        "Preserved {TailCount} Redis-only messages by appending them to tmp file {TmpFile}",
-                        redisTail.Count,
-                        tmpFilePath);
-                }
-            }
-            else if (existingRedisCount < messageLines.Count)
-            {
-                // Redis is empty or behind tmp, rebuild it from the tmp baseline.
-                await _redis.DeleteKeyAsync(listKey);
-                await _redis.PushMessagesAsync(listKey, messageLines);
-                restoredMessageCount = messageLines.Count;
-            }
-            else if (existingRedisCount == 0 && messageLines.Count == 0)
-            {
-                _logger.LogInformation("Tmp file {TmpFile} has no messages yet; restoring metadata only", tmpFilePath);
-            }
-
-            // 构建 meta
-            var meta = new Dictionary<string, string>
-            {
-                { "uid", metaInfo?.Uid ?? uid },
-                { "room_id", metaInfo?.RoomId ?? roomId.ToString() },
-                { "real_room_id", metaInfo?.RoomId ?? roomId.ToString() },
-                { "room_title", metaInfo?.Title ?? "未知直播" },
-                { "user_name", metaInfo?.UserName ?? "未知主播" },
-                { "video_start_time", liveStartTime.ToString() },
-                { "recording_start_time", liveStartTime.ToString() },
-                { "start_time_is_fallback", "0" },
-                { "filename", $"{liveStartTime}.jsonl" },
-                { "dump_offset", restoredMessageCount.ToString() }
-            };
-
-            await _redis.DeleteKeyAsync(metaKey);
-            await _redis.SetMetadataAsync(metaKey, meta);
-            await _redis.SetLiveSessionKeyAsync(uid, sessionKey);
-
-            _logger.LogInformation(
-                "Restored active tmp file {TmpFile} to Redis session {SessionKey} (tmpMessages={TmpCount}, redisExisting={RedisCount}, dumpOffset={DumpOffset})",
-                tmpFilePath, sessionKey, messageLines.Count, existingRedisCount, restoredMessageCount);
-
-            // 更新 DB session
-            using var scope = _scopeFactory.CreateScope();
-            var db = GetDb(scope);
-            var roomIdStr = roomId.ToString();
-
-            var session = await db.Sessions
-                .Where(s =>
-                    (s.EndTime == null || s.EndTime == 0) &&
-                    ((!string.IsNullOrEmpty(uid) && s.Uid == uid) ||
-                     (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)))
-                .OrderByDescending(s => s.StartTime)
-                .FirstOrDefaultAsync();
-
-            if (session != null)
-            {
-                session.FilePath = "redis:" + sessionKey;
-                session.Title = metaInfo?.Title ?? session.Title;
-                session.UserName = metaInfo?.UserName ?? session.UserName;
-                session.StartTime = liveStartTime;
-                await db.SaveChangesAsync();
-                _logger.LogInformation(
-                    "Updated DB session {SessionId} FilePath to redis:{SessionKey}",
-                    session.Id, sessionKey);
-            }
-            else if (restoredMessageCount > 0)
-            {
-                session = new Session
-                {
-                    Uid = uid,
-                    RoomId = roomIdStr,
-                    Title = metaInfo?.Title ?? "未知直播",
-                    UserName = metaInfo?.UserName ?? "未知主播",
-                    StartTime = liveStartTime,
-                    EndTime = 0,
-                    FilePath = "redis:" + sessionKey,
-                    SummaryJson = "{}",
-                    GiftSummaryJson = "{}",
-                    CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
-                };
-                db.Sessions.Add(session);
-                await db.SaveChangesAsync();
-                _logger.LogInformation(
-                    "Created new DB session for recovered Redis session {SessionKey}",
-                    sessionKey);
-            }
-            else
-            {
-                _logger.LogInformation("Skipped creating DB session for meta-only tmp file {TmpFile}", tmpFilePath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to restore tmp file {TmpFile} to Redis for uid {Uid}, room {RoomId}",
-                tmpFilePath, uid, roomId);
-        }
-    }
-
-    public async Task PromoteTmpFileAsync(string uid, long roomId, string tmpFilePath)
-    {
-        if (!File.Exists(tmpFilePath))
-        {
-            return;
-        }
-
-        var parsed = await ParseJsonlFileAsync(tmpFilePath);
-        if (parsed == null)
-        {
-            return;
-        }
-
-        var effectiveUid = !string.IsNullOrWhiteSpace(parsed.Meta.Uid) ? parsed.Meta.Uid : uid;
-        var effectiveRoomId = long.TryParse(parsed.Meta.RoomId, out var parsedRoomId) ? parsedRoomId : roomId;
-        var startTimestamp = parsed.Meta.RecordStartTimestamp > 0
-            ? parsed.Meta.RecordStartTimestamp
-            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var title = string.IsNullOrWhiteSpace(parsed.Meta.Title) ? "未知直播" : parsed.Meta.Title;
-
-        var roomDir = Path.Combine(_danmakuDir, effectiveUid);
-        Directory.CreateDirectory(roomDir);
-        var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
-        var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(title)}.jsonl";
-        var finalFilePath = Path.Combine(roomDir, finalFileName);
-
-        _logger.LogInformation("Promoting tmp danmaku file {TmpFile} to {FinalFile}", tmpFilePath, finalFilePath);
-        FileUtils.MoveFileWithFallback(tmpFilePath, finalFilePath, _logger);
-
-        var activeSession = await GetActiveSessionAsync(effectiveUid, effectiveRoomId);
-        if (activeSession != null)
-        {
-            var endTime = parsed.Messages.Count > 0
-                ? parsed.Messages[^1].Timestamp
-                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await CloseSessionAsync(effectiveUid, effectiveRoomId, endTime, finalFilePath);
-        }
-        else
-        {
-            await ProcessFileAsync(finalFilePath);
-        }
     }
 
     public async Task CreateLiveSessionAsync(string uid, long roomId, string title, string userName, long startTime, string sessionKey)
@@ -362,22 +127,32 @@ public class DanmakuService
             .OrderByDescending(s => s.StartTime)
             .FirstOrDefaultAsync();
 
-        if (session != null)
+        if (session == null) return;
+
+        session.Uid = uid;
+        session.RoomId = roomIdStr;
+        session.EndTime = endTime;
+
+        if (string.IsNullOrEmpty(finalFilePath))
         {
-            session.Uid = uid;
-            session.RoomId = roomIdStr;
-            session.EndTime = endTime;
-            if (!string.IsNullOrEmpty(finalFilePath))
-            {
-                session.FilePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
-                await db.SaveChangesAsync();
-                await ProcessFileAsync(finalFilePath);
-            }
-            else
-            {
-                await db.SaveChangesAsync();
-            }
+            await db.SaveChangesAsync();
+            return;
         }
+
+        // finalFilePath 形如 "sqlite:{uid}/{yyyy-MM-dd HH-mm-ss}.db"
+        if (finalFilePath.StartsWith("sqlite:", StringComparison.Ordinal))
+        {
+            session.FilePath = finalFilePath;
+            await db.SaveChangesAsync();
+            // 在独立 scope 内基于 SQLite 重算统计
+            await ProcessSqliteSessionAsync(finalFilePath);
+            return;
+        }
+
+        // 兼容旧路径（迁移期遗留的 JSONL/XML 文件）
+        session.FilePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
+        await db.SaveChangesAsync();
+        await ProcessFileAsync(finalFilePath);
     }
 
     public async Task<object> GetDanmakuPagedAsync(int sessionId, int page, int pageSize,
@@ -392,40 +167,53 @@ public class DanmakuService
             return new { total = 0, list = new List<object>(), page, pageSize, totalPages = 0 };
         }
 
-        List<DanmakuMessage> messages;
+        var safePageSize = Math.Max(1, pageSize);
+        var safePage = Math.Max(1, page);
+        var startTime = session.StartTime ?? 0;
+
+        List<DanmakuMessage> pagedMessages;
+        int total;
+
         if (session.FilePath.StartsWith("redis:", StringComparison.Ordinal))
         {
             var key = session.FilePath.Substring(6);
             var lines = await _redis.GetMessagesAsync(key + ":list");
-            messages = ParseRecordedEventLines(lines);
+            var allMessages = ParseRecordedEventLines(lines);
+            var displayable = FilterDisplayable(allMessages);
+            total = displayable.Count;
+            pagedMessages = displayable
+                .Skip((safePage - 1) * safePageSize)
+                .Take(safePageSize)
+                .ToList();
+        }
+        else if (session.FilePath.StartsWith("sqlite:", StringComparison.Ordinal))
+        {
+            var (msgs, totalCount) = await _sessionDb.GetPagedAsync(session.FilePath, safePage, safePageSize);
+            pagedMessages = msgs;
+            total = totalCount;
         }
         else
         {
+            // 兼容旧路径（迁移期遗留的 JSONL/XML 文件）
             var fullPath = ResolveSessionFilePath(session);
             if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
             {
                 return new { total = 0, list = new List<object>(), page, pageSize, totalPages = 0 };
             }
 
-            messages = await LoadMessagesFromFileAsync(fullPath);
+            var allMessages = await LoadMessagesFromFileAsync(fullPath);
+            var displayable = FilterDisplayable(allMessages);
+            total = displayable.Count;
+            pagedMessages = displayable
+                .Skip((safePage - 1) * safePageSize)
+                .Take(safePageSize)
+                .ToList();
         }
 
-        var displayable = messages.Where(m =>
-            m.Type == "comment" ||
-            m.Type == "super_chat" ||
-            m.Type == "give_gift" ||
-            m.Type == "guard" ||
-            m.Type == "gift_combo").ToList();
-
-        var total = displayable.Count;
-        var safePageSize = Math.Max(1, pageSize);
-        var safePage = Math.Max(1, page);
-        var paged = displayable
-            .Skip((safePage - 1) * safePageSize)
-            .Take(safePageSize)
+        var list = pagedMessages
             .Select(m => new
             {
-                time = Math.Max(0, (m.Timestamp - (session.StartTime ?? 0)) / 1000.0),
+                time = Math.Max(0, (m.Timestamp - startTime) / 1000.0),
                 timestamp = m.Timestamp,
                 sender = m.Sender.Name,
                 uid = m.Sender.Uid,
@@ -461,11 +249,21 @@ public class DanmakuService
         return new
         {
             total,
-            list = paged,
+            list,
             page = safePage,
             pageSize = safePageSize,
             totalPages = (int)Math.Ceiling(total / (double)safePageSize)
         };
+    }
+
+    private static List<DanmakuMessage> FilterDisplayable(List<DanmakuMessage> messages)
+    {
+        return messages.Where(m =>
+            m.Type == "comment" ||
+            m.Type == "super_chat" ||
+            m.Type == "give_gift" ||
+            m.Type == "guard" ||
+            m.Type == "gift_combo").ToList();
     }
 
     public async Task<AnalysisResult?> ProcessFileAsync(string filePath)
@@ -559,10 +357,82 @@ public class DanmakuService
         {
             FileProcessingSemaphore.Release();
             fileLock.Release();
+            // Issue #13: Clean up FileLocks entry if no one else is waiting
+            if (fileLock.CurrentCount == 1)
+            {
+                FileLocks.TryRemove(filePath, out _);
+            }
         }
     }
 
-    public async Task<Session?> ImportLegacyXmlAsJsonlAsync(string sourceXmlPath, string? targetFilePath = null)
+    /// <summary>
+    /// 基于 SQLite 数据库重算指定 session 的统计、礼物汇总和点歌列表。
+    /// filePath 形如 "sqlite:{uid}/{yyyy-MM-dd HH-mm-ss}.db"。
+    /// </summary>
+    public async Task<AnalysisResult?> ProcessSqliteSessionAsync(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath) || !filePath.StartsWith("sqlite:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        await FileProcessingSemaphore.WaitAsync();
+        try
+        {
+            var messages = await _sessionDb.LoadAllMessagesAsync(filePath);
+            if (messages.Count == 0)
+            {
+                _logger.LogWarning("SQLite session {FilePath} has no messages, skip stats", filePath);
+                return null;
+            }
+
+            var analysis = BuildAnalysis(messages);
+            var giftAnalysis = BuildGiftAnalysis(messages);
+
+            using var scope = _scopeFactory.CreateScope();
+            var db = GetDb(scope);
+
+            var existingSession = await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == filePath);
+            if (existingSession == null)
+            {
+                _logger.LogWarning("SQLite session {FilePath} has no matching DB row, skip stats update", filePath);
+                return analysis;
+            }
+
+            existingSession.EndTime = messages[^1].Timestamp;
+            existingSession.SummaryJson = JsonSerializer.Serialize(analysis, JsonOptions);
+            existingSession.GiftSummaryJson = JsonSerializer.Serialize(giftAnalysis, JsonOptions);
+
+            var oldRequests = db.SongRequests.Where(r => r.SessionId == existingSession.Id);
+            db.SongRequests.RemoveRange(oldRequests);
+
+            foreach (var sr in BuildSongRequests(messages))
+            {
+                sr.SessionId = existingSession.Id;
+                sr.RoomId = existingSession.RoomId;
+                sr.Uid = sr.Uid ?? existingSession.Uid;
+                db.SongRequests.Add(sr);
+            }
+
+            await db.SaveChangesAsync();
+            return analysis;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing SQLite session {FilePath}", filePath);
+            return null;
+        }
+        finally
+        {
+            FileProcessingSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// 将旧版 XML 弹幕文件导入为 SQLite session。
+    /// 返回的 Session.FilePath 形如 "sqlite:{uid}/{yyyy-MM-dd HH-mm-ss}.db"。
+    /// </summary>
+    public async Task<Session?> ImportLegacyXmlToSqliteAsync(string sourceXmlPath, string? existingUid = null, long? existingStartTime = null)
     {
         if (!File.Exists(sourceXmlPath)) return null;
         if (!string.Equals(Path.GetExtension(sourceXmlPath), ".xml", StringComparison.OrdinalIgnoreCase)) return null;
@@ -570,71 +440,98 @@ public class DanmakuService
         var parsed = await ParseLegacyXmlFileAsync(sourceXmlPath);
         if (parsed == null) return null;
 
-        var uidOrRoom = !string.IsNullOrWhiteSpace(parsed.Meta.Uid)
+        var uid = !string.IsNullOrWhiteSpace(parsed.Meta.Uid)
             ? parsed.Meta.Uid
-            : (!string.IsNullOrWhiteSpace(parsed.Meta.RoomId) ? parsed.Meta.RoomId : InferUidFromPath(sourceXmlPath));
-        if (string.IsNullOrWhiteSpace(uidOrRoom))
-        {
-            uidOrRoom = "unknown";
-        }
+            : (!string.IsNullOrWhiteSpace(existingUid) ? existingUid
+               : (!string.IsNullOrWhiteSpace(parsed.Meta.RoomId) ? parsed.Meta.RoomId : InferUidFromPath(sourceXmlPath)));
+        if (string.IsNullOrWhiteSpace(uid)) uid = "unknown";
 
         var startTimestamp = parsed.Meta.RecordStartTimestamp > 0
             ? parsed.Meta.RecordStartTimestamp
-            : new DateTimeOffset(File.GetLastWriteTimeUtc(sourceXmlPath)).ToUnixTimeMilliseconds();
+            : (existingStartTime ?? new DateTimeOffset(File.GetLastWriteTimeUtc(sourceXmlPath)).ToUnixTimeMilliseconds());
+
         var dateStr = DateTimeOffset.FromUnixTimeMilliseconds(startTimestamp).LocalDateTime.ToString("yyyy-MM-dd HH-mm-ss");
-        var finalPath = targetFilePath;
-        if (string.IsNullOrWhiteSpace(finalPath))
+        var title = string.IsNullOrWhiteSpace(parsed.Meta.Title) ? "未知直播" : parsed.Meta.Title;
+        var dbFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(title)}.db";
+        var sqlitePath = $"sqlite:{uid}/{dbFileName}";
+
+        // 写入 SQLite
+        await _sessionDb.ImportMessagesAsync(sqlitePath, parsed.Messages);
+
+        // 计算统计并更新 DB
+        using var scope = _scopeFactory.CreateScope();
+        var db = GetDb(scope);
+
+        var session = await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == sqlitePath);
+        if (session == null && !string.IsNullOrEmpty(parsed.Meta.Uid))
         {
-            var roomDir = Path.Combine(_danmakuDir, uidOrRoom);
-            Directory.CreateDirectory(roomDir);
-            var finalFileName = $"{dateStr} {BilibiliRecorder.SanitizeFileName(parsed.Meta.Title)}.jsonl";
-            finalPath = GetAvailableFilePath(Path.Combine(roomDir, finalFileName));
+            session = await db.Sessions.FirstOrDefaultAsync(s => s.Uid == parsed.Meta.Uid && s.StartTime == startTimestamp);
+        }
+        if (session == null && !string.IsNullOrEmpty(parsed.Meta.RoomId))
+        {
+            session = await db.Sessions.FirstOrDefaultAsync(s => s.RoomId == parsed.Meta.RoomId && s.StartTime == startTimestamp);
+        }
+
+        var analysis = BuildAnalysis(parsed.Messages);
+        var giftAnalysis = BuildGiftAnalysis(parsed.Messages);
+        var endTime = parsed.Messages.Count > 0
+            ? parsed.Messages[^1].Timestamp
+            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        if (session == null)
+        {
+            session = new Session
+            {
+                Uid = uid,
+                RoomId = parsed.Meta.RoomId ?? "",
+                Title = title,
+                UserName = parsed.Meta.UserName,
+                StartTime = startTimestamp,
+                EndTime = endTime,
+                FilePath = sqlitePath,
+                SummaryJson = JsonSerializer.Serialize(analysis, JsonOptions),
+                GiftSummaryJson = JsonSerializer.Serialize(giftAnalysis, JsonOptions),
+                CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            };
+            db.Sessions.Add(session);
+            await db.SaveChangesAsync();
+
+            foreach (var sr in BuildSongRequests(parsed.Messages))
+            {
+                sr.SessionId = session.Id;
+                sr.RoomId = parsed.Meta.RoomId;
+                sr.Uid = sr.Uid ?? uid;
+                db.SongRequests.Add(sr);
+            }
+            await db.SaveChangesAsync();
         }
         else
         {
-            var targetDir = Path.GetDirectoryName(finalPath);
-            if (!string.IsNullOrWhiteSpace(targetDir))
+            session.Uid = uid;
+            session.RoomId = parsed.Meta.RoomId ?? session.RoomId;
+            session.Title = title;
+            session.UserName = parsed.Meta.UserName;
+            session.StartTime = startTimestamp;
+            session.EndTime = endTime;
+            session.FilePath = sqlitePath;
+            session.SummaryJson = JsonSerializer.Serialize(analysis, JsonOptions);
+            session.GiftSummaryJson = JsonSerializer.Serialize(giftAnalysis, JsonOptions);
+
+            var oldRequests = db.SongRequests.Where(r => r.SessionId == session.Id);
+            db.SongRequests.RemoveRange(oldRequests);
+            await db.SaveChangesAsync();
+
+            foreach (var sr in BuildSongRequests(parsed.Messages))
             {
-                Directory.CreateDirectory(targetDir);
+                sr.SessionId = session.Id;
+                sr.RoomId = parsed.Meta.RoomId;
+                sr.Uid = sr.Uid ?? uid;
+                db.SongRequests.Add(sr);
             }
+            await db.SaveChangesAsync();
         }
 
-        var metaLine = JsonSerializer.Serialize(new
-        {
-            kind = "meta",
-            version = "danmu-jsonl-v1",
-            uid = parsed.Meta.Uid,
-            roomId = parsed.Meta.RoomId,
-            realRoomId = parsed.Meta.RoomId,
-            title = parsed.Meta.Title,
-            userName = parsed.Meta.UserName,
-            startTime = startTimestamp,
-            recordingStartTime = startTimestamp,
-            startTimeIsFallback = parsed.Meta.RecordStartTimestamp <= 0
-        }, JsonOptions);
-
-        var lines = new List<string> { metaLine };
-        lines.AddRange(parsed.Messages.Select(m => JsonSerializer.Serialize(ToRecordedEvent(m), JsonOptions)));
-        await File.WriteAllLinesAsync(finalPath, lines, Encoding.UTF8);
-
-        var analysis = await ProcessFileAsync(finalPath);
-        if (analysis == null)
-        {
-            try
-            {
-                File.Delete(finalPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete converted JSONL file after import processing failed: {FilePath}", finalPath);
-            }
-            return null;
-        }
-
-        var relativePath = Path.GetRelativePath(_danmakuDir, finalPath).Replace("\\", "/");
-        using var scope = _scopeFactory.CreateScope();
-        var db = GetDb(scope);
-        return await db.Sessions.FirstOrDefaultAsync(s => s.FilePath == relativePath);
+        return session;
     }
 
     private async Task<List<DanmakuMessage>> LoadMessagesFromFileAsync(string filePath)
@@ -652,9 +549,7 @@ public class DanmakuService
 
     private async Task<ParsedSessionContent?> ParseJsonlFileAsync(string filePath)
     {
-        var lines = await File.ReadAllLinesAsync(filePath);
-        if (lines.Length == 0) return null;
-
+        // Issue #7: Use StreamReader for streaming instead of loading entire file into memory
         var messages = new List<DanmakuMessage>();
         var meta = new SessionFileMeta
         {
@@ -666,15 +561,22 @@ public class DanmakuService
         };
 
         var errorCount = 0;
-        for (var i = 0; i < lines.Length; i++)
+        var totalLines = 0;
+
+        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+
+        string? rawLine;
+        while ((rawLine = await reader.ReadLineAsync()) != null)
         {
-            var rawLine = lines[i];
+            totalLines++;
             var line = rawLine.Trim();
             if (string.IsNullOrEmpty(line)) continue;
 
             JsonDocument? doc = null;
             try
             {
+                // Issue #8: Single JSON parse - use JsonDocument to inspect kind, then deserialize
                 doc = JsonDocument.Parse(line);
                 var root = doc.RootElement;
                 var kind = TryGetString(root, "kind");
@@ -691,6 +593,7 @@ public class DanmakuService
                     continue;
                 }
 
+                // Issue #8: Deserialize directly from JsonDocument instead of re-serializing
                 var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(root.GetRawText(), JsonOptions);
                 if (recordedEvent == null) continue;
 
@@ -703,7 +606,7 @@ public class DanmakuService
                 {
                     _logger.LogWarning(ex,
                         "Skipping malformed line {LineIndex} in {FilePath}: {Snippet}",
-                        i + 1, filePath,
+                        totalLines, filePath,
                         line.Length > 200 ? line[..200] + "..." : line);
                 }
                 else if (errorCount == 6)
@@ -717,10 +620,12 @@ public class DanmakuService
             }
         }
 
+        if (totalLines == 0) return null;
+
         if (errorCount > 0)
         {
             _logger.LogWarning("Parsed {FilePath} with {ErrorCount} malformed line(s) skipped out of {TotalLines} lines",
-                filePath, errorCount, lines.Length);
+                filePath, errorCount, totalLines);
         }
 
         messages.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
@@ -1083,24 +988,31 @@ public class DanmakuService
     {
         if (string.IsNullOrWhiteSpace(session.FilePath)) return null;
 
-        var directPath = Path.Combine(_danmakuDir, session.FilePath);
-        if (File.Exists(directPath)) return directPath;
+        // Issue #2: Path traversal guard helper
+        static string? SafeCombine(string baseDir, string relative)
+        {
+            var combined = Path.GetFullPath(Path.Combine(baseDir, relative));
+            return combined.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase) ? combined : null;
+        }
+
+        var directPath = SafeCombine(_danmakuDir, session.FilePath);
+        if (directPath != null && File.Exists(directPath)) return directPath;
 
         var basename = Path.GetFileName(session.FilePath);
         if (!string.IsNullOrWhiteSpace(session.Uid))
         {
-            var uidPath = Path.Combine(_danmakuDir, session.Uid, basename);
-            if (File.Exists(uidPath)) return uidPath;
+            var uidPath = SafeCombine(_danmakuDir, Path.Combine(session.Uid, basename));
+            if (uidPath != null && File.Exists(uidPath)) return uidPath;
         }
 
         if (!string.IsNullOrWhiteSpace(session.RoomId))
         {
-            var roomPath = Path.Combine(_danmakuDir, session.RoomId, basename);
-            if (File.Exists(roomPath)) return roomPath;
+            var roomPath = SafeCombine(_danmakuDir, Path.Combine(session.RoomId, basename));
+            if (roomPath != null && File.Exists(roomPath)) return roomPath;
         }
 
-        var rootPath = Path.Combine(_danmakuDir, basename);
-        return File.Exists(rootPath) ? rootPath : directPath;
+        var rootPath = SafeCombine(_danmakuDir, basename);
+        return rootPath != null && File.Exists(rootPath) ? rootPath : directPath;
     }
 
     private static string InferUidFromPath(string filePath)
@@ -1109,19 +1021,7 @@ public class DanmakuService
         return parent?.Name ?? "";
     }
 
-    private static string GetAvailableFilePath(string preferredPath)
-    {
-        if (!File.Exists(preferredPath)) return preferredPath;
-
-        var directory = Path.GetDirectoryName(preferredPath) ?? "";
-        var fileName = Path.GetFileNameWithoutExtension(preferredPath);
-        var extension = Path.GetExtension(preferredPath);
-        for (var i = 1; ; i++)
-        {
-            var candidate = Path.Combine(directory, $"{fileName} ({i}){extension}");
-            if (!File.Exists(candidate)) return candidate;
-        }
-    }
+    // Issue #19: Removed dead code GetAvailableFilePath (was unused static method with infinite loop risk)
 
     private static RecordedDanmakuEvent ToRecordedEvent(DanmakuMessage message)
     {

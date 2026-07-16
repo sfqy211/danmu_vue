@@ -28,9 +28,10 @@ public class AdminController : ControllerBase
     private readonly HealthCheckService _healthCheckService;
     private readonly ChangelogService _changelogService;
     private readonly LogService _logService;
+    private readonly SessionDbService _sessionDb;
     private readonly string _danmakuDir;
 
-    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, RedisService redis, LiveStatusService liveStatusService, HealthCheckService healthCheckService, ChangelogService changelogService, LogService logService, ILogger<AdminController> logger)
+    public AdminController(DanmuContext db, ProcessManager pm, BilibiliService bilibili, DanmakuService danmakuService, BiliAccountService accountService, RedisService redis, LiveStatusService liveStatusService, HealthCheckService healthCheckService, ChangelogService changelogService, LogService logService, SessionDbService sessionDb, ILogger<AdminController> logger)
     {
         _db = db;
         _pm = pm;
@@ -42,6 +43,7 @@ public class AdminController : ControllerBase
         _healthCheckService = healthCheckService;
         _changelogService = changelogService;
         _logService = logService;
+        _sessionDb = sessionDb;
         _logger = logger;
         _danmakuDir = Environment.GetEnvironmentVariable("DANMAKU_DIR")
                       ?? Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../server/data/danmaku"));
@@ -456,7 +458,7 @@ public class AdminController : ControllerBase
                 await file.CopyToAsync(stream);
             }
 
-            var session = await _danmakuService.ImportLegacyXmlAsJsonlAsync(tempPath);
+            var session = await _danmakuService.ImportLegacyXmlToSqliteAsync(tempPath);
             if (session == null)
             {
                 return BadRequest(new { error = "XML 解析或转换失败" });
@@ -522,84 +524,62 @@ public class AdminController : ControllerBase
             return BadRequest(new { error = "当前直播回放不是本地文件，无法替换" });
         }
 
-        var targetPath = ResolveSessionFilePath(session);
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            return BadRequest(new { error = "无法定位原始 jsonl 文件" });
-        }
+        // 备份原 SQLite 文件（或旧 JSONL 文件）路径信息，失败时回滚
+        var oldFilePath = session.FilePath;
+        var oldUid = session.Uid;
+        var oldStartTime = session.StartTime;
 
-        var backupPath = Path.Combine(Path.GetTempPath(), "danmu-session-backups", $"{Guid.NewGuid():N}.jsonl");
-        Directory.CreateDirectory(Path.GetDirectoryName(backupPath)!);
+        var tempDir = Path.Combine(Path.GetTempPath(), "danmu-session-imports");
+        Directory.CreateDirectory(tempDir);
+        var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}.xml");
 
-        var hasBackup = false;
         try
         {
-            if (System.IO.File.Exists(targetPath))
+            await using (var stream = System.IO.File.Create(tempPath))
             {
-                System.IO.File.Copy(targetPath, backupPath, true);
-                hasBackup = true;
+                await file.CopyToAsync(stream);
             }
 
-            var tempDir = Path.Combine(Path.GetTempPath(), "danmu-session-imports");
-            Directory.CreateDirectory(tempDir);
-            var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}.xml");
-
-            try
+            // 导入为新的 SQLite 文件（若 uid/startTime 一致则覆盖原 .db）
+            var imported = await _danmakuService.ImportLegacyXmlToSqliteAsync(tempPath, oldUid, oldStartTime);
+            if (imported == null)
             {
-                await using (var stream = System.IO.File.Create(tempPath))
-                {
-                    await file.CopyToAsync(stream);
-                }
-
-                var imported = await _danmakuService.ImportLegacyXmlAsJsonlAsync(tempPath, targetPath);
-                if (imported == null)
-                {
-                    throw new InvalidOperationException("XML 解析或转换失败");
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    id = imported.Id,
-                    session = new
-                    {
-                        imported.Id,
-                        imported.Uid,
-                        imported.RoomId,
-                        imported.Title,
-                        imported.UserName,
-                        imported.StartTime,
-                        imported.EndTime,
-                        imported.FilePath
-                    }
-                });
+                throw new InvalidOperationException("XML 解析或转换失败");
             }
-            finally
+
+            // 若旧路径是 JSONL/XML 本地文件且与新 SQLite 路径不同，清理旧文件
+            if (!string.IsNullOrEmpty(oldFilePath)
+                && !oldFilePath.StartsWith("redis:", StringComparison.OrdinalIgnoreCase)
+                && !oldFilePath.StartsWith("sqlite:", StringComparison.OrdinalIgnoreCase)
+                && oldFilePath != imported.FilePath)
             {
-                try
+                var oldFullPath = ResolveSessionFilePath(session);
+                if (!string.IsNullOrEmpty(oldFullPath) && System.IO.File.Exists(oldFullPath))
                 {
-                    if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete temp upload file {TempPath}", tempPath);
+                    try { System.IO.File.Delete(oldFullPath); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete old local file {Path}", oldFullPath); }
                 }
             }
+
+            return Ok(new
+            {
+                success = true,
+                id = imported.Id,
+                session = new
+                {
+                    imported.Id,
+                    imported.Uid,
+                    imported.RoomId,
+                    imported.Title,
+                    imported.UserName,
+                    imported.StartTime,
+                    imported.EndTime,
+                    imported.FilePath
+                }
+            });
         }
         catch (Exception ex)
         {
-            if (hasBackup)
-            {
-                try
-                {
-                    System.IO.File.Copy(backupPath, targetPath, true);
-                }
-                catch (Exception restoreEx)
-                {
-                    _logger.LogError(restoreEx, "Failed to restore backup jsonl file {TargetPath} after XML replace failed", targetPath);
-                }
-            }
-
             _logger.LogError(ex, "Failed to replace session XML for session {SessionId}", id);
             return StatusCode(500, new { error = "替换导入失败: " + ex.Message });
         }
@@ -607,11 +587,11 @@ public class AdminController : ControllerBase
         {
             try
             {
-                if (System.IO.File.Exists(backupPath)) System.IO.File.Delete(backupPath);
+                if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to delete backup jsonl file {BackupPath}", backupPath);
+                _logger.LogWarning(ex, "Failed to delete temp upload file {TempPath}", tempPath);
             }
         }
     }
@@ -648,16 +628,25 @@ public class AdminController : ControllerBase
                 continue;
             }
 
-            var fullPath = ResolveSessionFilePath(session);
-            if (string.IsNullOrEmpty(fullPath) || !System.IO.File.Exists(fullPath))
-            {
-                failedIds.Add(id);
-                continue;
-            }
-
             try
             {
-                var result = await _danmakuService.ProcessFileAsync(fullPath);
+                AnalysisResult? result;
+                if (session.FilePath.StartsWith("sqlite:", StringComparison.Ordinal))
+                {
+                    result = await _danmakuService.ProcessSqliteSessionAsync(session.FilePath);
+                }
+                else
+                {
+                    // 兼容旧 JSONL/XML 文件
+                    var fullPath = ResolveSessionFilePath(session);
+                    if (string.IsNullOrEmpty(fullPath) || !System.IO.File.Exists(fullPath))
+                    {
+                        failedIds.Add(id);
+                        continue;
+                    }
+                    result = await _danmakuService.ProcessFileAsync(fullPath);
+                }
+
                 if (result == null)
                 {
                     failedIds.Add(id);
@@ -669,7 +658,7 @@ public class AdminController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, $"Failed to recalculate session {id}");
+                _logger.LogWarning(ex, "Failed to recalculate session {SessionId}", id);
                 failedIds.Add(id);
             }
         }
@@ -711,25 +700,37 @@ public class AdminController : ControllerBase
         var session = await _db.Sessions.FindAsync(id);
         if (session == null) return NotFound(new { error = "Session not found" });
 
-        var fullPath = ResolveSessionFilePath(session);
+        var filePath = session.FilePath;
 
         var requests = _db.SongRequests.Where(r => r.SessionId == id);
         _db.SongRequests.RemoveRange(requests);
         _db.Sessions.Remove(session);
         await _db.SaveChangesAsync();
 
-        if (!string.IsNullOrEmpty(fullPath))
+        if (!string.IsNullOrEmpty(filePath))
         {
-            try
+            if (filePath.StartsWith("sqlite:", StringComparison.Ordinal))
             {
-                if (System.IO.File.Exists(fullPath))
-                {
-                    System.IO.File.Delete(fullPath);
-                }
+                _sessionDb.DeleteDbFile(filePath);
             }
-            catch (Exception ex)
+            else if (!filePath.StartsWith("redis:", StringComparison.Ordinal))
             {
-                _logger.LogWarning(ex, $"Failed to delete danmaku file: {fullPath}");
+                // 兼容旧 JSONL/XML 本地文件
+                var fullPath = ResolveSessionFilePath(session);
+                if (!string.IsNullOrEmpty(fullPath))
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(fullPath))
+                        {
+                            System.IO.File.Delete(fullPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete danmaku file: {FullPath}", fullPath);
+                    }
+                }
             }
         }
 

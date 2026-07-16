@@ -33,6 +33,13 @@ if (File.Exists(envPathLocal))
 else if (File.Exists(envPathRoot))
     LoadEnvFile(envPathRoot);
 
+// ─── CLI 工具入口（ADR-3 JSONL→SQLite 一次性迁移） ───────────────
+if (args.Length > 0 && string.Equals(args[0], "migrate-jsonl", StringComparison.OrdinalIgnoreCase))
+{
+    var exitCode = await Danmu.Server.Tools.MigrateJsonlToSqlite.RunAsync(args.Skip(1).ToArray());
+    Environment.Exit(exitCode);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure Serilog with rolling file sink
@@ -90,11 +97,11 @@ builder.Services.AddDbContext<DanmuContext>(options =>
 // Services
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<DanmakuService>();
+builder.Services.AddSingleton<SessionDbService>();
 builder.Services.AddSingleton<RedisReadiness>();
 // Start embedded Redis (Garnet) before connecting
 builder.Services.AddHostedService<EmbeddedRedisService>();
 builder.Services.AddSingleton<RedisService>();
-builder.Services.AddHostedService<DanmakuProcessor>();
 builder.Services.AddHttpClient<BilibiliService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(5);
