@@ -384,6 +384,11 @@ public static class MigrateJsonlToSqlite
             DmType = e.DmType,
             UlLevel = e.UlLevel,
             WealthLevel = e.WealthLevel,
+            MedalAnchor = e.MedalAnchor,
+            MedalRoomId = e.MedalRoomId,
+            MedalGuardLevel = e.MedalGuardLevel,
+            MedalIsLight = e.MedalIsLight,
+            MedalAnchorUid = e.MedalAnchorUid,
             Sender = new Sender { Name = e.User ?? "", Uid = e.Uid ?? "" }
         };
     }

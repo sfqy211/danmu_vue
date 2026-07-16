@@ -172,7 +172,12 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                 dm_type           INTEGER,
                 raw_command       TEXT,
                 ul_level          INTEGER,
-                wealth_level      INTEGER
+                wealth_level      INTEGER,
+                medal_anchor      TEXT,
+                medal_room_id     INTEGER,
+                medal_guard_level INTEGER,
+                medal_is_light    INTEGER,
+                medal_anchor_uid  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_danmaku_timestamp ON danmaku_messages(timestamp);
             CREATE INDEX IF NOT EXISTS idx_danmaku_type ON danmaku_messages(type);
@@ -202,11 +207,13 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             INSERT INTO danmaku_messages
                 (type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                  total_coin, discount_price, guard_level, medal_level, medal_name, coin_type,
-                 duration, face, emots, dm_type, raw_command, ul_level, wealth_level)
+                 duration, face, emots, dm_type, raw_command, ul_level, wealth_level,
+                 medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid)
             VALUES
                 (@type, @timestamp, @user, @uid, @text, @text_jpn, @name, @count, @price, @is_price_total,
                  @total_coin, @discount_price, @guard_level, @medal_level, @medal_name, @coin_type,
-                 @duration, @face, @emots, @dm_type, @raw_command, @ul_level, @wealth_level);
+                 @duration, @face, @emots, @dm_type, @raw_command, @ul_level, @wealth_level,
+                 @medal_anchor, @medal_room_id, @medal_guard_level, @medal_is_light, @medal_anchor_uid);
             """;
 
         // 预创建参数（Issue #14: 使用正确的 SQLite 类型）
@@ -233,6 +240,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         var pRawCommand = AddParam(cmd, "@raw_command", SqliteType.Text);
         var pUlLevel = AddParam(cmd, "@ul_level", SqliteType.Integer);
         var pWealthLevel = AddParam(cmd, "@wealth_level", SqliteType.Integer);
+        var pMedalAnchor = AddParam(cmd, "@medal_anchor", SqliteType.Text);
+        var pMedalRoomId = AddParam(cmd, "@medal_room_id", SqliteType.Integer);
+        var pMedalGuardLevel = AddParam(cmd, "@medal_guard_level", SqliteType.Integer);
+        var pMedalIsLight = AddParam(cmd, "@medal_is_light", SqliteType.Integer);
+        var pMedalAnchorUid = AddParam(cmd, "@medal_anchor_uid", SqliteType.Text);
 
         foreach (var e in events)
         {
@@ -260,6 +272,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             pRawCommand.Value = (object?)e.RawCommand ?? DBNull.Value;
             pUlLevel.Value = (object?)e.UlLevel ?? DBNull.Value;
             pWealthLevel.Value = (object?)e.WealthLevel ?? DBNull.Value;
+            pMedalAnchor.Value = (object?)e.MedalAnchor ?? DBNull.Value;
+            pMedalRoomId.Value = (object?)e.MedalRoomId ?? DBNull.Value;
+            pMedalGuardLevel.Value = (object?)e.MedalGuardLevel ?? DBNull.Value;
+            pMedalIsLight.Value = e.MedalIsLight.HasValue ? (e.MedalIsLight.Value ? 1 : 0) : DBNull.Value;
+            pMedalAnchorUid.Value = (object?)e.MedalAnchorUid ?? DBNull.Value;
 
             await cmd.ExecuteNonQueryAsync();
         }
@@ -315,7 +332,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         selectCmd.CommandText = $"""
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                    total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
-                   ul_level, wealth_level
+                   ul_level, wealth_level,
+                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid
             FROM danmaku_messages
             WHERE type IN {DisplayableTypesSql}
             ORDER BY timestamp ASC, id ASC
@@ -360,7 +378,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         cmd.CommandText = """
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                    total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
-                   ul_level, wealth_level
+                   ul_level, wealth_level,
+                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid
             FROM danmaku_messages
             ORDER BY timestamp ASC, id ASC;
             """;
@@ -475,6 +494,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             DmType = m.DmType,
             UlLevel = m.UlLevel,
             WealthLevel = m.WealthLevel,
+            MedalAnchor = m.MedalAnchor,
+            MedalRoomId = m.MedalRoomId,
+            MedalGuardLevel = m.MedalGuardLevel,
+            MedalIsLight = m.MedalIsLight,
+            MedalAnchorUid = m.MedalAnchorUid,
             RawCommand = m.RawCommand
         };
     }
@@ -486,7 +510,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         "type", "timestamp", "user", "uid", "text", "text_jpn", "name", "count",
         "price", "is_price_total", "total_coin", "guard_level", "medal_level",
         "medal_name", "coin_type", "duration", "face", "emots", "dm_type", "raw_command",
-        "ul_level", "wealth_level"
+        "ul_level", "wealth_level", "medal_anchor", "medal_room_id", "medal_guard_level",
+        "medal_is_light", "medal_anchor_uid"
     ];
 
     private static DanmakuMessage ReadRowToMessage(SqliteDataReader reader)
@@ -545,6 +570,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             RawCommand = reader.IsDBNull(ordinals[19]) ? null : reader.GetString(ordinals[19]), // raw_command
             UlLevel = reader.IsDBNull(ordinals[20]) ? null : reader.GetInt32(ordinals[20]), // ul_level
             WealthLevel = reader.IsDBNull(ordinals[21]) ? null : reader.GetInt32(ordinals[21]), // wealth_level
+            MedalAnchor = reader.IsDBNull(ordinals[22]) ? null : reader.GetString(ordinals[22]), // medal_anchor
+            MedalRoomId = reader.IsDBNull(ordinals[23]) ? null : reader.GetInt32(ordinals[23]), // medal_room_id
+            MedalGuardLevel = reader.IsDBNull(ordinals[24]) ? null : reader.GetInt32(ordinals[24]), // medal_guard_level
+            MedalIsLight = reader.IsDBNull(ordinals[25]) ? null : reader.GetInt32(ordinals[25]) == 1, // medal_is_light
+            MedalAnchorUid = reader.IsDBNull(ordinals[26]) ? null : (long?)reader.GetInt64(ordinals[26]), // medal_anchor_uid
             Sender = new Sender
             {
                 Name = reader.GetString(ordinals[2]), // user
