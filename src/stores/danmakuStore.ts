@@ -39,19 +39,21 @@ export const useDanmakuStore = defineStore('danmaku', () => {
   const loadDisplaySettings = () => {
     try {
       const saved = JSON.parse(localStorage.getItem(DISPLAY_STORAGE_KEY) || '{}');
-      return { showAvatar: saved.showAvatar ?? true, showWealthLevel: saved.showWealthLevel ?? true, showFanMedal: saved.showFanMedal ?? true };
-    } catch { return { showAvatar: true, showWealthLevel: true, showFanMedal: true }; }
+      return { showAvatar: saved.showAvatar ?? true, showWealthLevel: saved.showWealthLevel ?? true, showFanMedal: saved.showFanMedal ?? true, showEmoticon: saved.showEmoticon ?? true };
+    } catch { return { showAvatar: true, showWealthLevel: true, showFanMedal: true, showEmoticon: true }; }
   };
   const saved = loadDisplaySettings();
   const showAvatar = ref(saved.showAvatar);
   const showWealthLevel = ref(saved.showWealthLevel);
   const showFanMedal = ref(saved.showFanMedal);
+  const showEmoticon = ref(saved.showEmoticon);
 
-  watch([showAvatar, showWealthLevel, showFanMedal], () => {
+  watch([showAvatar, showWealthLevel, showFanMedal, showEmoticon], () => {
     localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify({
       showAvatar: showAvatar.value,
       showWealthLevel: showWealthLevel.value,
       showFanMedal: showFanMedal.value,
+      showEmoticon: showEmoticon.value,
     }));
   });
 
@@ -240,6 +242,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     excludeAvatar: !showAvatar.value,
     excludeWealthLevel: !showWealthLevel.value,
     excludeFanMedal: !showFanMedal.value,
+    excludeEmoticon: !showEmoticon.value,
   });
 
   const fetchDanmaku = async () => {
@@ -336,6 +339,7 @@ export const useDanmakuStore = defineStore('danmaku', () => {
     showAvatar,
     showWealthLevel,
     showFanMedal,
+    showEmoticon,
     hiddenUsers,
     toggleHideUser,
     

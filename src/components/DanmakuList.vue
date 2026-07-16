@@ -55,7 +55,7 @@
                 <FansMedal v-if="store.showFanMedal" :item="virtualItem.item" />
                 <span class="dm-user" :class="getGuardClass(virtualItem.item.guardLevel)" @click="openUserMenu($event, virtualItem.item)">{{ virtualItem.item.user }}</span>
               </div>
-              <span class="dm-message" v-html="renderTextWithEmoticons(virtualItem.item.content, virtualItem.item.emots)"></span>
+              <span class="dm-message" v-html="wrapRender(virtualItem.item.content, virtualItem.item.emots)"></span>
             </div>
             </div>
           </div>
@@ -225,6 +225,15 @@ import FansMedal from './FansMedal.vue';
 import { getWealthLevelUrl } from '../constants/wealthLevel';
 import { getGuardIconUrl } from '../constants/guardIcon';
 import { renderTextWithEmoticons } from '../utils/emoticon';
+
+const wrapRender = (text: string, emots?: Record<string, any>) => {
+  if (store.showEmoticon) return renderTextWithEmoticons(text, emots);
+  return escapeHtml(text || '');
+};
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
 
 
 

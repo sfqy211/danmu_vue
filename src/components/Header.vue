@@ -181,6 +181,13 @@
             </div>
             <el-switch v-model="store.showFanMedal" />
           </div>
+          <div class="drawer-item">
+            <div class="item-left">
+              <el-icon><Picture /></el-icon>
+              <span>显示表情包</span>
+            </div>
+            <el-switch v-model="store.showEmoticon" />
+          </div>
         </div>
         
         <el-divider />
@@ -335,7 +342,8 @@ import {
   Clock,
   User,
   Trophy,
-  Medal
+  Medal,
+  Picture
 } from '@element-plus/icons-vue';
 import DanmakuStats from './DanmakuStats.vue';
 import RevenueStats from './RevenueStats.vue';

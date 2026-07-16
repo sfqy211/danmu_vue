@@ -236,11 +236,12 @@ export const getSessionsTotal = async (
   return res.data;
 };
 
-export const getSessionDanmaku = async (sessionId: number, page: number = 1, pageSize: number = 100, options?: { excludeAvatar?: boolean; excludeWealthLevel?: boolean; excludeFanMedal?: boolean }) => {
+export const getSessionDanmaku = async (sessionId: number, page: number = 1, pageSize: number = 100, options?: { excludeAvatar?: boolean; excludeWealthLevel?: boolean; excludeFanMedal?: boolean; excludeEmoticon?: boolean }) => {
   const params: Record<string, any> = { id: sessionId, page, pageSize };
   if (options?.excludeAvatar) params.excludeAvatar = true;
   if (options?.excludeWealthLevel) params.excludeWealthLevel = true;
   if (options?.excludeFanMedal) params.excludeFanMedal = true;
+  if (options?.excludeEmoticon) params.excludeEmoticon = true;
   const res = await api.get<any>(`/danmaku`, { params });
 
   const formatTime = (seconds: number) => {
