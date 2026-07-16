@@ -295,6 +295,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
 var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
         await conn.OpenAsync();
 
+        try
+        {
         await using var countCmd = conn.CreateCommand();
         countCmd.CommandText = $"SELECT COUNT(*) FROM danmaku_messages WHERE type IN {DisplayableTypesSql}";
         var total = Convert.ToInt32(await countCmd.ExecuteScalarAsync() ?? 0);
@@ -323,6 +325,13 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         }
 
         return (messages, total);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("no such table"))
+        {
+            // Migrated .db may be an empty shell if migration failed; return empty
+            _logger.LogWarning("Table danmaku_messages missing in {DbPath}, returning empty result", dbPath);
+            return (new List<DanmakuMessage>(), 0);
+        }
     }
 
     /// <summary>
@@ -349,10 +358,17 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             """;
 
         var messages = new List<DanmakuMessage>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        try
         {
-            messages.Add(ReadRowToMessage(reader));
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                messages.Add(ReadRowToMessage(reader));
+            }
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("no such table"))
+        {
+            _logger.LogWarning("Table danmaku_messages missing in {DbPath}, returning empty result", dbPath);
         }
         return messages;
     }
