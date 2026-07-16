@@ -419,6 +419,11 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                 await WriteBatchAsync(conn, events);
             }
 
+            // WAL checkpoint: flush WAL into main file before closing and moving
+            await using var pragmaCmd = conn.CreateCommand();
+            pragmaCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await pragmaCmd.ExecuteNonQueryAsync();
+
             // Close connection before moving file
             await conn.CloseAsync();
 
