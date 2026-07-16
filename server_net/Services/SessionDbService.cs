@@ -487,6 +487,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             IsPriceTotal = m.IsPriceTotal,
             TotalCoin = m.TotalCoin,
             GuardLevel = m.GuardLevel,
+            MedalLevel = m.MedalLevel,
+            MedalName = m.MedalName,
             User = m.Sender.Name,
             Uid = m.Sender.Uid,
             Face = m.Face,
