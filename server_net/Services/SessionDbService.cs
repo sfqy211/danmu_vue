@@ -91,7 +91,8 @@ public class SessionDbService
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to close old connection for uid {Uid}", uid); }
         }
 
-        var conn = new SqliteConnection($"Data Source={dbPath}");
+        // SqliteConnectionStringBuilder handles special chars (e.g. ';') in file paths
+var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
         await conn.OpenAsync();
 
         try
@@ -290,7 +291,8 @@ public class SessionDbService
             return (new List<DanmakuMessage>(), 0);
         }
 
-        await using var conn = new SqliteConnection($"Data Source={dbPath}");
+        await using // SqliteConnectionStringBuilder handles special chars (e.g. ';') in file paths
+var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
         await conn.OpenAsync();
 
         await using var countCmd = conn.CreateCommand();
@@ -334,7 +336,8 @@ public class SessionDbService
             return new List<DanmakuMessage>();
         }
 
-        await using var conn = new SqliteConnection($"Data Source={dbPath}");
+        await using // SqliteConnectionStringBuilder handles special chars (e.g. ';') in file paths
+var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString());
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
@@ -390,7 +393,7 @@ public class SessionDbService
             // Clean up any leftover temp file
             if (File.Exists(tempPath)) File.Delete(tempPath);
 
-            await using var conn = new SqliteConnection($"Data Source={tempPath}");
+            await using var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = tempPath }.ToString());
             await conn.OpenAsync();
             await EnableWalAndCreateSchemaAsync(conn);
 
