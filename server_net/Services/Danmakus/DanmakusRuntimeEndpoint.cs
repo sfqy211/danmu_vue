@@ -426,10 +426,16 @@ public class DanmakusRuntimeEndpoint
         var liveStartTime = await ResolveLiveStartTimeAsync(roomId, events, ct);
         var uid = streamerUid > 0 ? streamerUid.ToString() : roomId.ToString();
 
+        // 主播名/房间名从中心房间表回填：客户端只报 uid/roomId，
+        // 不补的话场次列表里全是空白主播名。
+        var room = await LoadRoomAsync(uid, roomId, ct);
+
         var sessionId = await _ingest.StartSessionAsync(new IngestSessionStartRequest
         {
             Uid = uid,
             RoomId = roomId,
+            Title = room?.Name,
+            UserName = room?.Name,
             LiveStartTime = liveStartTime
         }, nodeSession.NodeId);
 
@@ -442,6 +448,30 @@ public class DanmakusRuntimeEndpoint
         };
 
         return sessionId;
+    }
+
+    /// <summary>
+    /// 取房间展示信息（主播名）。客户端不上报这些，中心自己有，直接补。
+    /// </summary>
+    private async Task<Danmu.Server.Models.Room?> LoadRoomAsync(string uid, long roomId, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+
+            var room = await db.Rooms.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Uid == uid, ct);
+            if (room != null) return room;
+
+            return await db.Rooms.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.RoomId == roomId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load room info for uid={Uid} room={RoomId}", uid, roomId);
+            return null;
+        }
     }
 
     /// <summary>
