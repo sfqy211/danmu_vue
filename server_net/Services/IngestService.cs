@@ -44,7 +44,7 @@ public class IngestService
         public string NodeId { get; init; } = "";
         public int SessionId { get; init; }
         public string Uid { get; init; } = "";
-        public long LiveStartTime { get; init; }
+        public long LiveStartTime { get; set; }
         public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
         public long TotalEvents { get; set; }
         public long MinTimestamp { get; set; }
@@ -145,13 +145,25 @@ public class IngestService
         }
 
         var stateKey = $"{nodeId}:{sessionId}";
-        _uploads[stateKey] = new NodeUploadState
+        // 已有登记就复用，**不能覆盖**：
+        // 多节点接力/重连时会重复 StartSession，若每次都 new，
+        // 会把累计的 TotalEvents / PendingContribution / 覆盖时段清零，
+        // 表现为 ingest_nodes.total_events 远小于实际入库量。
+        if (!_uploads.TryGetValue(stateKey, out var uploadState))
         {
-            NodeId = nodeId,
-            SessionId = sessionId,
-            Uid = uid,
-            LiveStartTime = req.LiveStartTime ?? 0
-        };
+            uploadState = new NodeUploadState
+            {
+                NodeId = nodeId,
+                SessionId = sessionId,
+                Uid = uid,
+                LiveStartTime = req.LiveStartTime ?? 0
+            };
+            _uploads[stateKey] = uploadState;
+        }
+        else
+        {
+            uploadState.LastSeenUtc = DateTime.UtcNow;
+        }
 
         return sessionId;
     }
