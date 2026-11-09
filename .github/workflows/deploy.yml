@@ -113,22 +113,29 @@ jobs:
               NEW_PRIMARY=5200; BACKUP=5201
             fi
 
-            sudo docker exec "$NGINX_CONTAINER" sh -c "cat > $PROXY_CONF_DIR/root.conf" <<NGINXEOF
-            upstream danmu_backend {
-                server 127.0.0.1:$NEW_PRIMARY max_fails=2 fail_timeout=10s;
-                server 127.0.0.1:$BACKUP max_fails=2 fail_timeout=10s backup;
+            # 先在宿主机生成配置文件，再 docker cp 进容器。
+            # 不能用 `docker exec sh -c "cat > file" <<EOF`：docker exec 未带 -i 时
+            # 不会把 stdin 传给容器，文件会被截断为空（曾导致全站 404）。
+            # 用 python 生成配置：heredoc 会把缩进写进文件，且变量替换易出错。
+            # 生成后先校验非空，再 docker cp 进容器。
+            python3 - "$NEW_PRIMARY" "$BACKUP" > /tmp/danmu_root.conf <<'PYEOF'
+            import sys
+            primary, backup = sys.argv[1], sys.argv[2]
+            print(f"""upstream danmu_backend {{
+                server 127.0.0.1:{primary} max_fails=2 fail_timeout=10s;
+                server 127.0.0.1:{backup} max_fails=2 fail_timeout=10s backup;
                 keepalive 32;
-            }
+            }}
 
-            location ^~ / {
+            location ^~ / {{
                 proxy_pass http://danmu_backend;
-                proxy_set_header Host \$host;
-                proxy_set_header X-Real-IP \$remote_addr;
-                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                proxy_set_header REMOTE-HOST \$remote_addr;
-                proxy_set_header Upgrade \$http_upgrade;
-                proxy_set_header X-Forwarded-Proto \$scheme;
-                proxy_set_header X-Forwarded-Port \$server_port;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header REMOTE-HOST $remote_addr;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Port $server_port;
                 proxy_http_version 1.1;
                 proxy_set_header Connection "";
                 proxy_connect_timeout 5s;
@@ -137,10 +144,19 @@ jobs:
                 proxy_next_upstream error timeout http_502 http_503 http_504;
                 proxy_next_upstream_tries 2;
                 proxy_next_upstream_timeout 10s;
-                add_header X-Cache \$upstream_cache_status;
+                add_header X-Cache $upstream_cache_status;
                 add_header Strict-Transport-Security "max-age=31536000";
-            }
-            NGINXEOF
+            }}""")
+            PYEOF
+
+            if [ ! -s /tmp/danmu_root.conf ]; then
+              echo "ERROR: generated nginx config is empty, aborting (traffic not switched)"
+              exit 1
+            fi
+            echo "generated nginx config: $(wc -c < /tmp/danmu_root.conf) bytes"
+
+            sudo docker cp /tmp/danmu_root.conf "$NGINX_CONTAINER:$PROXY_CONF_DIR/root.conf"
+            rm -f /tmp/danmu_root.conf
 
             # ── 7. 校验配置并平滑重载（不中断现有连接）──
             sudo docker exec "$NGINX_CONTAINER" nginx -t
