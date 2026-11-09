@@ -468,7 +468,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
     }
 
     /// <summary>
-    /// 一次性导入消息到指定 SQLite session 文件（用于 XML/JSONL 迁移、上传导入）。
+    /// 一次性导入消息到指定 SQLite session 文件（用于 XML 上传导入）。
     /// 使用独立连接，写入后关闭。若文件已存在则覆盖重建。
     /// </summary>
     public async Task ImportMessagesAsync(string sqliteRelativePath, List<DanmakuMessage> messages)

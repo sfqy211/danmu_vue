@@ -149,10 +149,9 @@ public class DanmakuService
             return;
         }
 
-        // 兼容旧路径（迁移期遗留的 JSONL/XML 文件）
+        // 未知路径格式：不再支持旧 JSONL/XML 归档
         session.FilePath = Path.GetRelativePath(_danmakuDir, finalFilePath).Replace("\\", "/");
         await db.SaveChangesAsync();
-        await ProcessFileAsync(finalFilePath);
     }
 
     public async Task<object> GetDanmakuPagedAsync(int sessionId, int page, int pageSize,
@@ -203,20 +202,8 @@ public class DanmakuService
         }
         else
         {
-            // 兼容旧路径（迁移期遗留的 JSONL/XML 文件）
-            var fullPath = ResolveSessionFilePath(session);
-            if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
-            {
-                return new { total = 0, list = new List<object>(), page, pageSize, totalPages = 0 };
-            }
-
-            var allMessages = await LoadMessagesFromFileAsync(fullPath);
-            var displayable = FilterDisplayable(allMessages);
-            total = displayable.Count;
-            pagedMessages = displayable
-                .Skip((safePage - 1) * safePageSize)
-                .Take(safePageSize)
-                .ToList();
+            // 旧 JSONL/XML 归档已全部迁移为 SQLite 场次库，不再兼容读取
+            return new { total = 0, list = new List<object>(), page, pageSize, totalPages = 0 };
         }
 
         var list = pagedMessages
@@ -275,20 +262,21 @@ public class DanmakuService
             m.Type == "gift_combo").ToList();
     }
 
+    /// <summary>
+    /// 分析一个旧版 XML 弹幕文件（上传导入用）。JSONL 归档已全部迁移为 SQLite，不再支持。
+    /// </summary>
     public async Task<AnalysisResult?> ProcessFileAsync(string filePath)
     {
         if (!File.Exists(filePath)) return null;
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
-        if (extension != ".xml" && extension != ".jsonl") return null;
+        if (extension != ".xml") return null;
 
         var fileLock = FileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
         await fileLock.WaitAsync();
         await FileProcessingSemaphore.WaitAsync();
         try
         {
-            var parsed = extension == ".jsonl"
-                ? await ParseJsonlFileAsync(filePath)
-                : await ParseLegacyXmlFileAsync(filePath);
+            var parsed = await ParseLegacyXmlFileAsync(filePath);
 
             if (parsed == null) return null;
 
@@ -545,100 +533,10 @@ public class DanmakuService
 
     private async Task<List<DanmakuMessage>> LoadMessagesFromFileAsync(string filePath)
     {
-        var extension = Path.GetExtension(filePath).ToLowerInvariant();
-        if (extension == ".jsonl")
-        {
-            var parsed = await ParseJsonlFileAsync(filePath);
-            return parsed?.Messages ?? new List<DanmakuMessage>();
-        }
+        if (!File.Exists(filePath)) return new List<DanmakuMessage>();
 
         var parsedXml = await ParseLegacyXmlFileAsync(filePath);
         return parsedXml?.Messages ?? new List<DanmakuMessage>();
-    }
-
-    private async Task<ParsedSessionContent?> ParseJsonlFileAsync(string filePath)
-    {
-        // Issue #7: Use StreamReader for streaming instead of loading entire file into memory
-        var messages = new List<DanmakuMessage>();
-        var meta = new SessionFileMeta
-        {
-            Title = "未知直播",
-            UserName = "未知主播",
-            RoomId = "",
-            Uid = "",
-            RecordStartTimestamp = new DateTimeOffset(File.GetLastWriteTimeUtc(filePath)).ToUnixTimeMilliseconds()
-        };
-
-        var errorCount = 0;
-        var totalLines = 0;
-
-        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(stream);
-
-        string? rawLine;
-        while ((rawLine = await reader.ReadLineAsync()) != null)
-        {
-            totalLines++;
-            var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line)) continue;
-
-            JsonDocument? doc = null;
-            try
-            {
-                // Issue #8: Single JSON parse - use JsonDocument to inspect kind, then deserialize
-                doc = JsonDocument.Parse(line);
-                var root = doc.RootElement;
-                var kind = TryGetString(root, "kind");
-                if (kind == "meta")
-                {
-                    meta = new SessionFileMeta
-                    {
-                        Title = TryGetString(root, "title") ?? meta.Title,
-                        UserName = TryGetString(root, "userName") ?? meta.UserName,
-                        RoomId = TryGetString(root, "roomId") ?? meta.RoomId,
-                        Uid = TryGetString(root, "uid") ?? meta.Uid,
-                        RecordStartTimestamp = TryGetInt64(root, "startTime") ?? meta.RecordStartTimestamp
-                    };
-                    continue;
-                }
-
-                // Issue #8: Deserialize directly from JsonDocument instead of re-serializing
-                var recordedEvent = JsonSerializer.Deserialize<RecordedDanmakuEvent>(root.GetRawText(), JsonOptions);
-                if (recordedEvent == null) continue;
-
-                messages.Add(MapRecordedEvent(recordedEvent));
-            }
-            catch (JsonException ex)
-            {
-                errorCount++;
-                if (errorCount <= 5)
-                {
-                    _logger.LogWarning(ex,
-                        "Skipping malformed line {LineIndex} in {FilePath}: {Snippet}",
-                        totalLines, filePath,
-                        line.Length > 200 ? line[..200] + "..." : line);
-                }
-                else if (errorCount == 6)
-                {
-                    _logger.LogWarning("Too many malformed lines in {FilePath}, suppressing further warnings. Total errors so far: {ErrorCount}", filePath, errorCount);
-                }
-            }
-            finally
-            {
-                doc?.Dispose();
-            }
-        }
-
-        if (totalLines == 0) return null;
-
-        if (errorCount > 0)
-        {
-            _logger.LogWarning("Parsed {FilePath} with {ErrorCount} malformed line(s) skipped out of {TotalLines} lines",
-                filePath, errorCount, totalLines);
-        }
-
-        messages.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
-        return new ParsedSessionContent(meta, messages);
     }
 
     private async Task<ParsedSessionContent?> ParseLegacyXmlFileAsync(string filePath)

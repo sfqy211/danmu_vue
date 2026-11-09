@@ -547,7 +547,7 @@ public class AdminController : ControllerBase
                 throw new InvalidOperationException("XML 解析或转换失败");
             }
 
-            // 若旧路径是 JSONL/XML 本地文件且与新 SQLite 路径不同，清理旧文件
+            // 若旧路径是本地文件且与新 SQLite 路径不同，清理旧文件
             if (!string.IsNullOrEmpty(oldFilePath)
                 && !oldFilePath.StartsWith("redis:", StringComparison.OrdinalIgnoreCase)
                 && !oldFilePath.StartsWith("sqlite:", StringComparison.OrdinalIgnoreCase)
@@ -630,21 +630,11 @@ public class AdminController : ControllerBase
 
             try
             {
-                AnalysisResult? result;
+                // 只支持 SQLite 场次库；旧 JSONL/XML 归档已全部迁移
+                AnalysisResult? result = null;
                 if (session.FilePath.StartsWith("sqlite:", StringComparison.Ordinal))
                 {
                     result = await _danmakuService.ProcessSqliteSessionAsync(session.FilePath);
-                }
-                else
-                {
-                    // 兼容旧 JSONL/XML 文件
-                    var fullPath = ResolveSessionFilePath(session);
-                    if (string.IsNullOrEmpty(fullPath) || !System.IO.File.Exists(fullPath))
-                    {
-                        failedIds.Add(id);
-                        continue;
-                    }
-                    result = await _danmakuService.ProcessFileAsync(fullPath);
                 }
 
                 if (result == null)
@@ -715,7 +705,7 @@ public class AdminController : ControllerBase
             }
             else if (!filePath.StartsWith("redis:", StringComparison.Ordinal))
             {
-                // 兼容旧 JSONL/XML 本地文件
+                // 旧本地文件（历史遗留）
                 var fullPath = ResolveSessionFilePath(session);
                 if (!string.IsNullOrEmpty(fullPath))
                 {
