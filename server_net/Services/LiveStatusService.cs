@@ -126,6 +126,17 @@ public class LiveStatusService : BackgroundService
 
                     if (state.LiveStatus == 1)
                     {
+                        // 已被采集节点认领的房间交给节点录，本机不再重复开录制。
+                        // 用延迟解析避免构造期循环依赖。
+                        var allocator = _services.GetService<Services.Danmakus.DanmakusRoomAllocator>();
+                        if (allocator != null && allocator.IsRoomClaimedByNode(room.RoomId))
+                        {
+                            _logger.LogDebug(
+                                "Room {RoomId} is claimed by an ingest node, skipping local recorder",
+                                room.RoomId);
+                            return;
+                        }
+
                         _logger.LogInformation("Auto-restarting recorder for live room {RoomId}", room.RoomId);
                         try
                         {

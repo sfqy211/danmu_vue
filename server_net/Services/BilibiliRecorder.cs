@@ -398,6 +398,24 @@ public class BilibiliRecorder : IDisposable
         var conn = _sessionDbConn;
         if (conn == null) return;
 
+        // 连接被外部关掉时（历史上 CloseSessionAsync 按 uid 关共享连接所致），
+        // 这里自动重开一次再继续，避免每分钟刷一条同样的错误、数据一直积在 Redis 里。
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            try
+            {
+                _logger.LogWarning(
+                    "Session SQLite connection for uid {Uid} was closed externally, reopening", _uid);
+                conn = await _sessionDb.OpenSessionAsync(_uid, _sessionStartTimestamp);
+                _sessionDbConn = conn;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to reopen session SQLite connection for uid {Uid}", _uid);
+                return;
+            }
+        }
+
         try
         {
             var listKey = _currentSessionKey + ":list";

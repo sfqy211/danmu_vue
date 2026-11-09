@@ -127,6 +127,16 @@ public class DanmakusRoomAllocator
         session.HoldingRooms = assigned;
 
         var newlyAssigned = assigned.Where(id => !previousSet.Contains(id)).ToList();
+
+        // 新认领的房间：把中心本机上正在跑的同房间录制器停掉。
+        //
+        // 时序问题：ProcessManager 启动时会给所有在播房间开录制器，
+        // 采集节点是后来连上的。不主动停的话，同一场直播会被两类采集方同时录，
+        // 白耗 B 站配额、也让同一个场次库被两个写入方争抢。
+        if (newlyAssigned.Count > 0)
+        {
+            await StopLocalRecordersAsync(newlyAssigned);
+        }
         var dropped = previous.Where(id => !assigned.Contains(id)).ToList();
 
         if (newlyAssigned.Count > 0 || dropped.Count > 0)
@@ -160,6 +170,57 @@ public class DanmakusRoomAllocator
             Shortfall = shortfall
         };
     }
+
+    /// <summary>
+    /// 采集节点认领房间后，停掉中心本机同房间的录制器。
+    ///
+    /// 用延迟解析避免 ProcessManager ↔ Allocator 的构造循环
+    /// （ProcessManager 需要 Allocator 判断避让，Allocator 又需要 ProcessManager 停录制）。
+    /// </summary>
+    private async Task StopLocalRecordersAsync(IEnumerable<long> roomIds)
+    {
+        try
+        {
+            var pm = _scopeFactory.CreateScope().ServiceProvider
+                .GetService<ProcessManager>();
+            if (pm is null) return;
+
+            foreach (var roomId in roomIds)
+            {
+                if (!pm.HasRecorder(roomId)) continue;
+                try
+                {
+                    await pm.StopRecorder(roomId);
+                    _logger.LogInformation(
+                        "Stopped local recorder for room {RoomId} because an ingest node took over",
+                        roomId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to stop local recorder for room {RoomId}", roomId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve ProcessManager when stopping local recorders");
+        }
+    }
+
+    /// <summary>
+    /// 该房间当前是否已被某个采集节点认领。
+    ///
+    /// 中心本机录制器据此避让：已被节点负责的房间不再重复开录制，
+    /// 否则两台机器录同一场会浪费 B 站配额、也会让同一个场次库被两个写入方争抢。
+    /// </summary>
+    public bool IsRoomClaimedByNode(long roomId)
+        => _roomOwners.ContainsKey(roomId);
+
+    /// <summary>
+    /// 当前被节点认领的房间快照（便于日志/排查）。
+    /// </summary>
+    public IReadOnlyDictionary<long, string> GetRoomOwners()
+        => new Dictionary<long, string>(_roomOwners);
 
     /// <summary>
     /// 读取房间的实时状态（对外暴露，供 WS 推送主播状态与会话归并使用）。

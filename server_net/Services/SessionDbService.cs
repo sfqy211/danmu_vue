@@ -84,7 +84,24 @@ public class SessionDbService
         var dbPath = GetAbsolutePath(uid, startTimestamp);
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
-        // Issue #1: Close any existing connection for this uid before opening a new one
+        // 同一个 uid + 同一场次 → 复用已打开的连接。
+        //
+        // 这里原本是"先关掉旧的再开新的"，在当时只有本机录制器一个消费者的前提下没问题。
+        // 但引入分布式采集后，本机录制器和上报通路可能同时对同一个 uid 的场次库写入
+        // （比如节点在录、中心本机也在录同一场）。
+        // 关掉旧连接会让另一个持有者手里的 SqliteConnection 变成 closed，
+        // 之后它再写就报 "BeginTransaction can only be called when the connection is open"。
+        //
+        // 复用连接是安全的：SQLite 同文件多连接本身也支持（WAL 模式），
+        // 而共享同一条连接更是天然串行。
+        if (_openConnections.TryGetValue(uid, out var existing) &&
+            existing.State == System.Data.ConnectionState.Open &&
+            string.Equals(existing.DataSource, dbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return existing;
+        }
+
+        // 换了场次文件才关旧连接
         if (_openConnections.TryRemove(uid, out var oldConn))
         {
             try { await oldConn.CloseAsync(); await oldConn.DisposeAsync(); }
@@ -252,6 +269,15 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
     /// </summary>
     public async Task WriteBatchAsync(SqliteConnection conn, IEnumerable<RecordedDanmakuEvent> events)
     {
+        // 连接可能已被外部关掉（历史上 CloseSessionAsync 按 uid 关共享连接导致的）。
+        // 写入前自愈一次：调用方拿的是缓存的 conn 引用，这里无法替换它，
+        // 所以只能在校验失败时显式抛出可识别的错误，由调用方重新 OpenSessionAsync。
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            throw new InvalidOperationException(
+                $"场次库连接已关闭（DataSource={conn.DataSource}），请重新 OpenSessionAsync 后再写入");
+        }
+
         await using var tx = await conn.BeginTransactionAsync();
         await using var cmd = conn.CreateCommand();
         cmd.Transaction = (SqliteTransaction)tx;

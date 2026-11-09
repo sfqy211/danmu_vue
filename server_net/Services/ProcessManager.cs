@@ -28,9 +28,14 @@ public class ProcessManager
     private readonly RedisService _redis;
     private readonly BiliAccountService _accountService;
     private readonly SessionDbService _sessionDb;
+    /// <summary>
+    /// 采集节点的房间认领表。用 IServiceProvider 延迟解析，
+    /// 避免 ProcessManager → Allocator → LiveStatusService → ProcessManager 的构造循环。
+    /// </summary>
+    private readonly IServiceProvider _serviceProvider;
     private volatile bool _isRestoring;
 
-    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService, SessionDbService sessionDb)
+    public ProcessManager(ILogger<ProcessManager> logger, ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory, RedisService redis, BiliAccountService accountService, SessionDbService sessionDb, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -38,6 +43,7 @@ public class ProcessManager
         _redis = redis;
         _accountService = accountService;
         _sessionDb = sessionDb;
+        _serviceProvider = serviceProvider;
     }
 
     public virtual List<ProcessInfo> GetProcesses()
@@ -271,11 +277,23 @@ public class ProcessManager
 
             _logger.LogInformation("Restore check: {Total} auto-record rooms, {Live} currently live", rooms.Count, liveRooms.Count);
 
+            // 已被采集节点认领的房间，本机不再重复开录制：
+            // 否则两台机器录同一场会白耗 B 站配额，还会让同一个场次库被两个写入方争抢。
+            var allocator = _serviceProvider.GetService<Services.Danmakus.DanmakusRoomAllocator>();
+
             // Phase 2: Start recorders for live rooms sequentially (with delay to avoid 412)
             foreach (var (room, liveState, isLive) in liveRooms)
             {
                 try
                 {
+                    if (allocator != null && allocator.IsRoomClaimedByNode(room.RoomId))
+                    {
+                        _logger.LogInformation(
+                            "Skipping local recorder for {RoomName} (RoomId: {RoomId}) — claimed by an ingest node",
+                            room.Name, room.RoomId);
+                        continue;
+                    }
+
                     _logger.LogInformation("Restoring recorder for {RoomName} (Uid: {Uid}, RoomId: {RoomId})...", room.Name, room.Uid, room.RoomId);
                     await StartRecorder(room.RoomId, room.Name ?? room.RoomId.ToString());
                     await Task.Delay(TimeSpan.FromSeconds(3));

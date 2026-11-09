@@ -126,7 +126,9 @@ public class SessionAutoFinalizeService : BackgroundService
             }
 
             session.EndTime = lastTs;
-            await _sessionDb.CloseSessionAsync(session.Uid ?? "");
+            // 不关连接：SessionDbService 按 uid 共享连接，
+            // 本机录制器可能正持有同一条并周期性落盘，关掉会让它后续写入报
+            // "BeginTransaction can only be called when the connection is open"。
             await db.SaveChangesAsync(ct);
 
             _logger.LogInformation(

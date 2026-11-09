@@ -363,7 +363,17 @@ public class IngestService
             return;
         }
 
-        await _sessionDb.CloseSessionAsync(session.Uid ?? "");
+        // 这里**不能** CloseSessionAsync(uid)。
+        //
+        // SessionDbService 的活跃连接是按 uid 共享的，本机录制器
+        // （BilibiliRecorder）会缓存同一个 SqliteConnection 引用并周期性增量落盘。
+        // 节点断开时若顺手关掉，就把录制器手里的连接一起关了，之后
+        // FlushRedisIncrementallyAsync 会持续报
+        // "BeginTransaction can only be called when the connection is open"。
+        //
+        // 连接生命周期由真正打开它的消费者负责：
+        // - 本机录制器：BilibiliRecorder.StopAsync / DanmakuService.CloseSessionAsync
+        // - 上报侧：WriteBatchAsync 每次按需 OpenSessionAsync
 
         session.FilePath = "sqlite:" + relative;
         session.EndTime = endTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
