@@ -18,6 +18,19 @@ public class EmbeddedRedisService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        // 多实例部署（蓝绿/水平扩展）时必须关闭嵌入式 Redis：
+        // 每个进程各起一份会导致录制状态、会话锁、心跳 key 全部隔离。
+        // 设 EMBEDDED_REDIS_ENABLED=false 并配置 REDIS_CONNECTION 指向共享实例。
+        var enabledEnv = Environment.GetEnvironmentVariable("EMBEDDED_REDIS_ENABLED");
+        if (string.Equals(enabledEnv, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            _redisReadiness.MarkReady();
+            _logger.LogInformation(
+                "Embedded Garnet disabled (EMBEDDED_REDIS_ENABLED=false); using external Redis at {Conn}",
+                Environment.GetEnvironmentVariable("REDIS_CONNECTION") ?? "localhost:6379");
+            return Task.CompletedTask;
+        }
+
         try
         {
             _server = new GarnetServer(new string[] { "--port", "6379", "--bind", "127.0.0.1", "--lua" });

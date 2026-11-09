@@ -21,9 +21,34 @@ services:
       retries: 5
       start_period: 20s
 
-  danmu-viewer:
+  # 共享 Redis：蓝绿两个实例必须连同一个，否则录制状态/会话锁/心跳全部隔离。
+  # 使用 alpine 精简镜像，内存占用极小（实测 <5MB）。
+  redis:
+    image: redis:7-alpine
+    container_name: danmu-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes:
+      - ./server/redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ── 蓝绿双实例 ──────────────────────────────────────────────
+  # 两个实例共用同一份数据卷、PG、Redis，只有监听端口不同。
+  # 部署时先起「空闲槽位」→ 健康检查 → OpenResty 切流 → 停旧槽位，
+  # 全程 Web 请求不中断；重叠期两个实例同时录制，靠 message_id 唯一索引去重。
+  #
+  # 注意：正常情况下只应有一个实例在跑。deploy 脚本负责控制启停顺序，
+  # 若手工执行 `docker-compose up -d` 会同时拉起两个（数据安全但会双倍录制）。
+
+  danmu-blue:
     build: .
-    container_name: danmu-viewer
+    image: danmu-viewer:latest
+    container_name: danmu-viewer-blue
     ports:
       - "5200:3001"
     volumes:
@@ -33,13 +58,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
+      redis:
+        condition: service_healthy
+    environment: &viewer_env
       - ASPNETCORE_ENVIRONMENT=Production
       # 主库使用 PostgreSQL；本地开发可改回 sqlite 并保留 SQLITE_DB_PATH
       - DB_PROVIDER=${DB_PROVIDER:-postgres}
       - PG_CONNECTION=Host=postgres;Port=5432;Database=${PG_DATABASE:-danmu};Username=${PG_USER:-danmu};Password=${PG_PASSWORD}
       # 历史/回退用：SQLite 路径
       - SQLITE_DB_PATH=/app/server/data/danmaku.db
+      # 多实例部署：禁用容器内嵌入式 Garnet，统一连共享 Redis
+      - EMBEDDED_REDIS_ENABLED=false
+      - REDIS_CONNECTION=redis:6379,abortConnect=false,connectTimeout=5000
       # 原有配置保留
       - BILI_COOKIE=${BILI_COOKIE}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
@@ -52,12 +82,33 @@ services:
     restart: unless-stopped
     # 优雅停机：给应用 30 秒时间完成弹幕刷盘和录制会话关闭
     stop_grace_period: 30s
-    healthcheck:
+    healthcheck: &viewer_health
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 20s
+
+  danmu-green:
+    build: .
+    image: danmu-viewer:latest
+    container_name: danmu-viewer-green
+    ports:
+      - "5201:3001"
+    volumes:
+      - ./server/data:/app/server/data
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *viewer_env
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck: *viewer_health
+
 networks:
   default:
     external: true

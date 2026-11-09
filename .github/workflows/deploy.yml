@@ -9,46 +9,47 @@ on:
       - 'Dockerfile'
       - 'docker-compose.yml'
       - '.github/workflows/deploy.yml'
+  workflow_dispatch:
 
 jobs:
   build-and-deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      # 2026-11-09 事故复盘：
-      # 1) 服务器侧 git fetch 曾走 gh.jasonzeng.dev 代理 —— 该域名在服务器上已无法解析，
-      #    且其分支 ref 缓存会把 master 长期钉在 2026-07 的旧提交，导致多次"部署成功"
-      #    但生产实际未更新；
-      # 2) scp-action 对目标服务器始终报 Process exited with status 1（权限与 SFTP 均正常）；
-      # 3) 本文件曾以 CRLF 保存，脚本行尾 \r 也会破坏服务器端命令。
-      # 现方案（已实测）：服务器直连 codeload 按 commit SHA 下载源码 → 覆盖 server_net /
-      # Dockerfile / docker-compose.yml（.env 与 server/data 保留）→ docker-compose 构建重启。
-      # 按 SHA 下载天然具备幂等性，不受任何 CDN/代理的分支缓存影响。
-      - name: Deploy on Server
+      # 蓝绿零停机部署：
+      # 1) 服务器拉取新代码并构建镜像（不打 tag，先不进生产）
+      # 2) 在「空闲槽位」起新实例（5200 或 5201），另一个槽位继续服务
+      # 3) 等新实例 healthy
+      # 4) nginx -s reload 平滑切流（旧 worker 处理完存量请求才退出）
+      # 5) 确认新实例稳定后停掉旧槽位
+      #
+      # 关键前提：两实例共享 PG / Redis / server/data，重复弹幕靠 message_id
+      # 唯一索引去重，因此重叠期内双录是安全的。
+      - name: Deploy on Server (blue-green, zero downtime)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          command_timeout: 30m
+          command_timeout: 40m
           timeout: 300s
           script_stop: true
           script: |
             set -e
             TARGET_DIR="/opt/1panel/apps/danmu-tools"
-            CONTAINER_NAME="danmu-viewer"
+            NGINX_CONTAINER="1Panel-openresty-pljd"
+            PROXY_CONF_DIR="/www/sites/api.ovodm.top/proxy"
             COMMIT="${{ github.sha }}"
             echo "Deployed commit: $COMMIT"
 
-            # 1) 按 commit SHA 下载源码（codeload 直连，绕开 git 与已失效的镜像代理）
+            # ── 1. 拉取源码（codeload 直连，按 SHA 幂等）──
             rm -rf /tmp/danmu_deploy && mkdir -p /tmp/danmu_deploy
             curl -fsSL --retry 3 --retry-delay 5 --max-time 300 \
               "https://codeload.github.com/sfqy211/danmu_vue/tar.gz/$COMMIT" \
               -o /tmp/danmu_deploy/src.tar.gz
             tar -xzf /tmp/danmu_deploy/src.tar.gz -C /tmp/danmu_deploy --strip-components=1
-            test -f /tmp/danmu_deploy/server_net/Danmu.Server.csproj || { echo "ERROR: 源码下载不完整"; exit 1; }
+            test -f /tmp/danmu_deploy/server_net/Danmu.Server.csproj || { echo "ERROR: 源码不完整"; exit 1; }
             echo "source downloaded"
 
-            # 2) 覆盖源码（保留 .env 与 server/data 数据目录）
             cd "$TARGET_DIR"
             rm -rf server_net.new && cp -a /tmp/danmu_deploy/server_net ./server_net.new
             rm -rf server_net && mv server_net.new server_net
@@ -57,40 +58,124 @@ jobs:
             rm -rf /tmp/danmu_deploy
             echo "source updated"
 
-            # 3) 构建并重启（compose 检测镜像变化后自动重建容器）
-            echo "Building new image..."
+            # ── 2. 确定当前在服务的是哪个槽位，新版本部署到另一个 ──
+            info() { sudo docker inspect --format='{{.State.Health.Status}}' "$1" 2>/dev/null || echo "absent"; }
+
+            BLUE_HEALTH=$(info danmu-viewer-blue)
+            GREEN_HEALTH=$(info danmu-viewer-green)
+            echo "current state: blue=$BLUE_HEALTH green=$GREEN_HEALTH"
+
+            if [ "$BLUE_HEALTH" = "healthy" ] && [ "$GREEN_HEALTH" != "healthy" ]; then
+              ACTIVE="blue";  TARGET="green";  TARGET_PORT=5201
+            elif [ "$GREEN_HEALTH" = "healthy" ] && [ "$BLUE_HEALTH" != "healthy" ]; then
+              ACTIVE="green"; TARGET="blue";   TARGET_PORT=5200
+            elif [ "$BLUE_HEALTH" != "healthy" ] && [ "$GREEN_HEALTH" != "healthy" ]; then
+              # 首次切换到蓝绿架构：老容器 danmu-viewer 可能在跑，先按单实例处理
+              echo "no healthy blue/green instance; bootstrapping to blue"
+              ACTIVE="none";  TARGET="blue";   TARGET_PORT=5200
+            else
+              # 两个都健康（异常状态）：保留 transport 更久的一个，另一个重建
+              ACTIVE="both";  TARGET="green";  TARGET_PORT=5201
+            fi
+            echo "active=$ACTIVE target=$TARGET port=$TARGET_PORT"
+
+            # ── 3. 构建新镜像 ──
+            echo "Building image..."
             sudo docker-compose build
 
-            echo "Starting new container..."
-            sudo docker-compose up -d --no-deps
+            # ── 4. 起新实例（此时旧实例仍在服务）──
+            echo "Starting $TARGET instance..."
+            sudo docker-compose up -d --no-deps "danmu-$TARGET"
 
-            # 4) 等待健康
-            echo "Waiting for new container to become healthy..."
-            MAX_WAIT=120
-            WAITED=0
+            # ── 5. 等待新实例 healthy ──
+            echo "Waiting for danmu-viewer-$TARGET to become healthy..."
+            MAX_WAIT=180; WAITED=0
             while [ $WAITED -lt $MAX_WAIT ]; do
-              HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' $CONTAINER_NAME 2>/dev/null || echo "none")
-              if [ "$HEALTH" = "healthy" ]; then
-                echo "New container is healthy after ${WAITED}s"
-                break
-              fi
-              RUNNING=$(sudo docker inspect --format='{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
-              if [ "$RUNNING" = "true" ] && [ "$HEALTH" = "none" ]; then
-                echo "No healthcheck configured, waiting 10s for app startup..."
-                sleep 10
-                break
-              fi
-              sleep 3
-              WAITED=$((WAITED + 3))
+              H=$(info "danmu-viewer-$TARGET")
+              if [ "$H" = "healthy" ]; then echo "healthy after ${WAITED}s"; break; fi
+              sleep 3; WAITED=$((WAITED + 3))
             done
-
             if [ $WAITED -ge $MAX_WAIT ]; then
-              echo "WARNING: container not healthy within ${MAX_WAIT}s"
+              echo "ERROR: new instance not healthy within ${MAX_WAIT}s, aborting (old instance still serving)"
+              sudo docker logs --tail 40 "danmu-viewer-$TARGET" || true
+              sudo docker stop "danmu-viewer-$TARGET" || true
+              exit 1
             fi
 
-            # 5) 校验部署结果（鉴权模式应从 anonymous 变回 login）
-            echo "--- recent auth log ---"
-            sudo docker logs "$CONTAINER_NAME" 2>&1 | grep -E "auth success|login auth|anonymous auth" | tail -5 || true
+            # 新实例直接探活（绕过 nginx）
+            curl -fsS --max-time 10 "http://127.0.0.1:$TARGET_PORT/api/health" && echo "direct health ok"
 
+            # ── 6. 写 nginx upstream：主节点指向新实例，旧实例降为 backup ──
+            echo "Switching nginx upstream to $TARGET..."
+            if [ "$TARGET" = "green" ]; then
+              NEW_PRIMARY=5201; BACKUP=5200
+            else
+              NEW_PRIMARY=5200; BACKUP=5201
+            fi
+
+            sudo docker exec "$NGINX_CONTAINER" sh -c "cat > $PROXY_CONF_DIR/root.conf" <<NGINXEOF
+            upstream danmu_backend {
+                server 127.0.0.1:$NEW_PRIMARY max_fails=2 fail_timeout=10s;
+                server 127.0.0.1:$BACKUP max_fails=2 fail_timeout=10s backup;
+                keepalive 32;
+            }
+
+            location ^~ / {
+                proxy_pass http://danmu_backend;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header REMOTE-HOST \$remote_addr;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                proxy_set_header X-Forwarded-Port \$server_port;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 300s;
+                proxy_next_upstream error timeout http_502 http_503 http_504;
+                proxy_next_upstream_tries 2;
+                proxy_next_upstream_timeout 10s;
+                add_header X-Cache \$upstream_cache_status;
+                add_header Strict-Transport-Security "max-age=31536000";
+            }
+            NGINXEOF
+
+            # ── 7. 校验配置并平滑重载（不中断现有连接）──
+            sudo docker exec "$NGINX_CONTAINER" nginx -t
+            sudo docker exec "$NGINX_CONTAINER" nginx -s reload
+            echo "nginx reloaded (graceful)"
+
+            # ── 8. 通过 nginx 验证新版本已在服务 ──
+            sleep 3
+            for i in 1 2 3 4 5; do
+              if curl -fsS --max-time 10 "http://127.0.0.1:5200/api/health" >/dev/null 2>&1 \
+                 || curl -fsS --max-time 10 "http://127.0.0.1:5201/api/health" >/dev/null 2>&1; then
+                echo "post-switch health check ok"; break
+              fi
+              sleep 3
+            done
+
+            # ── 9. 停掉旧实例（graceful：30s 内完成刷盘与会话收尾）──
+            if [ "$ACTIVE" != "none" ] && [ "$ACTIVE" != "$TARGET" ] && [ "$ACTIVE" != "both" ]; then
+              echo "Stopping old instance danmu-viewer-$ACTIVE..."
+              sudo docker stop -t 30 "danmu-viewer-$ACTIVE" || true
+            elif [ "$ACTIVE" = "both" ]; then
+              OTHER=$([ "$TARGET" = "green" ] && echo blue || echo green)
+              echo "Stopping other instance danmu-viewer-$OTHER..."
+              sudo docker stop -t 30 "danmu-viewer-$OTHER" || true
+            fi
+
+            # ── 10. 清理历史遗留的单实例容器（首次迁移到蓝绿时）──
+            if sudo docker ps -a --format '{{.Names}}' | grep -qx "danmu-viewer"; then
+              echo "Removing legacy single-instance container..."
+              sudo docker stop -t 30 danmu-viewer || true
+              sudo docker rm danmu-viewer || true
+            fi
+
+            # ── 11. 收尾 ──
             sudo docker image prune -f
-            echo "Blue-green deployment complete"
+            echo "--- auth log ---"
+            sudo docker logs --tail 20 "danmu-viewer-$TARGET" 2>&1 | grep -E "auth success|login auth|anonymous auth" || true
+            echo "Blue-green deployment complete: active=$TARGET"

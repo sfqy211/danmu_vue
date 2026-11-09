@@ -146,6 +146,18 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         walCmd.CommandText = "PRAGMA journal_mode=WAL;";
         await walCmd.ExecuteNonQueryAsync();
 
+        // 双实例部署（蓝绿切换期间）可能同时写同一个场次库：
+        // WAL 允许多读者但只允许单写者，遇到写锁时等待而不是立即报错。
+        await using var busyCmd = conn.CreateCommand();
+        busyCmd.CommandText = "PRAGMA busy_timeout=15000;";
+        await busyCmd.ExecuteNonQueryAsync();
+
+        // WAL 下 NORMAL 已足够安全（崩溃最多丢最后几条，不会损坏库），
+        // 且明显快于 FULL，适合高频批量写入。
+        await using var syncCmd = conn.CreateCommand();
+        syncCmd.CommandText = "PRAGMA synchronous=NORMAL;";
+        await syncCmd.ExecuteNonQueryAsync();
+
         await using var schemaCmd = conn.CreateCommand();
         schemaCmd.CommandText = """
             CREATE TABLE IF NOT EXISTS danmaku_messages (
