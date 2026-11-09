@@ -50,3 +50,8 @@ test/
 public/vup-avatar/
 public/vup-cover/
 public/vup-bg/
+
+# 本地工具与 IDE 生成物（不应进版本库）
+.v2c/
+VITEPRESS_WORKFLOW.md
+*.csproj.user
