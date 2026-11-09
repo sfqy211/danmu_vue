@@ -843,6 +843,56 @@ public class AdminController : ControllerBase
         return Ok(results);
     }
 
+    /// <summary>
+    /// 诊断端点：返回各账号 cookie 的长度、关键字段是否存在、以及实时 nav 校验结果。
+    /// 用于排查"生产环境降级为匿名鉴权导致用户名打码"这类问题。
+    /// </summary>
+    [HttpGet("bili-accounts/diagnose")]
+    public async Task<IActionResult> DiagnoseBiliAccounts([FromQuery] long? testRoomId)
+    {
+        var list = await _accountService.GetAllAsync();
+        var results = new List<object>();
+        foreach (var a in list)
+        {
+            var cookie = BiliAccountService.BuildCookieString(a.CookieJson);
+            var item = new Dictionary<string, object?>
+            {
+                ["uid"] = a.Uid,
+                ["name"] = a.Name,
+                ["isActive"] = a.IsActive,
+                ["cookieLength"] = cookie?.Length ?? 0,
+                ["hasSessData"] = cookie?.Contains("SESSDATA=", StringComparison.OrdinalIgnoreCase) == true,
+                ["updatedAt"] = a.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+            };
+            try
+            {
+                item["validate"] = await _accountService.ValidateCookieAsync(a.Uid) ? "ok" : "invalid";
+            }
+            catch (Exception ex)
+            {
+                item["validate"] = "error: " + ex.Message;
+            }
+
+            // 实时测试 getDanmuInfo（登录态）：决定能否用 login 鉴权的关键接口
+            if (testRoomId is > 0 && cookie != null)
+            {
+                try
+                {
+                    var (token, host, _) = await _bilibili.GetDanmakuConfAsync(testRoomId.Value, cookie);
+                    item["danmakuConf"] = string.IsNullOrWhiteSpace(token)
+                        ? "empty-token"
+                        : $"ok tokenLen={token.Length} host={host}";
+                }
+                catch (Exception ex)
+                {
+                    item["danmakuConf"] = "error: " + ex.Message;
+                }
+            }
+            results.Add(item);
+        }
+        return Ok(results);
+    }
+
     [HttpPost("bili-accounts/import-cookie")]
     public async Task<IActionResult> ImportCookie([FromBody] ImportCookieDto dto)
     {
