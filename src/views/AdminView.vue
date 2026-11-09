@@ -6,6 +6,8 @@ import {
   importBiliCookie, startBiliQrLogin, pollBiliQrLogin, cancelBiliQrLogin,
   activateBiliAccount, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
   getHealthCheckReport, type HealthCheckReport,
+  getIngestNodes, createIngestNode, toggleIngestNode, deleteIngestNode, getIngestUploads,
+  type IngestNode, type IngestUpload,
   type BiliAccount, type AccountAssignment
 } from '../api/danmaku';
 import { getAdminChangelog, addChangelog, updateChangelog, deleteChangelog, type ChangelogEntry } from '../api/danmaku';
@@ -14,7 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Refresh, SwitchButton, Plus, VideoPlay, Delete, EditPen, 
   VideoCamera, DataLine, Fold, Expand, ArrowDown, House, User, Document,
-  Sunny, Moon
+  Connection, Sunny, Moon
 } from '@element-plus/icons-vue';
 
 // --- Interfaces ---
@@ -68,7 +70,7 @@ const router = useRouter();
 // UI State
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'changelog' | 'logs'>('monitor');
+const activeSection = ref<'monitor' | 'sessions' | 'songRequests' | 'accounts' | 'nodes' | 'changelog' | 'logs'>('monitor');
 const isDarkMode = ref(localStorage.getItem('admin_dark_mode') === 'true');
 provide('adminDarkMode', isDarkMode);
 const isMobile = ref(window.innerWidth <= 768);
@@ -142,6 +144,15 @@ const songForm = ref({
 
 // BiliAccount Data
 const biliAccounts = ref<BiliAccount[]>([]);
+
+// ── 采集节点管理 ──
+const ingestNodes = ref<IngestNode[]>([]);
+const ingestUploads = ref<IngestUpload[]>([]);
+const ingestLoading = ref(false);
+const nodeCreateVisible = ref(false);
+const nodeForm = ref({ nodeId: '', name: '' });
+const newNodeToken = ref('');
+const nodeTokenVisible = ref(false);
 const accountLoading = ref(false);
 const qrDialogVisible = ref(false);
 const qrUrl = ref('');
@@ -461,7 +472,7 @@ const logout = () => {
 };
 
 const handleMenuSelect = (index: string) => {
-  if (['monitor', 'sessions', 'songRequests', 'accounts', 'changelog', 'logs'].includes(index)) {
+  if (['monitor', 'sessions', 'songRequests', 'accounts', 'nodes', 'changelog', 'logs'].includes(index)) {
     activeSection.value = index as any;
   }
   if (isMobile.value) {
@@ -591,6 +602,91 @@ const fetchSongRequests = async () => {
 };
 
 // --- Methods: BiliAccount ---
+
+// ── 采集节点管理 ──
+const fetchIngestNodes = async () => {
+  ingestLoading.value = true;
+  try {
+    const [nodes, uploads] = await Promise.all([
+      getIngestNodes(),
+      getIngestUploads().catch(() => []),
+    ]);
+    ingestNodes.value = nodes;
+    ingestUploads.value = uploads;
+  } catch (e: any) {
+    ElMessage.error('加载采集节点失败: ' + (e.response?.data?.error || e.message));
+  } finally {
+    ingestLoading.value = false;
+  }
+};
+
+const openCreateNode = () => {
+  nodeForm.value = { nodeId: '', name: '' };
+  nodeCreateVisible.value = true;
+};
+
+const submitCreateNode = async () => {
+  const nodeId = nodeForm.value.nodeId.trim();
+  if (!nodeId) {
+    ElMessage.warning('请填写节点标识');
+    return;
+  }
+  try {
+    const result = await createIngestNode(nodeId, nodeForm.value.name.trim() || undefined);
+    newNodeToken.value = result.token;
+    nodeTokenVisible.value = true;
+    nodeCreateVisible.value = false;
+    await fetchIngestNodes();
+    ElMessage.success('节点已创建');
+  } catch (e: any) {
+    ElMessage.error('创建失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
+const handleToggleNode = async (node: IngestNode) => {
+  try {
+    await toggleIngestNode(node.id, !node.isEnabled);
+    node.isEnabled = !node.isEnabled;
+    ElMessage.success(node.isEnabled ? '已启用' : '已停用');
+  } catch (e: any) {
+    ElMessage.error('操作失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
+const handleDeleteNode = async (node: IngestNode) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除节点「${node.name || node.nodeId}」？删除后该节点的上报会立即失效。`,
+      '删除确认',
+      { type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await deleteIngestNode(node.id);
+    await fetchIngestNodes();
+    ElMessage.success('已删除');
+  } catch (e: any) {
+    ElMessage.error('删除失败: ' + (e.response?.data?.error || e.message));
+  }
+};
+
+const copyToken = async () => {
+  try {
+    await navigator.clipboard.writeText(newNodeToken.value);
+    ElMessage.success('已复制到剪贴板');
+  } catch {
+    ElMessage.warning('复制失败，请手动选择文本复制');
+  }
+};
+
+const nodeOnline = (node: IngestNode) => {
+  if (!node.lastSeenAt) return false;
+  return Date.now() - node.lastSeenAt < 60_000;
+};
+
+const uploadsByNode = (nodeId: string) => ingestUploads.value.filter(u => u.nodeId === nodeId);
 
 const fetchAccounts = async () => {
   accountLoading.value = true;
@@ -1194,6 +1290,9 @@ watch(activeSection, async (val) => {
   if (val === 'sessions' || val === 'songRequests' || val === 'accounts' || val === 'changelog') {
     await refreshDatabaseData();
   }
+  if (val === 'nodes') {
+    await fetchIngestNodes();
+  }
 });
 </script>
 
@@ -1293,6 +1392,10 @@ watch(activeSection, async (val) => {
             <el-menu-item index="accounts">
               <el-icon><User /></el-icon>
               <template #title>账户管理</template>
+            </el-menu-item>
+            <el-menu-item index="nodes">
+              <el-icon><Connection /></el-icon>
+              <template #title>采集节点</template>
             </el-menu-item>
             <el-menu-item index="changelog">
               <el-icon><Document /></el-icon>
@@ -1848,6 +1951,71 @@ watch(activeSection, async (val) => {
               </div>
             </template>
 
+            <!-- 采集节点管理 -->
+            <template v-else-if="activeSection === 'nodes'">
+              <div class="account-section">
+                <div class="account-toolbar">
+                  <el-button type="primary" :icon="Plus" @click="openCreateNode">创建节点</el-button>
+                  <el-button :icon="Refresh" @click="fetchIngestNodes">刷新</el-button>
+                  <span style="margin-left: 12px; color: #909399; font-size: 13px;">
+                    共 {{ ingestNodes.length }} 个节点，{{ ingestUploads.length }} 个正在上报
+                  </span>
+                </div>
+
+                <div class="table-section">
+                  <el-table :data="ingestNodes" style="width: 100%" v-loading="ingestLoading" border stripe>
+                    <el-table-column label="状态" width="90" align="center">
+                      <template #default="scope">
+                        <el-tag :type="nodeOnline(scope.row) ? 'success' : 'info'" effect="dark" size="small">
+                          {{ nodeOnline(scope.row) ? '在线' : '离线' }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="节点标识" min-width="150" align="center" show-overflow-tooltip>
+                      <template #default="scope">{{ scope.row.nodeId }}</template>
+                    </el-table-column>
+                    <el-table-column label="名称" min-width="130" align="center" show-overflow-tooltip>
+                      <template #default="scope">{{ scope.row.name || '-' }}</template>
+                    </el-table-column>
+                    <el-table-column label="启用" width="80" align="center">
+                      <template #default="scope">
+                        <el-switch :model-value="scope.row.isEnabled" @change="handleToggleNode(scope.row)" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="累计上报" width="110" align="center">
+                      <template #default="scope">{{ scope.row.totalEvents.toLocaleString() }}</template>
+                    </el-table-column>
+                    <el-table-column label="正在录制" min-width="200" align="center">
+                      <template #default="scope">
+                        <div v-if="uploadsByNode(scope.row.nodeId).length === 0" style="color: #909399; font-size: 12px;">-</div>
+                        <div v-else>
+                          <el-tag
+                            v-for="u in uploadsByNode(scope.row.nodeId)"
+                            :key="u.sessionId"
+                            size="small"
+                            style="margin: 2px;"
+                          >
+                            会话 #{{ u.sessionId }} · {{ u.totalEvents }} 条
+                          </el-tag>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="最近活跃" min-width="140" align="center">
+                      <template #default="scope">
+                        <span v-if="scope.row.lastSeenAt">{{ formatDate(scope.row.lastSeenAt) }}</span>
+                        <span v-else style="color: #909399;">从未连接</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="100" align="center" fixed="right">
+                      <template #default="scope">
+                        <el-button size="small" type="danger" :icon="Delete" @click="handleDeleteNode(scope.row)">删除</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+            </template>
+
             <!-- 更新日志管理 -->
             <template v-else-if="activeSection === 'changelog'">
               <div class="section-card">
@@ -1890,6 +2058,34 @@ watch(activeSection, async (val) => {
     </el-container>
 
     <!-- Dialogs -->
+    <!-- 创建采集节点 -->
+    <el-dialog v-model="nodeCreateVisible" title="创建采集节点" width="460px">
+      <el-form label-width="90px">
+        <el-form-item label="节点标识">
+          <el-input v-model="nodeForm.nodeId" placeholder="例如 home-desktop（需与客户端配置一致）" />
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input v-model="nodeForm.name" placeholder="可选，便于识别" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="nodeCreateVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitCreateNode">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 节点 Token 展示（仅一次） -->
+    <el-dialog v-model="nodeTokenVisible" title="节点 Token（仅显示一次）" width="520px">
+      <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 12px;">
+        请立即复制并填入采集端设置，关闭后无法再次查看。
+      </el-alert>
+      <el-input :model-value="newNodeToken" readonly type="textarea" :rows="3" />
+      <template #footer>
+        <el-button @click="copyToken">复制</el-button>
+        <el-button type="primary" @click="nodeTokenVisible = false">我已保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="editDialogVisible" title="修改主播配置" width="400px">
       <div class="dialog-form">
         <el-input v-model="editForm.remark" placeholder="备注" />

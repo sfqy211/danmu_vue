@@ -879,6 +879,14 @@ public class AdminController : ControllerBase
         });
     }
 
+    /// <summary>当前正在上报的节点会话（各节点实时状态）。</summary>
+    [HttpGet("ingest-uploads")]
+    public IActionResult GetIngestUploads()
+    {
+        var ingest = HttpContext.RequestServices.GetRequiredService<Danmu.Server.Services.IngestService>();
+        return Ok(ingest.GetActiveUploads());
+    }
+
     /// <summary>启用/停用节点，或删除（删除后其上报立即失效）。</summary>
     [HttpPost("ingest-nodes/{id:int}/toggle")]
     public async Task<IActionResult> ToggleIngestNode(int id, [FromBody] JsonElement body)

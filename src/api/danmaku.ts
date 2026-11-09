@@ -478,6 +478,62 @@ export const getBiliAccounts = async (): Promise<BiliAccount[]> => {
   return res.data.map(normalizeBiliAccount);
 };
 
+// ─── 采集节点管理（分布式采集上报） ─────────────────────────────
+
+export interface IngestNode {
+  id: number;
+  nodeId: string;
+  name?: string | null;
+  isEnabled: boolean;
+  lastSeenAt?: number | null;
+  totalEvents: number;
+  createdAt?: string | null;
+}
+
+export interface IngestUpload {
+  nodeId: string;
+  sessionId: number;
+  uid: string;
+  liveStartTime: number;
+  totalEvents: number;
+  from: number;
+  to: number;
+  lastSeenSecondsAgo: number;
+}
+
+export const getIngestNodes = async (): Promise<IngestNode[]> => {
+  const res = await adminApi.get<any[]>('/admin/ingest-nodes', getAuthConfig());
+  return res.data.map((n) => ({
+    id: n.id,
+    nodeId: n.nodeId ?? n.node_id,
+    name: n.name,
+    isEnabled: n.isEnabled ?? n.is_enabled,
+    lastSeenAt: n.lastSeenAt ?? n.last_seen_at,
+    totalEvents: n.totalEvents ?? n.total_events ?? 0,
+    createdAt: n.createdAt ?? n.created_at,
+  }));
+};
+
+export const createIngestNode = async (nodeId: string, name?: string) => {
+  const res = await adminApi.post('/admin/ingest-nodes', { nodeId, name }, getAuthConfig());
+  return res.data as { id: number; nodeId: string; name?: string; token: string; note: string };
+};
+
+export const toggleIngestNode = async (id: number, isEnabled: boolean) => {
+  const res = await adminApi.post(`/admin/ingest-nodes/${id}/toggle`, { isEnabled }, getAuthConfig());
+  return res.data;
+};
+
+export const deleteIngestNode = async (id: number) => {
+  const res = await adminApi.delete(`/admin/ingest-nodes/${id}`, getAuthConfig());
+  return res.data;
+};
+
+export const getIngestUploads = async (): Promise<IngestUpload[]> => {
+  const res = await adminApi.get<any[]>('/admin/ingest-uploads', getAuthConfig());
+  return res.data;
+};
+
 export const importBiliCookie = async (uid: number, cookie: string) => {
   const res = await adminApi.post('/admin/bili-accounts/import-cookie', { uid, cookie }, getAuthConfig());
   return res.data;
