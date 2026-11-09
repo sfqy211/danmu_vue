@@ -1,6 +1,75 @@
-# 强制 GitHub Actions 工作流使用 LF 换行。
-# 本机 core.autocrlf=true 会在提交时把工作区 LF 转成 CRLF，
-# 导致 workflow 里的 shell 脚本行尾带 \r（命令失效）甚至解析失败。
-*.yml   text eol=lf
-*.yaml  text eol=lf
-*.sh    text eol=lf
+# ─────────────────────────────────────────────────────────────
+# 行尾统一为 LF
+#
+# 为什么必须显式声明：
+# Windows 上 Git 安装时默认 core.autocrlf=true（系统级），
+# 会把工作区文件转成 CRLF、提交时再转回 LF。但只要有一次用
+# GitHub API / 其它工具直接写入，就会把 CRLF 原样存进仓库，
+# 之后本地每次 checkout 都和索引对不上，表现为几百行「假改动」。
+#
+# 更实际的问题：.github/workflows/*.yml 里的 shell heredoc、sed、
+# bash 脚本一旦带 \r 就会执行失败（曾经导致 nginx 配置生成出错、
+# 部署中断）。同理 .sh 脚本带 \r 会报 "bad interpreter"。
+#
+# 因此这里对**所有文本**强制 LF，而不是只挑几个后缀。
+# 不写 `* text=auto` 是因为它在不同 Git 版本/平台行为不一致，
+# 显式指定 eol=lf 才是确定性的。
+# ─────────────────────────────────────────────────────────────
+
+# 兜底：所有文件按文本处理，统一 LF
+* text=auto eol=lf
+
+# ── 明确指定为文本 + LF ──────────────────────────────────────
+*.cs        text eol=lf
+*.csproj    text eol=lf
+*.sln       text eol=lf
+*.props     text eol=lf
+*.targets   text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.vue       text eol=lf
+*.css       text eol=lf
+*.scss      text eol=lf
+*.html      text eol=lf
+*.md        text eol=lf
+*.sh        text eol=lf
+*.sql       text eol=lf
+*.xml       text eol=lf
+*.toml      text eol=lf
+*.rs        text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+.env*       text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+
+# ── 二进制：禁止任何转换 ────────────────────────────────────
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.webp     binary
+*.ico      binary
+*.icns     binary
+*.pdf      binary
+*.zip      binary
+*.gz       binary
+*.tar      binary
+*.db       binary
+*.db-wal   binary
+*.db-shm   binary
+*.woff     binary
+*.woff2    binary
+*.ttf      binary
+*.eot      binary
+
+# ── 会被写入磁盘运行时数据的目录（避免 Git 误判为文本） ──────
+server/data/**  -text
+dist/**         -text
+node_modules/** -text
