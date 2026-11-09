@@ -665,10 +665,12 @@ public class BilibiliService
         try
         {
             var cookie = GetCookie();
+            // room_init 已被 B 站风控（412），改用 get_info
             var initJson = await SendBiliGetAsync(
-                BilibiliApiUrls.RoomInit,
-                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                BilibiliApiUrls.RoomInfo,
+                new Dictionary<string, string?> { ["room_id"] = roomId.ToString() },
                 cookie,
+                referer: $"{BilibiliApiUrls.LiveBase}/{roomId}",
                 useWbi: false);
             using var initDoc = JsonDocument.Parse(initJson);
             var initRoot = initDoc.RootElement;
@@ -683,14 +685,8 @@ public class BilibiliService
             long? initLiveTime = null;
             if (initData.TryGetProperty("live_time", out var lt))
             {
-                if (lt.ValueKind == JsonValueKind.Number)
-                {
-                    initLiveTime = lt.GetInt64();
-                }
-                else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed))
-                {
-                    initLiveTime = parsed;
-                }
+                var ms = ParseLiveTimeMs(lt);
+                if (ms.HasValue) initLiveTime = ms.Value / 1000; // 下游统一 *1000，这里还原成秒
             }
 
             if (liveStatus != 1)
@@ -907,19 +903,62 @@ public class BilibiliService
         return (0, "");
     }
 
+    /// <summary>
+    /// 解析 B 站返回的 live_time。room_init 给秒级时间戳，
+    /// get_info 给 "yyyy-MM-dd HH:mm:ss" 北京时间字符串，两种都要兼容。
+    /// 返回值统一为 Unix 毫秒（0 表示未开播）。
+    /// </summary>
+    internal static long? ParseLiveTimeMs(JsonElement liveTime)
+    {
+        switch (liveTime.ValueKind)
+        {
+            case JsonValueKind.Number:
+            {
+                var v = liveTime.GetInt64();
+                if (v <= 0) return null;
+                return v < 1_000_000_000_000 ? v * 1000 : v;
+            }
+            case JsonValueKind.String:
+            {
+                var raw = liveTime.GetString();
+                if (string.IsNullOrWhiteSpace(raw)) return null;
+                if (long.TryParse(raw, out var ts))
+                {
+                    if (ts <= 0) return null;
+                    return ts < 1_000_000_000_000 ? ts * 1000 : ts;
+                }
+                if (DateTime.TryParse(raw, out var dt))
+                {
+                    var local = DateTime.SpecifyKind(dt, DateTimeKind.Local);
+                    var ms = new DateTimeOffset(local).ToUnixTimeMilliseconds();
+                    return ms > 0 ? ms : null;
+                }
+                return null;
+            }
+            default:
+                return null;
+        }
+    }
+
     public virtual async Task<long> GetRealRoomIdAsync(long roomId)
     {
         try
         {
+            // 注意：room/v1/Room/room_init 已被 B 站风控（实测全量返回 412，
+            // 带 Cookie/Referer/Origin 均无效），改用 room/v1/Room/get_info。
+            // 该接口同时返回 room_id 与 short_id，短号会映射到真实房间号。
             var cookie = GetCookie();
             var json = await SendBiliGetAsync(
-                BilibiliApiUrls.RoomInit,
-                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                BilibiliApiUrls.RoomInfo,
+                new Dictionary<string, string?> { ["room_id"] = roomId.ToString() },
                 cookie,
+                referer: $"{BilibiliApiUrls.LiveBase}/{roomId}",
                 origin: BilibiliApiUrls.LiveBase);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            if (root.TryGetProperty("data", out var data) && data.TryGetProperty("room_id", out var rid))
+            if (root.TryGetProperty("code", out var code) && code.GetInt32() == 0
+                && root.TryGetProperty("data", out var data)
+                && data.TryGetProperty("room_id", out var rid))
             {
                 return rid.GetInt64();
             }
@@ -935,9 +974,13 @@ public class BilibiliService
     {
         try
         {
+            // room_init 已被 B 站风控（412），改用 get_info。
+            // 差异：get_info 的 live_time 是 "yyyy-MM-dd HH:mm:ss" 本地时间字符串，
+            // 而 room_init 是秒级时间戳，这里两种形态都兼容解析。
             var json = await SendBiliGetAsync(
-                BilibiliApiUrls.RoomInit,
-                new Dictionary<string, string?> { ["id"] = roomId.ToString() },
+                BilibiliApiUrls.RoomInfo,
+                new Dictionary<string, string?> { ["room_id"] = roomId.ToString() },
+                referer: $"{BilibiliApiUrls.LiveBase}/{roomId}",
                 origin: BilibiliApiUrls.LiveBase,
                 cancellationToken: cancellationToken);
 
@@ -952,14 +995,8 @@ public class BilibiliService
             long? liveStartTime = null;
             if (data.TryGetProperty("live_time", out var lt))
             {
-                if (lt.ValueKind == JsonValueKind.Number)
-                    liveStartTime = lt.GetInt64();
-                else if (lt.ValueKind == JsonValueKind.String && long.TryParse(lt.GetString(), out var parsed))
-                    liveStartTime = parsed;
+                liveStartTime = ParseLiveTimeMs(lt);
             }
-
-            if (liveStartTime.HasValue && liveStartTime.Value > 0 && liveStartTime.Value < 1_000_000_000_000)
-                liveStartTime = liveStartTime.Value * 1000;
 
             if (!liveStartTime.HasValue || liveStartTime.Value <= 0)
             {
@@ -1008,9 +1045,11 @@ public class BilibiliService
             int liveStatus = 0;
             if (string.IsNullOrWhiteSpace(effectiveUid))
             {
+                // room_init 已被 B 站风控（412），改用 get_info
                 var roomInitJson = await SendBiliGetAsync(
-                    BilibiliApiUrls.RoomInit,
-                    new Dictionary<string, string?> { ["id"] = effectiveRoomId.ToString() },
+                    BilibiliApiUrls.RoomInfo,
+                    new Dictionary<string, string?> { ["room_id"] = effectiveRoomId.ToString() },
+                    referer: $"{BilibiliApiUrls.LiveBase}/{effectiveRoomId}",
                     origin: BilibiliApiUrls.LiveBase,
                     cancellationToken: cancellationToken);
 
