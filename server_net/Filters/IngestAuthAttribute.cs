@@ -25,7 +25,20 @@ public class IngestAuthAttribute : Attribute, IAsyncAuthorizationFilter
         var req = context.HttpContext.Request;
         if (HttpMethods.IsOptions(req.Method)) return;
 
+        // 三种来源都接受，复用同一套节点凭据：
+        // - X-Node-Token：本中心 /api/ingest 的原生约定
+        // - Token：danmakus-client 的 AccountApiClient 固定发这个头
+        // - token query：个别客户端在 WS 握手/EventSource 场景无法改头
         var token = req.Headers[HeaderName].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = req.Headers["Token"].FirstOrDefault();
+        }
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = req.Query["token"].FirstOrDefault();
+        }
+
         if (string.IsNullOrWhiteSpace(token))
         {
             context.Result = new UnauthorizedResult();

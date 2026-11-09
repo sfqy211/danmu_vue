@@ -1,5 +1,6 @@
 using Danmu.Server.Data;
 using Danmu.Server.Services;
+using Danmu.Server.Services.Danmakus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Serilog;
@@ -130,6 +131,14 @@ builder.Services.AddHostedService<LiveStatusService>(sp => sp.GetRequiredService
 builder.Services.AddSingleton<HealthCheckService>();
 builder.Services.AddHostedService<HealthCheckService>(sp => sp.GetRequiredService<HealthCheckService>());
 
+// danmakus-client 兼容层：让现成的 danmakus 采集内核直接连本中心
+builder.Services.AddSingleton<DanmakusRuntimeRegistry>();
+builder.Services.AddSingleton<DanmakusRoomAllocator>();
+builder.Services.AddSingleton<DanmakusRuntimeEndpoint>();
+builder.Services.AddHostedService<DanmakusPresenceCleanupService>();
+// 采集节点上报的会话没有"录制结束"事件，必须靠直播状态 + 空闲时长自动封盘
+builder.Services.AddHostedService<SessionAutoFinalizeService>();
+
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -154,6 +163,13 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowAll");
 app.UseAuthorization();
 
+// danmakus-client 的 Core Runtime 走 WebSocket，必须先注册中间件
+app.UseWebSockets(new WebSocketOptions
+{
+    // 客户端 15s 一个状态汇报，留足余量；这里控制的是服务端发 ping 的间隔
+    KeepAliveInterval = TimeSpan.FromSeconds(30)
+});
+
 // Serve Static Files
 var distPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../dist"));
 var publicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "../public"));
@@ -177,6 +193,14 @@ if (staticPath != null)
 
 
 app.MapControllers();
+
+// danmakus-client 的 Core Runtime WebSocket。
+// 路径必须与客户端 resolveWsUrl 的推导结果一致：<coreRuntimeBaseUrl>/ws
+// 即 /api/v2/core-runtime/ws。鉴权走节点 Token（与 /api/ingest 同一套凭据）。
+app.Map("/api/v2/core-runtime/ws", async (HttpContext context, DanmakusRuntimeEndpoint endpoint) =>
+{
+    await endpoint.HandleAsync(context);
+});
 
 // SSE endpoint for real-time log streaming (with token auth via query string)
 app.MapGet("/api/admin/logs/stream", async (HttpContext context, LogService logService, CancellationToken ct) =>

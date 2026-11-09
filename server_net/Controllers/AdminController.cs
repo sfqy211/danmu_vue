@@ -879,12 +879,26 @@ public class AdminController : ControllerBase
         });
     }
 
-    /// <summary>当前正在上报的节点会话（各节点实时状态）。</summary>
+    /// <summary>
+    /// 当前正在上报的节点会话（各节点实时状态）。
+    ///
+    /// 合并两个来源：
+    /// - sessions：走 HTTP /api/ingest 上报的节点（原有语义）
+    /// - runtimeNodes：走 danmakus-core WS 长连接的节点（含它持有的房间与连接容量）
+    /// 前端「采集节点」页据此展示"谁在线、在录什么"。
+    /// </summary>
     [HttpGet("ingest-uploads")]
     public IActionResult GetIngestUploads()
     {
         var ingest = HttpContext.RequestServices.GetRequiredService<Danmu.Server.Services.IngestService>();
-        return Ok(ingest.GetActiveUploads());
+        var registry = HttpContext.RequestServices
+            .GetRequiredService<Danmu.Server.Services.Danmakus.DanmakusRuntimeRegistry>();
+
+        return Ok(new
+        {
+            sessions = ingest.GetActiveUploads(),
+            runtimeNodes = registry.Snapshot()
+        });
     }
 
     /// <summary>启用/停用节点，或删除（删除后其上报立即失效）。</summary>

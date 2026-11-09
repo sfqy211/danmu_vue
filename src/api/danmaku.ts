@@ -533,9 +533,55 @@ export const deleteIngestNode = async (id: number) => {
   return res.data;
 };
 
+/**
+ * 采集节点实时上报状态。
+ *
+ * 后端返回结构在引入 danmakus 采集端后从「裸数组」升级为
+ * `{ sessions, runtimeNodes }`：
+ * - sessions：走 HTTP /api/ingest 上报的节点
+ * - runtimeNodes：走 danmakus-core WS 长连接的节点
+ * 这里把两种形态归一成一个扁平数组，调用方无需关心版本差异。
+ */
 export const getIngestUploads = async (): Promise<IngestUpload[]> => {
-  const res = await adminApi.get<any[]>('/admin/ingest-uploads', getAuthConfig());
-  return res.data;
+  const res = await adminApi.get<any>('/admin/ingest-uploads', getAuthConfig());
+  const payload = res.data;
+  if (Array.isArray(payload)) return payload as IngestUpload[];
+
+  const sessions: IngestUpload[] = Array.isArray(payload?.sessions) ? payload.sessions : [];
+  const runtimeNodes: any[] = Array.isArray(payload?.runtimeNodes) ? payload.runtimeNodes : [];
+
+  // WS 节点以 activeUploads 展开成逐房间条目，与 HTTP 节点的口径保持一致
+  const fromRuntime: IngestUpload[] = [];
+  for (const node of runtimeNodes) {
+    const active = Array.isArray(node?.activeUploads) ? node.activeUploads : [];
+    if (active.length === 0) {
+      fromRuntime.push({
+        nodeId: node.nodeId,
+        sessionId: 0,
+        uid: '',
+        liveStartTime: 0,
+        totalEvents: node.totalEvents ?? 0,
+        from: 0,
+        to: 0,
+        lastSeenSecondsAgo: node.lastSeenSecondsAgo ?? 0,
+      } as IngestUpload);
+      continue;
+    }
+    for (const upload of active) {
+      fromRuntime.push({
+        nodeId: node.nodeId,
+        sessionId: upload.sessionId,
+        uid: String(upload.streamerUid ?? ''),
+        liveStartTime: upload.liveStartTime ?? 0,
+        totalEvents: node.totalEvents ?? 0,
+        from: 0,
+        to: 0,
+        lastSeenSecondsAgo: node.lastSeenSecondsAgo ?? 0,
+      } as IngestUpload);
+    }
+  }
+
+  return [...sessions, ...fromRuntime];
 };
 
 export const importBiliCookie = async (uid: number, cookie: string) => {

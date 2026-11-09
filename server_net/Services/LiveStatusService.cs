@@ -53,6 +53,24 @@ public class LiveStatusService : BackgroundService
         return null;
     }
 
+    /// <summary>
+    /// 主动回源查一次直播状态并写回缓存。
+    ///
+    /// 背景：<see cref="GetCachedStatusAsync"/> 只在内存/Redis 有值时返回。
+    /// 采集节点刚连上就上报弹幕时缓存往往还是空的，那时必须同步取一次真实状态，
+    /// 否则开播时间拿不到，多节点就会各自用"事件时间对齐"的兜底键，
+    /// 同一场直播会被拆成多个 Session。
+    /// </summary>
+    public async Task<LiveState?> RefreshStatusAsync(long roomId, CancellationToken token = default)
+    {
+        var state = await FetchRoomStatusWithDedupAsync(roomId, token);
+        if (state == null) return null;
+
+        _cache[roomId] = state;
+        await PersistRoomStateAsync(state, token);
+        return state;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Initial delay to let app start up

@@ -49,6 +49,12 @@ public class IngestService
         public long TotalEvents { get; set; }
         public long MinTimestamp { get; set; }
         public long MaxTimestamp { get; set; }
+
+        /// <summary>
+        /// 已入库但还没累加进 ingest_nodes.total_events 的条数。
+        /// 单独攒着是为了避免每一批上报都去 UPDATE 节点行（写放大）。
+        /// </summary>
+        public long PendingContribution { get; set; }
     }
 
     // ─── 会话开始 ───────────────────────────────────────────────
@@ -71,22 +77,58 @@ public class IngestService
         if (existing != null)
         {
             sessionId = existing.Id;
+
+            // 复用已有会话：它可能是上一轮录制留下的（EndTime 已写）或旧格式的 ingest: 路径。
+            // 两种都要归位，否则本节点写入的场次库和 Session 指向的文件会不一致。
+            var needsUpdate = false;
+            if (existing.EndTime != 0)
+            {
+                existing.EndTime = 0;
+                needsUpdate = true;
+            }
+            if (string.IsNullOrEmpty(existing.FilePath) ||
+                existing.FilePath.StartsWith("ingest:", StringComparison.Ordinal))
+            {
+                var resumeStart = existing.StartTime
+                    ?? req.LiveStartTime
+                    ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                existing.FilePath = "sqlite:" + _sessionDb.GetRelativeDbPath(uid, resumeStart);
+                needsUpdate = true;
+            }
+            if (existing.LiveStartTime == null && req.LiveStartTime != null)
+            {
+                existing.LiveStartTime = req.LiveStartTime;
+                needsUpdate = true;
+            }
+            if (needsUpdate)
+            {
+                await db.SaveChangesAsync();
+            }
+
+            // 重新打开场次库（多节点接力时，前一个节点可能已经 CloseSessionAsync 过了）
+            var reopenStart = existing.StartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            await _sessionDb.OpenSessionAsync(uid, reopenStart);
+
             _logger.LogInformation("Ingest node {NodeId} joined existing session {SessionId} for uid {Uid}",
                 nodeId, sessionId, uid);
         }
         else
         {
+            var claimedStartTime = req.LiveStartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var relativePath = _sessionDb.GetRelativeDbPath(uid, claimedStartTime);
             var session = new Session
             {
                 Uid = uid,
                 RoomId = req.RoomId?.ToString(),
                 Title = req.Title,
                 UserName = req.UserName,
-                StartTime = req.LiveStartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                StartTime = claimedStartTime,
                 LiveStartTime = req.LiveStartTime,
                 EndTime = 0,
-                // 上报中的会话用 ingest: 前缀，封盘后改为 sqlite:
-                FilePath = $"ingest:{nodeId}:{req.LiveStartTime}",
+                // 直接写规范文件名（sqlite:{uid}/{开播时间}.db），不要等到封盘才改：
+                // 上报中途被查询（前端点进正在录的场次）时，FilePath 必须是可用路径，
+                // 否则旧写法 ingest:{node}:{ts} 会让详情页 404。
+                FilePath = "sqlite:" + relativePath,
                 SummaryJson = "{}",
                 GiftSummaryJson = "{}",
                 NodeId = nodeId,
@@ -99,8 +141,7 @@ public class IngestService
                 nodeId, sessionId, uid);
 
             // 提前建好场次库文件，后续批量写入直接复用
-            var startTs = session.StartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _sessionDb.OpenSessionAsync(uid, startTs);
+            await _sessionDb.OpenSessionAsync(uid, claimedStartTime);
         }
 
         var stateKey = $"{nodeId}:{sessionId}";
@@ -124,6 +165,18 @@ public class IngestService
     {
         if (events.Count == 0) return new IngestAppendResult(0, 0);
 
+        // 时间戳非法的直接丢弃：采集端在极个别消息上会给出 0 或负值，
+        // 这类事件进库后会让时间线排序错乱、按时间聚合的统计出现 1970 年的桶。
+        // 返回的 Received 只算真正尝试写入的条数，让调用方知道有多少被过滤。
+        var validEvents = events.Where(e => e.Timestamp > 0).ToList();
+        var invalidCount = events.Count - validEvents.Count;
+        if (invalidCount > 0)
+        {
+            _logger.LogWarning("Ingest session {SessionId} from {NodeId}: dropped {Count} events with invalid timestamp",
+                sessionId, nodeId, invalidCount);
+        }
+        if (validEvents.Count == 0) return new IngestAppendResult(0, 0);
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
         var session = await db.Sessions.FindAsync(sessionId);
@@ -136,7 +189,7 @@ public class IngestService
         var conn = await _sessionDb.OpenSessionAsync(session.Uid ?? "", startTs);
 
         var before = await GetRowCountAsync(conn);
-        await _sessionDb.WriteBatchAsync(conn, events);
+        await _sessionDb.WriteBatchAsync(conn, validEvents);
         var after = await GetRowCountAsync(conn);
         var accepted = (int)(after - before);
 
@@ -144,8 +197,9 @@ public class IngestService
         if (_uploads.TryGetValue(stateKey, out var state))
         {
             state.LastSeenUtc = DateTime.UtcNow;
-            state.TotalEvents += events.Count;
-            var ts = events.Select(e => e.Timestamp).ToList();
+            state.TotalEvents += accepted;
+            state.PendingContribution += accepted;
+            var ts = validEvents.Select(e => e.Timestamp).ToList();
             var min = ts.Min();
             var max = ts.Max();
             if (state.MinTimestamp == 0 || min < state.MinTimestamp) state.MinTimestamp = min;
@@ -155,7 +209,7 @@ public class IngestService
             await UpdateProviderNodesAsync(db, session, state);
         }
 
-        var skipped = events.Count - accepted;
+        var skipped = validEvents.Count - accepted;
         if (skipped > 0)
         {
             _logger.LogDebug("Ingest session {SessionId} from {NodeId}: {Accepted} accepted, {Skipped} duplicates",
@@ -187,6 +241,18 @@ public class IngestService
         entry.To = state.MaxTimestamp;
         entry.Count = state.TotalEvents;
         session.ProviderNodes = JsonSerializer.Serialize(list, JsonOptions);
+
+        // 节点累计上报条数：后台「采集节点」页展示的就是这个值。
+        // 只在这里累加实际入库条数（accepted），不是客户端自报的数字 ——
+        // 否则多节点重复上报时会虚高，看不出真实贡献量。
+        var node = await db.IngestNodes.FirstOrDefaultAsync(n => n.NodeId == state.NodeId);
+        if (node != null)
+        {
+            node.TotalEvents += state.PendingContribution;
+            state.PendingContribution = 0;
+            node.LastSeenAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+
         await db.SaveChangesAsync();
     }
 
@@ -220,6 +286,13 @@ public class IngestService
         if (node != null)
         {
             node.LastSeenAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // 把攒着的入库条数落进节点累计值：心跳是低频路径，写在这里
+            // 既保证「采集节点」页的数字及时更新，又不会每批上报都写库
+            if (state != null && state.PendingContribution > 0)
+            {
+                node.TotalEvents += state.PendingContribution;
+                state.PendingContribution = 0;
+            }
             await db.SaveChangesAsync();
         }
     }
@@ -227,10 +300,16 @@ public class IngestService
     /// <summary>
     /// 采集端结束上报。所有节点都结束后把会话封盘为 sqlite: 路径。
     /// </summary>
-    public async Task EndSessionAsync(int sessionId, string nodeId, long? endTime)
+    /// <param name="finalize">
+    /// 是否代表"这场直播真的录完了"。
+    /// - true（采集端明确结束/心跳超时）：写 EndTime、封盘
+    /// - false（WS 断开但直播可能还在继续）：只摘除活跃登记，不写 EndTime，
+    ///   让会话保持"进行中"，其它节点接管后还能继续往同一场写。
+    /// </param>
+    public async Task EndSessionAsync(int sessionId, string nodeId, long? endTime, bool finalize = true)
     {
         var stateKey = $"{nodeId}:{sessionId}";
-        _uploads.TryRemove(stateKey, out _);
+        _uploads.TryRemove(stateKey, out var removedState);
 
         // 还有其它节点在上报同一会话时，不封盘
         var stillActive = _uploads.Values.Any(s => s.SessionId == sessionId);
@@ -245,8 +324,33 @@ public class IngestService
         var session = await db.Sessions.FindAsync(sessionId);
         if (session == null) return;
 
+        // 把该节点还没结算的条数落进节点累计值
+        if (removedState != null && removedState.PendingContribution > 0)
+        {
+            var node = await db.IngestNodes.FirstOrDefaultAsync(n => n.NodeId == nodeId);
+            if (node != null)
+            {
+                node.TotalEvents += removedState.PendingContribution;
+                node.LastSeenAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            removedState.PendingContribution = 0;
+        }
+
         var startTs = session.StartTime ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var relative = _sessionDb.GetRelativeDbPath(session.Uid ?? "", startTs);
+
+        if (!finalize)
+        {
+            // 节点掉线/主动断开，但这场直播不一定结束。
+            // 保留 EndTime=0，前端继续显示"录制中"；把 FilePath 校正到规范名即可。
+            session.FilePath = "sqlite:" + relative;
+            await db.SaveChangesAsync();
+            _logger.LogInformation(
+                "Session {SessionId}: node {NodeId} detached without finalizing (live may continue)",
+                sessionId, nodeId);
+            return;
+        }
+
         await _sessionDb.CloseSessionAsync(session.Uid ?? "");
 
         session.FilePath = "sqlite:" + relative;
