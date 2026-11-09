@@ -93,12 +93,18 @@ public static class DbInitializer
         }
     }
 
+    /// <summary>当前主库是否为 PostgreSQL（schema 检查语句与 SQLite 完全不同）。</summary>
+    private static bool IsPostgres(DanmuContext db) =>
+        db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
+
     private static async Task<bool> ColumnExistsAsync(DanmuContext db, string tableName, string columnName)
     {
         var escapedTable = EscapeSqlLiteral(tableName);
         var escapedColumn = EscapeSqlLiteral(columnName);
 
-        var sql = $"SELECT COUNT(*) FROM pragma_table_info('{escapedTable}') WHERE name = '{escapedColumn}'";
+        var sql = IsPostgres(db)
+            ? $"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '{escapedTable.ToLowerInvariant()}' AND column_name = '{escapedColumn.ToLowerInvariant()}'"
+            : $"SELECT COUNT(*) FROM pragma_table_info('{escapedTable}') WHERE name = '{escapedColumn}'";
         return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
@@ -107,7 +113,9 @@ public static class DbInitializer
         var escapedTable = EscapeSqlLiteral(tableName);
         var escapedIndex = EscapeSqlLiteral(indexName);
 
-        var sql = $"SELECT COUNT(*) FROM pragma_index_list('{escapedTable}') WHERE name = '{escapedIndex}'";
+        var sql = IsPostgres(db)
+            ? $"SELECT COUNT(*) FROM pg_indexes WHERE tablename = '{escapedTable.ToLowerInvariant()}' AND indexname = '{escapedIndex.ToLowerInvariant()}'"
+            : $"SELECT COUNT(*) FROM pragma_index_list('{escapedTable}') WHERE name = '{escapedIndex}'";
         return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
@@ -115,7 +123,9 @@ public static class DbInitializer
     {
         var escapedTable = EscapeSqlLiteral(tableName);
 
-        var sql = $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{escapedTable}'";
+        var sql = IsPostgres(db)
+            ? $"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{escapedTable.ToLowerInvariant()}'"
+            : $"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{escapedTable}'";
         return await ExecuteScalarLongAsync(db, sql) > 0;
     }
 
