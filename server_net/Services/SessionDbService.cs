@@ -253,8 +253,9 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             pUser.Value = e.User ?? "";
             pUid.Value = e.Uid ?? "";
             pText.Value = (object?)e.Text ?? DBNull.Value;
-            // text_jpn：优先 message_trans，其次 message_jpn，最后 text_jpn（ADR-3 迁移映射）
-            pTextJpn.Value = (object?)(e.MessageTrans ?? e.MessageJpn ?? e.TextJpn) ?? DBNull.Value;
+            // text_jpn：优先日语原文 message_jpn，其次机翻 message_trans，最后 text_jpn
+            // （与 bilidanmu 的取舍一致：双语 SC 的 message_jpn 才是真正的日语，机翻只是兜底）
+            pTextJpn.Value = (object?)(e.MessageJpn ?? e.MessageTrans ?? e.TextJpn) ?? DBNull.Value;
             pName.Value = (object?)e.Name ?? DBNull.Value;
             pCount.Value = e.Count > 0 ? e.Count : 1;
             pPrice.Value = (object?)e.Price ?? DBNull.Value;

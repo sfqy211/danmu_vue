@@ -100,22 +100,12 @@ public class BilibiliService
                 request.Headers.TryAddWithoutValidation("x-bili-ticket", biliTicket);
             }
 
-            ApplyDeviceFingerprintHeaders(request, deviceFingerprint);
-
-            return request;
-        }
-
-        private static void ApplyDeviceFingerprintHeaders(HttpRequestMessage request, DeviceFingerprintHeaders? deviceFingerprint)
-        {
-            if (deviceFingerprint == null)
+            if (deviceFingerprint != null)
             {
-                return;
+                ApplyFingerprintCookieHeaders(request, deviceFingerprint);
             }
 
-            request.Headers.TryAddWithoutValidation("buvid3", deviceFingerprint.Buvid3);
-            request.Headers.TryAddWithoutValidation("buvid4", deviceFingerprint.Buvid4);
-            request.Headers.TryAddWithoutValidation("b_nut", deviceFingerprint.BNut);
-            request.Headers.TryAddWithoutValidation("b_lsid", deviceFingerprint.BLsid);
+            return request;
         }
 
         internal async Task<IReadOnlyDictionary<string, string>> SignParamsAsync(IDictionary<string, string?> parameters)
@@ -300,13 +290,36 @@ public class BilibiliService
 
         if (deviceFingerprint != null)
         {
-            request.Headers.TryAddWithoutValidation("buvid3", deviceFingerprint.Buvid3);
-            request.Headers.TryAddWithoutValidation("buvid4", deviceFingerprint.Buvid4);
-            request.Headers.TryAddWithoutValidation("b_nut", deviceFingerprint.BNut);
-            request.Headers.TryAddWithoutValidation("b_lsid", deviceFingerprint.BLsid);
+            // 与 WBI 签名路径一致：buvid 合并进 Cookie（见 ApplyFingerprintCookieHeaders）
+            ApplyFingerprintCookieHeaders(request, deviceFingerprint);
         }
 
         return request;
+    }
+
+    /// <summary>
+    /// 把设备指纹 buvid3/buvid4/b_nut 合并进 Cookie 头（并保留原独立头）。
+    /// B 站风控（-352）要求 buvid 位于 Cookie 内：仅作为独立请求头携带时，新弹幕配置 API
+    /// （getDanmuInfo）会被拦截，录制器被迫回退旧 API，而旧 API 签发的 token 已不被
+    /// 弹幕 WS 接受（实测 2026-11）。
+    /// </summary>
+    private static void ApplyFingerprintCookieHeaders(HttpRequestMessage request, DeviceFingerprintHeaders deviceFingerprint)
+    {
+        var existingCookie = request.Headers.TryGetValues("Cookie", out var cookieValues)
+            ? string.Join("; ", cookieValues)
+            : "";
+        var cookieParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(existingCookie)) cookieParts.Add(existingCookie);
+        cookieParts.Add($"buvid3={deviceFingerprint.Buvid3}");
+        cookieParts.Add($"buvid4={deviceFingerprint.Buvid4}");
+        cookieParts.Add($"b_nut={deviceFingerprint.BNut}");
+        request.Headers.Remove("Cookie");
+        request.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", cookieParts));
+
+        request.Headers.TryAddWithoutValidation("buvid3", deviceFingerprint.Buvid3);
+        request.Headers.TryAddWithoutValidation("buvid4", deviceFingerprint.Buvid4);
+        request.Headers.TryAddWithoutValidation("b_nut", deviceFingerprint.BNut);
+        request.Headers.TryAddWithoutValidation("b_lsid", deviceFingerprint.BLsid);
     }
 
     internal sealed record DeviceFingerprintHeaders(string Buvid3, string Buvid4, string BNut, string BLsid);
@@ -762,29 +775,54 @@ public class BilibiliService
         // Try new API first
         try
         {
-            var json = await SendBiliGetAsync(
-                BilibiliApiUrls.DanmuInfo,
-                new Dictionary<string, string?>
-                {
-                    ["id"] = realRoomId.ToString(),
-                    ["type"] = "0"
-                },
-                cookie,
-                origin: BilibiliApiUrls.LiveBase,
-                useWbi: true);
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("code", out var code) && code.GetInt32() == 0)
+            // 精简请求（与 bilidanmu 一致）：仅 UA + Referer/Origin + Cookie（buvid 合并进 Cookie）。
+            // bili_ticket 与独立 buvid/b_lsid 头会导致签发的 token 被弹幕 WS 风控拒绝（实测 2026-11）。
+            // wbi 混淆键过期返回 -403 时作废缓存重试一次。
+            for (var attempt = 0; ; attempt++)
             {
-                var data = root.GetProperty("data");
-                var token = data.GetProperty("token").GetString();
-                var hostList = data.GetProperty("host_list");
-                var host = hostList[0].GetProperty("host").GetString();
-                var port = hostList[0].GetProperty("wss_port").GetInt32();
-                
-                _logger.LogInformation("Got danmaku conf for {RealRoomId}: host={Host}", realRoomId, host);
-                return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
+                await _rateLimiter.WaitForAsync(CancellationToken.None);
+                var signedParams = await _wbiSigner.SignParamsAsync(new Dictionary<string, string?>
+                {
+                    ["id"] = realRoomId.ToString()
+                });
+                var query = string.Join("&", signedParams.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value)}"));
+                var fingerprint = GetOrCreateDeviceFingerprintHeaders();
+                var cookieHeader = string.IsNullOrWhiteSpace(cookie)
+                    ? $"buvid3={fingerprint.Buvid3}; buvid4={fingerprint.Buvid4}"
+                    : $"{cookie.TrimEnd(';')}; buvid3={fingerprint.Buvid3}; buvid4={fingerprint.Buvid4}";
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{BilibiliApiUrls.DanmuInfo}?{query}");
+                request.Headers.TryAddWithoutValidation("Referer", $"{BilibiliApiUrls.LiveBase}/{realRoomId}");
+                request.Headers.TryAddWithoutValidation("Origin", BilibiliApiUrls.LiveBase);
+                request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+
+                var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                var code = root.TryGetProperty("code", out var codeEl) ? codeEl.GetInt32() : -1;
+                if (code == -403 && attempt == 0)
+                {
+                    _logger.LogWarning("Danmaku conf got -403, invalidating wbi mixin key and retrying for {RealRoomId}", realRoomId);
+                    _wbiSigner.Invalidate();
+                    continue;
+                }
+
+                if (code == 0)
+                {
+                    var data = root.GetProperty("data");
+                    var token = data.GetProperty("token").GetString();
+                    var hostList = data.GetProperty("host_list");
+                    var host = hostList[0].GetProperty("host").GetString();
+                    var port = hostList[0].GetProperty("wss_port").GetInt32();
+
+                    _logger.LogInformation("Got danmaku conf for {RealRoomId}: host={Host}", realRoomId, host);
+                    return (token ?? "", $"wss://{host}:{port}/sub", realRoomId);
+                }
+
+                break;
             }
         }
         catch (Exception ex)

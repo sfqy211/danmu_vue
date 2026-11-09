@@ -954,7 +954,7 @@ public class DanmakuService
             },
             Timestamp = recordedEvent.Timestamp,
             Text = recordedEvent.Text,
-            TextJpn = recordedEvent.MessageJpn ?? recordedEvent.TextJpn,
+            TextJpn = recordedEvent.MessageJpn ?? recordedEvent.MessageTrans ?? recordedEvent.TextJpn,
             Price = recordedEvent.Price,
             IsPriceTotal = recordedEvent.IsPriceTotal,
             Name = recordedEvent.Name,

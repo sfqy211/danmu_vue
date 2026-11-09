@@ -175,7 +175,11 @@ public class ProcessManager
         using (var scope = _scopeFactory.CreateScope())
         {
             var bilibili = scope.ServiceProvider.GetRequiredService<BilibiliService>();
-            var (token, host, realRoomId) = await bilibili.GetDanmakuConfAsync(identity.RoomId);
+            // 用房间绑定的账号下发 conf，保证 token 与后续鉴权 uid 属于同一账号
+            // （不传 cookie 会回退到全局活跃账号，token/uid 可能错配并被风控秒断）
+            var accountService = scope.ServiceProvider.GetRequiredService<BiliAccountService>();
+            var (roomCookie, _) = await accountService.GetCookieWithAccountForRoomAsync(identity.Uid);
+            var (token, host, realRoomId) = await bilibili.GetDanmakuConfAsync(identity.RoomId, roomCookie);
             await recorder.StartAsync(token, host, bilibili, realRoomId);
         }
     }

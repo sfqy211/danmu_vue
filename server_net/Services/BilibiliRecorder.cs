@@ -46,6 +46,15 @@ public class BilibiliRecorder : IDisposable
     /// <summary>Room-specific emoticon map keyed by trigger text (e.g. "[桃几表情包_好听]"), fetched from GetEmoticons API.</summary>
     private Dictionary<string, EmoticonInfo>? _roomEmoticonMap;
 
+    /// <summary>
+    /// SC 去重窗口：同一笔 SC 会以 SUPER_CHAT_MESSAGE / SUPER_CHAT_MESSAGE_JPN 重复下发
+    /// （data.id 相同），只存首条，避免双语 SC 重复入库。有界 FIFO，长时间直播不无限增长。
+    /// </summary>
+    private readonly HashSet<string> _seenSuperChatIds = new();
+    private readonly Queue<string> _superChatIdOrder = new();
+    private readonly object _superChatDedupLock = new();
+    private const int SuperChatDedupCapacity = 512;
+
     // Delegate to check for active session key
     public Func<string, long, Task<string?>>? CheckActiveSession;
     // Delegate to update last live time and stats in DB
@@ -494,10 +503,9 @@ public class BilibiliRecorder : IDisposable
     private async Task ConnectAsync()
     {
         _ws = new ClientWebSocket();
-        
-        // Add headers if needed
-        _ws.Options.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        
+
+        // 注意：不要在这里加 User-Agent/Cookie/Origin 等头。B 站弹幕 WS 网关只接受
+        // 极简升级请求（与 bilidanmu/tungstenite 默认行为一致），带浏览器头反而会被断开。
         // Atomically get cookie AND account UID from the same account
         var (cookie, accountUid) = await _accountService.GetCookieWithAccountForRoomAsync(_uid);
         
@@ -506,40 +514,121 @@ public class BilibiliRecorder : IDisposable
 
         _currentAccountUid = accountUid.Value;
 
+        // 鉴权模式：登录态（真实 uid）能拿到完整用户名与全部公开事件；匿名（uid=0）时
+        // B 站会把用户名打码成 "xxx***"，且看不到部分需要登录态的事件。
+        // 优先登录态，cookie/token 失效时自动降级为匿名，保证录制不中断。
+        var useLoginAuth = true;
+        var authUid = _currentAccountUid;
+
         // Refresh token using the SAME cookie that will be used for the auth packet.
         // This ensures token and UID come from the same account, fixing the token/UID mismatch bug.
         if (_bilibiliService != null)
         {
             try
             {
+                // conf 用账号 cookie 签发登录态 token，鉴权时配真实 uid（二者必须配对，否则被风控秒断）。
                 var (token, host, realRoomId) = await _bilibiliService.GetDanmakuConfAsync(_roomId, cookie);
                 _token = token;
                 if (!string.IsNullOrWhiteSpace(host)) _host = host;
                 if (realRoomId > 0) _realRoomId = realRoomId;
+
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    throw new InvalidOperationException("Empty danmaku token");
+                }
+
+                _logger.LogInformation("Danmaku conf ok for room {RoomId}: account={AccountUid}, cookieLen={CookieLen}, tokenLen={TokenLen}",
+                    _roomId, _currentAccountUid, cookie.Length, token.Length);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to refresh token for room {RoomId}, using cached token as fallback", _roomId);
+                _logger.LogError(ex, "Login danmaku conf failed for room {RoomId} (account={AccountUid}, cookieLen={CookieLen}), falling back to anonymous auth",
+                    _roomId, _currentAccountUid, cookie.Length);
+                useLoginAuth = false;
+                authUid = 0;
+
+                // 降级时必须重新用匿名 conf 取 token（登录 token 配 uid=0 会配对失败被秒断）
+                try
+                {
+                    var (anonToken, anonHost, anonRoomId) = await _bilibiliService.GetDanmakuConfAsync(_roomId, "");
+                    if (!string.IsNullOrWhiteSpace(anonToken))
+                    {
+                        _token = anonToken;
+                        if (!string.IsNullOrWhiteSpace(anonHost)) _host = anonHost;
+                        if (anonRoomId > 0) _realRoomId = anonRoomId;
+                        _logger.LogInformation("Using anonymous danmaku token for room {RoomId}", _roomId);
+                    }
+                }
+                catch (Exception anonEx)
+                {
+                    _logger.LogWarning(anonEx, "Anonymous danmaku conf also failed for room {RoomId}, using cached token", _roomId);
+                }
             }
         }
         
         var uriString = string.IsNullOrWhiteSpace(_host) ? "wss://broadcastlv.chat.bilibili.com/sub" : _host;
-        var uri = new Uri(uriString);
-        await _ws.ConnectAsync(uri, _cts!.Token);
-        
+
+        // B 站风控按 TLS 指纹拦截非浏览器客户端的 wss 连接：.NET SChannel 的 wss 握手会被
+        // 接受后秒断（Node/rustls 可正常连接，实测 2026-11）。改走非 TLS 的 2244 端口
+        // （tiny-bilibili-ws 的 WEBSOCKET_PORT），明文连接没有 TLS 指纹可查，实测可正常鉴权。
+        // 边缘节点偶发握手挂起，加 15s 超时让重连循环接管。
+        var uri = BuildPlainDanmakuUri(uriString);
+        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_cts!.Token);
+        connectCts.CancelAfter(TimeSpan.FromSeconds(15));
+        await _ws.ConnectAsync(uri, connectCts.Token);
+
         var authBody = JsonSerializer.Serialize(new
         {
-            uid = _currentAccountUid,
+            // 鉴权 uid 必须与 conf 签发的 token 类型配对：登录态 token 配真实 uid，
+            // 匿名 token 配 0；不配对会被风控秒断。
+            uid = useLoginAuth ? authUid : 0,
             roomid = _realRoomId > 0 ? _realRoomId : _roomId,
-            protover = 2, // 2 = Zlib
+            protover = 3, // 3 = Brotli（ProcessPacket 已支持）
             platform = "web",
             type = 2,
+            buvid = GetBuvid3(cookie),
             key = _token
         });
-        
+
         var bodyBytes = Encoding.UTF8.GetBytes(authBody);
         await SendPacketAsync(7, bodyBytes);
-        _logger.LogInformation("Connected to room {RoomId}, account={AccountUid}", _roomId, _currentAccountUid);
+        _logger.LogInformation("Connected to room {RoomId} (ws plain 2244, {AuthMode} auth), account={AccountUid}",
+            _roomId, useLoginAuth ? "login" : "anonymous", _currentAccountUid);
+    }
+
+    /// <summary>
+    /// 把 GetDanmakuConf 返回的 wss 地址转换为非 TLS 弹幕地址 ws://{host}:2244/sub。
+    /// </summary>
+    internal static Uri BuildPlainDanmakuUri(string confUri)
+    {
+        var host = confUri;
+        if (Uri.TryCreate(confUri, UriKind.Absolute, out var parsed) && !string.IsNullOrEmpty(parsed.Host))
+        {
+            host = parsed.Host;
+        }
+        else
+        {
+            var noScheme = confUri.Replace("wss://", "").Replace("ws://", "");
+            host = noScheme.Split('/')[0].Split(':')[0];
+        }
+        return new Uri($"ws://{host}:2244/sub");
+    }
+
+    /// <summary>
+    /// 从 cookie 中提取 buvid3；TV 登录 cookie 通常没有，回退为占位值（与 bilidanmu 一致）。
+    /// </summary>
+    internal static string GetBuvid3(string? cookie)
+    {
+        if (string.IsNullOrWhiteSpace(cookie)) return "buvid-missing";
+        foreach (var part in cookie.Split(';'))
+        {
+            var kv = part.Trim();
+            if (kv.StartsWith("buvid3=", StringComparison.OrdinalIgnoreCase) && kv.Length > "buvid3=".Length)
+            {
+                return kv["buvid3=".Length..];
+            }
+        }
+        return "buvid-missing";
     }
 
     private async Task SendPacketAsync(int operation, byte[] body)
@@ -558,6 +647,19 @@ public class BilibiliRecorder : IDisposable
         Array.Copy(body, 0, buffer, 16, body.Length);
 
         await _ws.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Binary, true, _cts!.Token);
+    }
+
+    /// <summary>鉴权成功后立即发送一次心跳；失败不影响主流程。</summary>
+    private async Task SendHeartbeatSafeAsync()
+    {
+        try
+        {
+            await SendPacketAsync(2, Encoding.UTF8.GetBytes("[object Object]"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Immediate heartbeat after auth failed for room {RoomId}", _roomId);
+        }
     }
 
     private async Task<string?> GetCookieAsync()
@@ -614,7 +716,8 @@ public class BilibiliRecorder : IDisposable
             if (_ws != null && _ws.State == WebSocketState.Open)
             {
                 try {
-                    await SendPacketAsync(2, Array.Empty<byte>());
+                    // 心跳包体与参考项目一致（"[object Object]"），服务端以此回复人气值
+                    await SendPacketAsync(2, Encoding.UTF8.GetBytes("[object Object]"));
                 } catch { break; }
             }
             else 
@@ -627,32 +730,59 @@ public class BilibiliRecorder : IDisposable
     private async Task ReceiveLoopAsync(CancellationToken token)
     {
         var buffer = new byte[65536];
-        while (!token.IsCancellationRequested)
+        // B 站会推送超过 64KB 的压缩弹幕批次，被拆成多次 ReceiveAsync 返回；
+        // 必须按 EndOfMessage 拼装完整消息后再处理，否则大包被当残包丢弃且字节流错位，
+        // 导致后续礼物/SC 等消息批量解析失败。
+        var pending = new MemoryStream();
+        try
         {
-            if (_ws == null || _ws.State != WebSocketState.Open)
+            while (!token.IsCancellationRequested)
             {
-                return; // Connection was intentionally closed
-            }
-
-            try
-            {
-                var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                if (result.MessageType == WebSocketMessageType.Close)
+                if (_ws == null || _ws.State != WebSocketState.Open)
                 {
-                    _logger.LogInformation("WebSocket closed for room {RoomId}: status={Status}, description={Desc}",
-                        _roomId, _ws?.CloseStatus, _ws?.CloseStatusDescription);
-                    return;
+                    return; // Connection was intentionally closed
                 }
 
-                var data = new byte[result.Count];
-                Array.Copy(buffer, data, result.Count);
-                
-                ProcessPacket(data);
+                try
+                {
+                    var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        _logger.LogInformation("WebSocket closed for room {RoomId}: status={Status}, description={Desc}",
+                            _roomId, _ws?.CloseStatus, _ws?.CloseStatusDescription);
+                        return;
+                    }
+
+                    if (result.Count > 0)
+                    {
+                        pending.Write(buffer, 0, result.Count);
+                    }
+
+                    if (!result.EndOfMessage)
+                    {
+                        continue;
+                    }
+
+                    if (pending.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    var data = pending.ToArray();
+                    pending.SetLength(0);
+                    ProcessPacket(data);
+                }
+                catch (System.Net.WebSockets.WebSocketException ex)
+                {
+                    // 连接被服务端重置时记录原因，便于排查风控/网络问题
+                    _logger.LogInformation("WS receive aborted for room {RoomId}: {Msg}, state={State}", _roomId, ex.Message, _ws?.State);
+                    return; // Connection closed
+                }
             }
-            catch (System.Net.WebSockets.WebSocketException)
-            {
-                return; // Connection closed
-            }
+        }
+        finally
+        {
+            pending.Dispose();
         }
     }
 
@@ -717,6 +847,9 @@ public class BilibiliRecorder : IDisposable
             else if (op == 8) // CONNECT_SUCCESS
             {
                 _logger.LogInformation("Room {RoomId} auth success", _roomId);
+                // 鉴权成功后立即发送首个心跳（tiny-bilibili-ws/bilidanmu 同款行为），
+                // 等待 30s 周期心跳会被服务端断开
+                _ = FireAndForgetAsync(SendHeartbeatSafeAsync(), "FirstHeartbeat");
                 // Issue #11: Fire-and-forget with error handling
                 _ = FireAndForgetAsync(StartRedisSessionAsync(), "StartRedisSession");
             }
@@ -763,17 +896,38 @@ public class BilibiliRecorder : IDisposable
                     _logger.LogWarning("Received LOG_IN_NOTICE for uid {Uid}. Current cookie/session may be degraded or expired.", _uid);
                 }
 
-                var recordedEvent = CreateRecordedEvent(root, cmd);
-                if (recordedEvent != null)
+                // 同一笔 SC 会以 SUPER_CHAT_MESSAGE / SUPER_CHAT_MESSAGE_JPN 重复下发（data.id 相同），
+                // 先按 id 去重，只保留首条
+                if (cmd == "SUPER_CHAT_MESSAGE" || cmd == "SUPER_CHAT_MESSAGE_JPN")
+                {
+                    if (!TryAcceptSuperChat(root, cmd))
+                    {
+                        _logger.LogDebug("Dropped duplicate super chat push for uid {Uid}", _uid);
+                        return;
+                    }
+                }
+
+                // SEND_GIFT_V2 一条消息可携带多件礼物，逐件产出
+                var recordedEvents = CreateRecordedEvents(root, cmd);
+                foreach (var recordedEvent in recordedEvents)
                 {
                     // Merge room-specific emoticons into emots when text contains matching triggers
                     MergeRoomEmoticons(recordedEvent);
 
                     _ = FireAndForgetAsync(WriteEventToRedisAsync(recordedEvent), "WriteEventToRedis");
                 }
-                else if (!string.IsNullOrWhiteSpace(cmd))
+
+                if (recordedEvents.Count == 0 && !string.IsNullOrWhiteSpace(cmd))
                 {
-                    _logger.LogDebug("Ignoring unsupported danmaku command {Command} for uid {Uid}", cmd, _uid);
+                    if (cmd == "SEND_GIFT_V2")
+                    {
+                        // 礼物已迁移为 protobuf 载荷，解析失败需要显式暴露，否则表现为"礼物收不到"
+                        _logger.LogWarning("Failed to parse SEND_GIFT_V2 payload for uid {Uid} (data.pb missing or invalid)", _uid);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Ignoring unsupported danmaku command {Command} for uid {Uid}", cmd, _uid);
+                    }
                 }
             }
         }
@@ -802,11 +956,16 @@ public class BilibiliRecorder : IDisposable
         }
     }
 
-    internal static RecordedDanmakuEvent? CreateRecordedEvent(JsonElement root, string? cmd)
+    /// <summary>
+    /// 只读空列表，用于"命令不支持/不记录"的返回值，避免每条消息都分配新列表。
+    /// </summary>
+    private static readonly List<RecordedDanmakuEvent> EmptyEvents = new();
+
+    internal static List<RecordedDanmakuEvent> CreateRecordedEvents(JsonElement root, string? cmd)
     {
         if (string.IsNullOrWhiteSpace(cmd))
         {
-            return null;
+            return EmptyEvents;
         }
 
         if (cmd.StartsWith("DANMU_MSG", StringComparison.Ordinal))
@@ -828,28 +987,38 @@ public class BilibiliRecorder : IDisposable
                 emots = TryExtractEmoticonFromOptions(info[0], 13, GetString(info, 1) ?? "");
             }
 
-            return new RecordedDanmakuEvent
+            return new List<RecordedDanmakuEvent>
             {
-                Type = "comment",
-                Timestamp = timestamp,
-                Text = GetString(info, 1) ?? "",
-                User = GetString(info[2], 1) ?? "",
-                Uid = GetString(info[2], 0) ?? "",
-                GuardLevel = guardLevel,
-                MedalLevel = TryGetInt32(medalInfo, 0),
-                MedalName = GetString(medalInfo, 1),
-                MedalAnchor = GetString(medalInfo, 2),
-                MedalRoomId = TryGetInt32(medalInfo, 3),
-                MedalGuardLevel = TryGetInt32(medalInfo, 10),
-                MedalIsLight = TryGetInt32(medalInfo, 11) is int isLight ? isLight == 1 : null,
-                MedalAnchorUid = TryGetInt64(medalInfo, 12),
-                UlLevel = TryGetInt32(userLevelInfo, 0),
-                WealthLevel = TryGetInt32(wealthInfo, 0),
-                Face = NormalizeFaceUrl(faceUrl),
-                DmType = dmType,
-                Emots = emots,
-                RawCommand = cmd
+                new RecordedDanmakuEvent
+                {
+                    Type = "comment",
+                    Timestamp = timestamp,
+                    Text = GetString(info, 1) ?? "",
+                    User = GetString(info[2], 1) ?? "",
+                    Uid = GetString(info[2], 0) ?? "",
+                    GuardLevel = guardLevel,
+                    MedalLevel = TryGetInt32(medalInfo, 0),
+                    MedalName = GetString(medalInfo, 1),
+                    MedalAnchor = GetString(medalInfo, 2),
+                    MedalRoomId = TryGetInt32(medalInfo, 3),
+                    MedalGuardLevel = TryGetInt32(medalInfo, 10),
+                    MedalIsLight = TryGetInt32(medalInfo, 11) is int isLight ? isLight == 1 : null,
+                    MedalAnchorUid = TryGetInt64(medalInfo, 12),
+                    UlLevel = TryGetInt32(userLevelInfo, 0),
+                    WealthLevel = TryGetInt32(wealthInfo, 0),
+                    Face = NormalizeFaceUrl(faceUrl),
+                    DmType = dmType,
+                    Emots = emots,
+                    RawCommand = cmd
+                }
             };
+        }
+
+        // SEND_GIFT_V2：B 站迁移后的礼物消息，data.pb 为 base64 protobuf（不再是明文 JSON），
+        // 一条消息可携带多件礼物。缺少此分支时新协议房间完全收不到礼物。
+        if (cmd == "SEND_GIFT_V2")
+        {
+            return ParseSendGiftV2(root, cmd);
         }
 
         if (cmd == "SEND_GIFT")
@@ -860,126 +1029,254 @@ public class BilibiliRecorder : IDisposable
             var totalCoinRaw = TryGetDouble(data, "total_coin");
             var discountPriceRaw = TryGetDouble(data, "discount_price");
             var coinType = TryGetString(data, "coin_type");
-            return new RecordedDanmakuEvent
+            return new List<RecordedDanmakuEvent>
             {
-                Type = "gift",
-                Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
-                Count = count > 0 ? count : 1,
-                Price = NormalizeGoldSeeds(priceRaw),
-                TotalCoin = totalCoinRaw.HasValue ? NormalizeGoldSeeds(totalCoinRaw.Value) : null,
-                DiscountPrice = discountPriceRaw.HasValue ? NormalizeGoldSeeds(discountPriceRaw.Value) : null,
-                IsPriceTotal = false,
-                CoinType = coinType,
-                GuardLevel = TryGetInt32(data, "guard_level"),
-                User = TryGetString(data, "uname") ?? "",
-                Uid = TryGetString(data, "uid") ?? "",
-                Face = NormalizeFaceUrl(TryGetString(data, "face")),
-                RawCommand = cmd
+                new RecordedDanmakuEvent
+                {
+                    Type = "gift",
+                    Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                    Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
+                    Count = count > 0 ? count : 1,
+                    Price = NormalizeGoldSeeds(priceRaw),
+                    TotalCoin = totalCoinRaw.HasValue ? NormalizeGoldSeeds(totalCoinRaw.Value) : null,
+                    DiscountPrice = discountPriceRaw.HasValue ? NormalizeGoldSeeds(discountPriceRaw.Value) : null,
+                    IsPriceTotal = false,
+                    CoinType = coinType,
+                    GuardLevel = TryGetInt32(data, "guard_level"),
+                    User = TryGetString(data, "uname") ?? "",
+                    Uid = TryGetString(data, "uid") ?? "",
+                    Face = NormalizeFaceUrl(TryGetString(data, "face")),
+                    RawCommand = cmd
+                }
             };
         }
 
-        // SUPER_CHAT_MESSAGE_JPN 是同一 SC 的重复推送，信息已包含在 SUPER_CHAT_MESSAGE 中，跳过以避免重复存储
-        if (cmd == "SUPER_CHAT_MESSAGE_JPN")
-        {
-            return null;
-        }
-
-        if (cmd == "SUPER_CHAT_MESSAGE")
+        // SUPER_CHAT_MESSAGE_JPN 与 SUPER_CHAT_MESSAGE 是同一笔 SC 的两种下发（data.id 相同），
+        // 已由 HandleMessage 中的 id 去重窗口保证只处理首条，两种命令共用同一解析分支。
+        // （参考 bilidanmu：不做 cmd 名过滤，按 id 去重更健壮——无论 B 站以何种形态重复下发都只存一条。）
+        if (cmd == "SUPER_CHAT_MESSAGE" || cmd == "SUPER_CHAT_MESSAGE_JPN")
         {
             var data = root.GetProperty("data");
             var userInfo = data.TryGetProperty("user_info", out var u) ? u : default;
             var medalInfo = data.TryGetProperty("medal_info", out var m) ? m : default;
-            return new RecordedDanmakuEvent
+            return new List<RecordedDanmakuEvent>
             {
-                Type = "super_chat",
-                Timestamp = (TryGetInt64(data, "ts") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Price = TryGetDouble(data, "price"),
-                IsPriceTotal = true,
-                Text = TryGetString(data, "message") ?? "",
-                MessageJpn = TryGetString(data, "message_jpn"),
-                MessageTrans = TryGetString(data, "message_trans"),
-                Duration = TryGetInt32(data, "time"),
-                MedalLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "medal_level") : null,
-                MedalName = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "medal_name") : null,
-                MedalAnchor = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "anchor_uname") : null,
-                MedalRoomId = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "anchor_roomid") : null,
-                MedalGuardLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "guard_level") : null,
-                MedalIsLight = medalInfo.ValueKind != JsonValueKind.Undefined ? (TryGetInt32(medalInfo, "is_lighted") is int isLight ? isLight == 1 : null) : null,
-                MedalAnchorUid = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt64(medalInfo, "target_id") : null,
-                User = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uname") ?? "") : "",
-                Uid = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uid") ?? "") : "",
-                Face = NormalizeFaceUrl(userInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(userInfo, "face") : null),
-                RawCommand = cmd
+                new RecordedDanmakuEvent
+                {
+                    Type = "super_chat",
+                    Timestamp = (TryGetInt64(data, "ts") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                    Price = TryGetDouble(data, "price"),
+                    IsPriceTotal = true,
+                    Text = TryGetString(data, "message") ?? "",
+                    MessageJpn = TryGetString(data, "message_jpn"),
+                    MessageTrans = TryGetString(data, "message_trans"),
+                    Duration = TryGetInt32(data, "time"),
+                    MedalLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "medal_level") : null,
+                    MedalName = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "medal_name") : null,
+                    MedalAnchor = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(medalInfo, "anchor_uname") : null,
+                    MedalRoomId = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "anchor_roomid") : null,
+                    MedalGuardLevel = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt32(medalInfo, "guard_level") : null,
+                    MedalIsLight = medalInfo.ValueKind != JsonValueKind.Undefined ? (TryGetInt32(medalInfo, "is_lighted") is int isLight ? isLight == 1 : null) : null,
+                    MedalAnchorUid = medalInfo.ValueKind != JsonValueKind.Undefined ? TryGetInt64(medalInfo, "target_id") : null,
+                    User = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uname") ?? "") : "",
+                    Uid = userInfo.ValueKind != JsonValueKind.Undefined ? (TryGetString(userInfo, "uid") ?? "") : "",
+                    Face = NormalizeFaceUrl(userInfo.ValueKind != JsonValueKind.Undefined ? TryGetString(userInfo, "face") : null),
+                    RawCommand = cmd
+                }
             };
         }
 
         if (cmd == "GUARD_BUY")
         {
             var data = root.GetProperty("data");
-            return new RecordedDanmakuEvent
+            return new List<RecordedDanmakuEvent>
             {
-                Type = "guard",
-                Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Name = TryGetString(data, "gift_name") ?? "guard",
-                Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
-                Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
-                IsPriceTotal = true,
-                GuardLevel = TryGetInt32(data, "guard_level"),
-                User = TryGetString(data, "username") ?? "",
-                Uid = TryGetString(data, "uid") ?? "",
-                Face = NormalizeFaceUrl(TryGetString(data, "face")),
-                RawCommand = cmd
+                new RecordedDanmakuEvent
+                {
+                    Type = "guard",
+                    Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                    Name = TryGetString(data, "gift_name") ?? "guard",
+                    Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                    Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
+                    IsPriceTotal = true,
+                    GuardLevel = TryGetInt32(data, "guard_level"),
+                    User = TryGetString(data, "username") ?? "",
+                    Uid = TryGetString(data, "uid") ?? "",
+                    Face = NormalizeFaceUrl(TryGetString(data, "face")),
+                    RawCommand = cmd
+                }
             };
         }
 
         if (cmd == "USER_TOAST_MSG")
         {
             var data = root.GetProperty("data");
-            return new RecordedDanmakuEvent
+            return new List<RecordedDanmakuEvent>
             {
-                Type = "guard",
-                Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Name = TryGetString(data, "role_name") ?? "guard",
-                Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
-                Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
-                IsPriceTotal = true,
-                GuardLevel = TryGetInt32(data, "guard_level"),
-                User = TryGetString(data, "username") ?? "",
-                Uid = TryGetString(data, "uid") ?? "",
-                Text = TryGetString(data, "toast_msg"),
-                RawCommand = cmd
+                new RecordedDanmakuEvent
+                {
+                    Type = "guard",
+                    Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
+                    Name = TryGetString(data, "role_name") ?? "guard",
+                    Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
+                    Price = NormalizeGoldSeeds(TryGetDouble(data, "price") ?? 0),
+                    IsPriceTotal = true,
+                    GuardLevel = TryGetInt32(data, "guard_level"),
+                    User = TryGetString(data, "username") ?? "",
+                    Uid = TryGetString(data, "uid") ?? "",
+                    Text = TryGetString(data, "toast_msg"),
+                    RawCommand = cmd
+                }
             };
         }
 
+        // COMBO_SEND 是连击聚合通知：连击的每笔购买已通过 SEND_GIFT / SEND_GIFT_V2 单独下发，
+        // 其 combo_total_coin 是累计金额。参考 biliLive-tools / bilidanmu 的做法完全不记录，
+        // 否则连击礼物会被重复存储、重复计数（bug：礼物重复接收）。
         if (cmd == "COMBO_SEND")
         {
-            var data = root.GetProperty("data");
-            var comboNum = TryGetInt32(data, "combo_num") ?? TryGetInt32(data, "total_num") ?? TryGetInt32(data, "gift_num") ?? 1;
-            var comboTotalCoin = TryGetDouble(data, "combo_total_coin");
-            var coinType = TryGetString(data, "coin_type");
-            var normalizedPrice = comboTotalCoin.HasValue && string.Equals(coinType, "gold", StringComparison.OrdinalIgnoreCase)
-                ? NormalizeGoldSeeds(comboTotalCoin.Value)
-                : 0;
+            return EmptyEvents;
+        }
 
-            return new RecordedDanmakuEvent
+        return EmptyEvents;
+    }
+
+    /// <summary>
+    /// 解析 SEND_GIFT_V2 的 data.pb（base64 protobuf）。字段定义来自社区逆向
+    /// （参考 bilidanmu / JLiverTool / sjh8130/bili_danmaku 的 SEND_GIFT_V2.proto）：
+    /// root{1:uid, 2:uname, 3:face, 5:guard_level, 8:medal_info, 10:repeated gift_item}，
+    /// gift_item{1:gift_id, 2:gift_name, 3:num, 5:price, 9:tid, 10:timestamp, 18:action}。
+    /// 一条消息可携带多件礼物，逐件产出事件（与 biliLive-tools / bilidanmu 一致）。
+    /// </summary>
+    private static List<RecordedDanmakuEvent> ParseSendGiftV2(JsonElement root, string cmd)
+    {
+        var events = new List<RecordedDanmakuEvent>();
+
+        if (!root.TryGetProperty("data", out var data) ||
+            !data.TryGetProperty("pb", out var pbProp) ||
+            pbProp.ValueKind != JsonValueKind.String)
+        {
+            return events;
+        }
+
+        byte[] pbBytes;
+        try
+        {
+            pbBytes = Convert.FromBase64String(pbProp.GetString() ?? "");
+        }
+        catch (FormatException)
+        {
+            return events;
+        }
+
+        BiliProtoMessage pb;
+        try
+        {
+            pb = BiliProtoMessage.Decode(pbBytes);
+        }
+        catch (Exception)
+        {
+            return events;
+        }
+
+        var uid = pb.TryGetVarint(1, out var pbUid) ? pbUid.ToString() : "";
+        var uname = pb.GetString(2) ?? "";
+        var face = NormalizeFaceUrl(pb.GetString(3));
+
+        // guard_level：root 字段 5 优先（biliLive-tools beta proto），回退 medal_info 字段 12（bilidanmu）
+        var guardLevel = 0;
+        if (pb.TryGetVarint(5, out var rootGuard) && rootGuard > 0)
+        {
+            guardLevel = (int)rootGuard;
+        }
+        else
+        {
+            var medal = pb.GetMessages(8).FirstOrDefault();
+            if (medal != null && medal.TryGetVarint(12, out var medalGuard) && medalGuard > 0)
             {
-                Type = "gift_combo",
-                Timestamp = (TryGetInt64(data, "send_master") ?? TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
-                Name = TryGetString(data, "gift_name") ?? TryGetString(data, "giftName") ?? "combo_gift",
-                Count = Math.Max(1, comboNum),
-                Price = normalizedPrice,
-                IsPriceTotal = true,
-                CoinType = coinType,
-                GuardLevel = TryGetInt32(data, "guard_level"),
-                User = TryGetString(data, "uname") ?? "",
-                Uid = TryGetString(data, "uid") ?? TryGetString(data, "ruid") ?? "",
-                Face = NormalizeFaceUrl(TryGetString(data, "face")),
+                guardLevel = (int)medalGuard;
+            }
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        foreach (var item in pb.GetMessages(10))
+        {
+            var name = item.GetString(2);
+            var count = item.TryGetVarint(3, out var num) && num > 0 ? (int)num : 1;
+            var priceRaw = item.TryGetVarint(5, out var price) ? (double)price : 0;
+
+            long tsMs;
+            if (!item.TryGetVarint(10, out var rawTs) || rawTs <= 0)
+            {
+                tsMs = nowMs;
+            }
+            else
+            {
+                // 时间戳为秒级；异常大值（>1e12）按已是毫秒处理
+                tsMs = rawTs > 1_000_000_000_000 ? (long)rawTs : (long)rawTs * 1000;
+            }
+
+            events.Add(new RecordedDanmakuEvent
+            {
+                Type = "gift",
+                Timestamp = tsMs,
+                Name = string.IsNullOrWhiteSpace(name) ? "未知礼物" : name,
+                Count = count,
+                Price = NormalizeGoldSeeds(priceRaw),
+                IsPriceTotal = false,
+                GuardLevel = guardLevel > 0 ? guardLevel : null,
+                User = uname,
+                Uid = uid,
+                Face = face,
                 RawCommand = cmd
+            });
+        }
+
+        return events;
+    }
+
+    /// <summary>
+    /// SC 去重：同一笔 SC 会以 SUPER_CHAT_MESSAGE 与 SUPER_CHAT_MESSAGE_JPN 两种命令各下发一次
+    /// （data.id 相同，但 id 可能一边是数字一边是字符串），不去重会导致双语 SC 重复入库。
+    /// 按归一化 id 只放行首条；窗口有界（512 条，FIFO 淘汰），长时间直播不会无限增长。
+    /// 拿不到 id 时退回旧行为：只放行主推送 SUPER_CHAT_MESSAGE。
+    /// </summary>
+    private bool TryAcceptSuperChat(JsonElement root, string? cmd)
+    {
+        string? scId = null;
+        if (root.TryGetProperty("data", out var data) && data.TryGetProperty("id", out var idProp))
+        {
+            scId = idProp.ValueKind switch
+            {
+                JsonValueKind.String => idProp.GetString(),
+                JsonValueKind.Number => idProp.ToString(),
+                _ => null
             };
         }
 
-        return null;
+        if (string.IsNullOrWhiteSpace(scId))
+        {
+            return !string.Equals(cmd, "SUPER_CHAT_MESSAGE_JPN", StringComparison.Ordinal);
+        }
+
+        lock (_superChatDedupLock)
+        {
+            if (_seenSuperChatIds.Contains(scId))
+            {
+                return false;
+            }
+
+            _seenSuperChatIds.Add(scId);
+            _superChatIdOrder.Enqueue(scId);
+            while (_superChatIdOrder.Count > SuperChatDedupCapacity)
+            {
+                var evicted = _superChatIdOrder.Dequeue();
+                _seenSuperChatIds.Remove(evicted);
+            }
+
+            return true;
+        }
     }
 
     private async Task WriteEventToRedisAsync(RecordedDanmakuEvent recordedEvent)
