@@ -14,69 +14,59 @@ jobs:
   build-and-deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Blue-Green Deploy on Server
+      # 2026-11-09 事故复盘：
+      # 1) 服务器侧 git fetch 曾走 gh.jasonzeng.dev 代理 —— 该域名在服务器上已无法解析，
+      #    且其分支 ref 缓存会把 master 长期钉在 2026-07 的旧提交，导致多次"部署成功"
+      #    但生产实际未更新；
+      # 2) scp-action 对目标服务器始终报 Process exited with status 1（权限与 SFTP 均正常）；
+      # 3) 本文件曾以 CRLF 保存，脚本行尾 \r 也会破坏服务器端命令。
+      # 现方案（已实测）：服务器直连 codeload 按 commit SHA 下载源码 → 覆盖 server_net /
+      # Dockerfile / docker-compose.yml（.env 与 server/data 保留）→ docker-compose 构建重启。
+      # 按 SHA 下载天然具备幂等性，不受任何 CDN/代理的分支缓存影响。
+      - name: Deploy on Server
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
+          timeout: 300s
+          script_stop: true
           script: |
+            set -e
             TARGET_DIR="/opt/1panel/apps/danmu-tools"
-            # 使用国内加速代理
-            PROXY_URL="https://gh.jasonzeng.dev/https://github.com/sfqy211/danmu_vue.git"
-            # 容器名，必须与 docker-compose.yml 中的 container_name 保持一致
             CONTAINER_NAME="danmu-viewer"
+            COMMIT="${{ github.sha }}"
+            echo "Deployed commit: $COMMIT"
 
-            # 确保目录存在
-            if [ ! -d "$TARGET_DIR" ]; then
-              sudo mkdir -p "$TARGET_DIR"
-              sudo chown -R $(whoami):$(whoami) "$TARGET_DIR"
-            fi
+            # 1) 按 commit SHA 下载源码（codeload 直连，绕开 git 与已失效的镜像代理）
+            rm -rf /tmp/danmu_deploy && mkdir -p /tmp/danmu_deploy
+            curl -fsSL --retry 3 --retry-delay 5 --max-time 300 \
+              "https://codeload.github.com/sfqy211/danmu_vue/tar.gz/$COMMIT" \
+              -o /tmp/danmu_deploy/src.tar.gz
+            tar -xzf /tmp/danmu_deploy/src.tar.gz -C /tmp/danmu_deploy --strip-components=1
+            test -f /tmp/danmu_deploy/server_net/Danmu.Server.csproj || { echo "ERROR: 源码下载不完整"; exit 1; }
+            echo "source downloaded"
 
+            # 2) 覆盖源码（保留 .env 与 server/data 数据目录）
             cd "$TARGET_DIR"
+            rm -rf server_net.new && cp -a /tmp/danmu_deploy/server_net ./server_net.new
+            rm -rf server_net && mv server_net.new server_net
+            cp -f /tmp/danmu_deploy/Dockerfile ./Dockerfile
+            cp -f /tmp/danmu_deploy/docker-compose.yml ./docker-compose.yml
+            rm -rf /tmp/danmu_deploy
+            echo "source updated"
 
-            # 初始化或更新 Git 配置
-            if [ ! -d ".git" ]; then
-              echo "Git repository not initialized. Initializing..."
-              git init
-              git remote add origin "$PROXY_URL"
-            fi
-
-            # 强制更新 remote URL 为加速地址
-            git remote set-url origin "$PROXY_URL"
-
-            # 拉取最新代码 (使用浅克隆优化速度)
-            echo "Fetching latest code from proxy..."
-            # 先清除可能存在的代理配置，防止干扰
-            git config --unset http.proxy || true
-            git fetch --depth 1 origin master
-
-            # 强制重置到最新代码
-            echo "Resetting to origin/master..."
-            git reset --hard origin/master
-
-            # 清理无用的 .github 目录 (因为服务器不需要部署脚本)
-            echo "Cleaning up .github directory..."
-            rm -rf .github
-
-            # 确保权限
-            sudo chown -R $(whoami):$(whoami) .
-
-            # === 蓝绿部署：先启新容器，再优雅停旧容器 ===
-
-            # 1. 构建新镜像
+            # 3) 构建并重启（compose 检测镜像变化后自动重建容器）
             echo "Building new image..."
             sudo docker-compose build
 
-            # 2. 启动新容器（使用 --no-deps 替换，保持网络不变）
-            #    docker-compose up -d 会自动检测镜像变化并替换容器
-            echo "Starting new container (replacing old)..."
+            echo "Starting new container..."
             sudo docker-compose up -d --no-deps
 
-            # 3. 等待新容器健康就绪
+            # 4) 等待健康
             echo "Waiting for new container to become healthy..."
-            MAX_WAIT=60
+            MAX_WAIT=120
             WAITED=0
             while [ $WAITED -lt $MAX_WAIT ]; do
               HEALTH=$(sudo docker inspect --format='{{.State.Health.Status}}' $CONTAINER_NAME 2>/dev/null || echo "none")
@@ -84,24 +74,23 @@ jobs:
                 echo "New container is healthy after ${WAITED}s"
                 break
               fi
-              # 容器可能没有 healthcheck，检查是否在运行
               RUNNING=$(sudo docker inspect --format='{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
               if [ "$RUNNING" = "true" ] && [ "$HEALTH" = "none" ]; then
-                # 没有 healthcheck，等待应用启动（给足够时间恢复录制会话）
                 echo "No healthcheck configured, waiting 10s for app startup..."
                 sleep 10
-                echo "New container is running"
                 break
               fi
-              sleep 2
-              WAITED=$((WAITED + 2))
+              sleep 3
+              WAITED=$((WAITED + 3))
             done
 
             if [ $WAITED -ge $MAX_WAIT ]; then
-              echo "WARNING: New container did not become healthy within ${MAX_WAIT}s, proceeding anyway"
+              echo "WARNING: container not healthy within ${MAX_WAIT}s"
             fi
 
-            # 4. 清理旧镜像
-            sudo docker image prune -f
+            # 5) 校验部署结果（鉴权模式应从 anonymous 变回 login）
+            echo "--- recent auth log ---"
+            sudo docker logs "$CONTAINER_NAME" 2>&1 | grep -E "auth success|login auth|anonymous auth" | tail -5 || true
 
+            sudo docker image prune -f
             echo "Blue-green deployment complete"

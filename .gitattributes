@@ -1,0 +1,6 @@
+# 强制 GitHub Actions 工作流使用 LF 换行。
+# 本机 core.autocrlf=true 会在提交时把工作区 LF 转成 CRLF，
+# 导致 workflow 里的 shell 脚本行尾带 \r（命令失效）甚至解析失败。
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sh    text eol=lf
