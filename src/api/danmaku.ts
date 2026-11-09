@@ -435,7 +435,10 @@ export interface BiliAccount {
   uid: number;
   name?: string;
   expires_at?: number;
+  /** 是否为「全局默认账号」（同一时刻只有一个） */
   is_active: boolean;
+  /** 是否启用（可多个同时启用；停用后不参与房间录制） */
+  is_enabled: boolean;
   created_at: number;
 }
 
@@ -456,6 +459,7 @@ const normalizeBiliAccount = (account: any): BiliAccount => {
     name: account.name ?? account.Name,
     expires_at: toNumber(account.expires_at ?? account.expiresAt ?? account.ExpiresAt),
     is_active: account.is_active ?? account.isActive ?? account.IsActive ?? false,
+    is_enabled: account.is_enabled ?? account.isEnabled ?? account.IsEnabled ?? true,
     created_at: toNumber(account.created_at ?? account.createdAt ?? account.CreatedAt) ?? 0
   };
 };
@@ -551,6 +555,11 @@ export const pollBiliQrLogin = async (id: string): Promise<QrCodePollResponse> =
 
 export const cancelBiliQrLogin = async (id: string) => {
   const res = await adminApi.post('/admin/bili-accounts/qrcode/cancel', { id }, getAuthConfig());
+  return res.data;
+};
+
+export const toggleBiliAccountEnabled = async (uid: number, isEnabled: boolean) => {
+  const res = await adminApi.post(`/admin/bili-accounts/${uid}/toggle-enabled`, { isEnabled }, getAuthConfig());
   return res.data;
 };
 

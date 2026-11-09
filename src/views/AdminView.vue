@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import {
   adminApi, getBiliAccounts, getBiliAccountAssignments, reassignBiliRoom,
   importBiliCookie, startBiliQrLogin, pollBiliQrLogin, cancelBiliQrLogin,
-  activateBiliAccount, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
+  activateBiliAccount, toggleBiliAccountEnabled, refreshBiliAccountInfo, refreshBiliAccountAuth, deleteBiliAccount,
   getHealthCheckReport, type HealthCheckReport,
   getIngestNodes, createIngestNode, toggleIngestNode, deleteIngestNode, getIngestUploads,
   type IngestNode, type IngestUpload,
@@ -771,6 +771,28 @@ const submitImportCookie = async () => {
     fetchAccounts();
   } catch (e: any) {
     ElMessage.error('导入失败: ' + (e.response?.data?.message || e.message));
+  }
+};
+
+const toggleAccountEnabled = async (account: BiliAccount) => {
+  const next = !account.is_enabled;
+  if (!next) {
+    try {
+      await ElMessageBox.confirm(
+        `停用后「${account.name || account.uid}」将不再参与直播录制，确定停用？`,
+        '停用账号',
+        { type: 'warning' },
+      );
+    } catch {
+      return;
+    }
+  }
+  try {
+    await toggleBiliAccountEnabled(account.uid, next);
+    await fetchAccounts();
+    ElMessage.success(next ? '已启用' : '已停用');
+  } catch (e: any) {
+    ElMessage.error('操作失败: ' + (e.response?.data?.message || e.message));
   }
 };
 
@@ -1901,14 +1923,23 @@ watch(activeSection, async (val) => {
                       </template>
                     </el-table-column>
                     <el-table-column prop="uid" label="UID" min-width="120" align="center" show-overflow-tooltip />
-                    <el-table-column label="状态" min-width="80" align="center">
+                    <el-table-column label="状态" min-width="140" align="center">
                       <template #default="scope">
                         <el-tag
-                          :type="scope.row.is_active ? 'success' : 'info'"
+                          :type="scope.row.is_enabled ? 'success' : 'danger'"
                           effect="dark"
                           size="small"
                         >
-                          {{ scope.row.is_active ? '使用中' : '未激活' }}
+                          {{ scope.row.is_enabled ? '启用' : '停用' }}
+                        </el-tag>
+                        <el-tag
+                          v-if="scope.row.is_active"
+                          type="primary"
+                          effect="plain"
+                          size="small"
+                          style="margin-left: 6px;"
+                        >
+                          默认
                         </el-tag>
                       </template>
                     </el-table-column>
@@ -1939,7 +1970,23 @@ watch(activeSection, async (val) => {
                     <el-table-column label="操作" align="center" min-width="280">
                       <template #default="scope">
                         <div class="action-btns">
-                          <el-button v-if="!scope.row.is_active" size="small" @click="activateAccount(scope.row.uid)">使用</el-button>
+                          <el-button
+                            :type="scope.row.is_enabled ? 'danger' : 'success'"
+                            size="small"
+                            @click="toggleAccountEnabled(scope.row)"
+                          >
+                            {{ scope.row.is_enabled ? '停用' : '启用' }}
+                          </el-button>
+                          <el-button
+                            v-if="!scope.row.is_active"
+                            size="small"
+                            type="primary"
+                            plain
+                            :disabled="!scope.row.is_enabled"
+                            @click="activateAccount(scope.row.uid)"
+                          >
+                            设为默认
+                          </el-button>
                           <el-button size="small" :icon="Refresh" @click="refreshAccountInfo(scope.row.uid)">刷新信息</el-button>
                           <el-button size="small" type="warning" @click="refreshAccountAuth(scope.row.uid)">更新授权</el-button>
                           <el-button size="small" type="danger" :icon="Delete" @click="removeAccount(scope.row.uid)">删除</el-button>

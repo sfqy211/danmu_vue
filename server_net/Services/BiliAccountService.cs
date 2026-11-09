@@ -124,8 +124,9 @@ public class BiliAccountService
             if (allAccounts.Count == 0)
                 return (null, null);
 
-            // Filter out accounts with no cookie and currently failing accounts
+            // Filter out disabled accounts, accounts with no cookie, and currently failing accounts
             var available = allAccounts
+                .Where(a => a.IsEnabled)
                 .Where(a => !string.IsNullOrWhiteSpace(a.CookieJson))
                 .Where(a => !_accountFailures.ContainsKey(a.Uid))
                 .ToList();
@@ -407,14 +408,44 @@ public class BiliAccountService
         InvalidateCache();
     }
 
+    /// <summary>
+    /// 将指定账号设为「全局默认账号」（同一时刻只有一个）。
+    /// 已停用的账号不能被设为默认，避免默认账号不可用。
+    /// </summary>
     public async Task SetActiveAsync(long uid)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+        var target = await db.BiliAccounts.FirstOrDefaultAsync(a => a.Uid == uid);
+        if (target == null) throw new InvalidOperationException($"Account {uid} not found");
+        if (!target.IsEnabled) throw new InvalidOperationException("账号已停用，请先启用再设为默认");
+
         var all = await db.BiliAccounts.ToListAsync();
         foreach (var a in all)
         {
             a.IsActive = a.Uid == uid;
+        }
+        await db.SaveChangesAsync();
+        await RefreshActiveCookieCacheAsync();
+    }
+
+    /// <summary>
+    /// 启用/停用账号。停用后该账号不再参与房间录制分配；若它原本是默认账号，默认标记会被清除。
+    /// 与 <see cref="SetActiveAsync"/>（全局默认账号）是两套独立语义，可多个账号同时启用。
+    /// </summary>
+    public async Task SetEnabledAsync(long uid, bool enabled)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DanmuContext>();
+        var acc = await db.BiliAccounts.FirstOrDefaultAsync(a => a.Uid == uid);
+        if (acc == null) throw new InvalidOperationException($"Account {uid} not found");
+
+        acc.IsEnabled = enabled;
+        acc.UpdatedAt = DateTime.UtcNow;
+        if (!enabled)
+        {
+            // 停用时清掉默认标记，避免默认账号被一个停用账号占着
+            acc.IsActive = false;
         }
         await db.SaveChangesAsync();
         await RefreshActiveCookieCacheAsync();

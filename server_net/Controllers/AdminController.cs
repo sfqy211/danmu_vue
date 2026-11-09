@@ -923,6 +923,7 @@ public class AdminController : ControllerBase
             Name = a.Name,
             ExpiresAt = a.ExpiresAt.HasValue ? new DateTimeOffset(a.ExpiresAt.Value).ToUnixTimeMilliseconds() : null,
             IsActive = a.IsActive,
+            IsEnabled = a.IsEnabled,
             CreatedAt = new DateTimeOffset(a.CreatedAt).ToUnixTimeMilliseconds()
         }).ToList();
         return Ok(results);
@@ -1033,11 +1034,35 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Cancelled" });
     }
 
+    /// <summary>将账号设为「全局默认账号」（同一时刻只有一个）。</summary>
     [HttpPost("bili-accounts/{uid:long}/activate")]
     public async Task<IActionResult> ActivateAccount(long uid)
     {
-        await _accountService.SetActiveAsync(uid);
-        return Ok(new { message = "Activated" });
+        try
+        {
+            await _accountService.SetActiveAsync(uid);
+            return Ok(new { message = "Activated" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>启用/停用账号（与「全局默认账号」独立，可多个同时启用）。</summary>
+    [HttpPost("bili-accounts/{uid:long}/toggle-enabled")]
+    public async Task<IActionResult> ToggleAccountEnabled(long uid, [FromBody] JsonElement body)
+    {
+        var enabled = body.TryGetProperty("isEnabled", out var v) && v.ValueKind == JsonValueKind.True;
+        try
+        {
+            await _accountService.SetEnabledAsync(uid, enabled);
+            return Ok(new { message = enabled ? "Enabled" : "Disabled", isEnabled = enabled });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("bili-accounts/{uid:long}/refresh-info")]
@@ -1274,6 +1299,8 @@ public class BiliAccountListItem
     public string? Name { get; set; }
     public long? ExpiresAt { get; set; }
     public bool IsActive { get; set; }
+    /// <summary>是否启用（可多个同时启用，停用后不参与房间录制）</summary>
+    public bool IsEnabled { get; set; }
     public long CreatedAt { get; set; }
 }
 
