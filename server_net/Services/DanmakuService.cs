@@ -57,10 +57,14 @@ public class DanmakuService
         var db = GetDb(scope);
         var roomIdStr = roomId.ToString();
 
-        var session = await db.Sessions.FirstOrDefaultAsync(s =>
-            (s.EndTime == null || s.EndTime == 0) &&
-            ((!string.IsNullOrEmpty(uid) && s.Uid == uid) ||
-             (string.IsNullOrEmpty(s.Uid) && s.RoomId == roomIdStr)));
+        // 会话身份是 (Uid, StartTime)：同一场直播（开播时间相同）只应有一条 Session 记录。
+        // 旧逻辑只找 EndTime==0 的记录，而录制器重启后旧记录已带 EndTime，
+        // 于是每次重启都新建一条，导致同一个 .db 文件被多条 Session 引用
+        // （点歌/统计按 session 重算时会重复入库）。
+        var session = await db.Sessions
+            .Where(s => !string.IsNullOrEmpty(uid) && s.Uid == uid && s.StartTime == startTime)
+            .OrderBy(s => s.Id)
+            .FirstOrDefaultAsync();
 
         if (session == null)
         {
@@ -85,7 +89,8 @@ public class DanmakuService
             session.RoomId = roomIdStr;
             session.Title = title;
             session.UserName = userName;
-            session.StartTime = startTime;
+            // StartTime 是归并键，保持不变；重新开录时清掉上一段的结束标记
+            session.EndTime = 0;
             session.FilePath = "redis:" + sessionKey;
         }
 
