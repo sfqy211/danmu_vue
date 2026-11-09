@@ -74,20 +74,33 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Database - SQLite
-var dbPath = builder.Configuration["SQLITE_DB_PATH"] ?? "server/data/danmaku.db";
-// Resolve path relative to project root (parent of server_net)
+// Database - PostgreSQL（生产）或 SQLite（本地开发回退）
+// DB_PROVIDER=postgres 时使用 DATABASE_URL / PG_CONNECTION；否则沿用 SQLITE_DB_PATH。
+var dbProvider = (Environment.GetEnvironmentVariable("DB_PROVIDER") ?? "sqlite").Trim().ToLowerInvariant();
 var projectRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ".."));
-var fullDbPath = Path.GetFullPath(Path.Combine(projectRoot, dbPath));
-// Ensure the directory exists for the SQLite file
-var dbDir = Path.GetDirectoryName(fullDbPath);
-if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
-{
-    Directory.CreateDirectory(dbDir);
-}
 
 builder.Services.AddDbContext<DanmuContext>(options =>
 {
+    if (dbProvider == "postgres" || dbProvider == "postgresql")
+    {
+        var connStr = Environment.GetEnvironmentVariable("PG_CONNECTION")
+            ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+            ?? throw new InvalidOperationException(
+                "DB_PROVIDER=postgres 时必须配置 PG_CONNECTION 或 DATABASE_URL");
+        options.UseNpgsql(connStr, npgsql => npgsql.CommandTimeout(60));
+        return;
+    }
+
+    var dbPath = builder.Configuration["SQLITE_DB_PATH"] ?? "server/data/danmaku.db";
+    // Resolve path relative to project root (parent of server_net)
+    var fullDbPath = Path.GetFullPath(Path.Combine(projectRoot, dbPath));
+    // Ensure the directory exists for the SQLite file
+    var dbDir = Path.GetDirectoryName(fullDbPath);
+    if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
+    {
+        Directory.CreateDirectory(dbDir);
+    }
+
     options.UseSqlite($"Data Source={fullDbPath}", sqliteOptions =>
     {
         sqliteOptions.CommandTimeout(30);
@@ -98,6 +111,7 @@ builder.Services.AddDbContext<DanmuContext>(options =>
 builder.Services.AddSingleton<ProcessManager>();
 builder.Services.AddSingleton<DanmakuService>();
 builder.Services.AddSingleton<SessionDbService>();
+builder.Services.AddSingleton<IngestService>();
 builder.Services.AddSingleton<RedisReadiness>();
 // Start embedded Redis (Garnet) before connecting
 builder.Services.AddHostedService<EmbeddedRedisService>();

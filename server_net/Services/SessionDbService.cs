@@ -177,12 +177,52 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                 medal_room_id     INTEGER,
                 medal_guard_level INTEGER,
                 medal_is_light    INTEGER,
-                medal_anchor_uid  TEXT
+                medal_anchor_uid  TEXT,
+                message_id        TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_danmaku_timestamp ON danmaku_messages(timestamp);
             CREATE INDEX IF NOT EXISTS idx_danmaku_type ON danmaku_messages(type);
             """;
         await schemaCmd.ExecuteNonQueryAsync();
+
+        // 老场次库没有 message_id 列：补列后再建唯一索引。
+        // 唯一索引 + INSERT OR IGNORE 让多节点重复上报的同一条弹幕自动被丢弃，
+        // 这是跨机去重的落点（NULL 不参与唯一约束，历史数据兼容）。
+        await EnsureMessageIdColumnAsync(conn);
+
+        await using var idxCmd = conn.CreateCommand();
+        idxCmd.CommandText = """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_danmaku_message_id
+                ON danmaku_messages(message_id) WHERE message_id IS NOT NULL;
+            """;
+        await idxCmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// 为已存在的场次库补 message_id 列（SQLite 不支持 ADD COLUMN IF NOT EXISTS，先查 pragma）。
+    /// </summary>
+    private static async Task EnsureMessageIdColumnAsync(SqliteConnection conn)
+    {
+        await using var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = "PRAGMA table_info(danmaku_messages);";
+        var hasColumn = false;
+        await using (var reader = await checkCmd.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                if (string.Equals(reader.GetString(1), "message_id", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasColumn) return;
+
+        await using var alterCmd = conn.CreateCommand();
+        alterCmd.CommandText = "ALTER TABLE danmaku_messages ADD COLUMN message_id TEXT;";
+        await alterCmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>
@@ -204,16 +244,18 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         await using var cmd = conn.CreateCommand();
         cmd.Transaction = (SqliteTransaction)tx;
         cmd.CommandText = """
-            INSERT INTO danmaku_messages
+            INSERT OR IGNORE INTO danmaku_messages
                 (type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                  total_coin, discount_price, guard_level, medal_level, medal_name, coin_type,
                  duration, face, emots, dm_type, raw_command, ul_level, wealth_level,
-                 medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid)
+                 medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid,
+                 message_id)
             VALUES
                 (@type, @timestamp, @user, @uid, @text, @text_jpn, @name, @count, @price, @is_price_total,
                  @total_coin, @discount_price, @guard_level, @medal_level, @medal_name, @coin_type,
                  @duration, @face, @emots, @dm_type, @raw_command, @ul_level, @wealth_level,
-                 @medal_anchor, @medal_room_id, @medal_guard_level, @medal_is_light, @medal_anchor_uid);
+                 @medal_anchor, @medal_room_id, @medal_guard_level, @medal_is_light, @medal_anchor_uid,
+                 @message_id);
             """;
 
         // 预创建参数（Issue #14: 使用正确的 SQLite 类型）
@@ -245,6 +287,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         var pMedalGuardLevel = AddParam(cmd, "@medal_guard_level", SqliteType.Integer);
         var pMedalIsLight = AddParam(cmd, "@medal_is_light", SqliteType.Integer);
         var pMedalAnchorUid = AddParam(cmd, "@medal_anchor_uid", SqliteType.Text);
+        var pMessageId = AddParam(cmd, "@message_id", SqliteType.Text);
 
         foreach (var e in events)
         {
@@ -278,6 +321,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             pMedalGuardLevel.Value = (object?)e.MedalGuardLevel ?? DBNull.Value;
             pMedalIsLight.Value = e.MedalIsLight.HasValue ? (e.MedalIsLight.Value ? 1 : 0) : DBNull.Value;
             pMedalAnchorUid.Value = (object?)e.MedalAnchorUid ?? DBNull.Value;
+            pMessageId.Value = (object?)e.MessageId ?? DBNull.Value;
 
             await cmd.ExecuteNonQueryAsync();
         }
@@ -334,7 +378,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                    total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
                    ul_level, wealth_level,
-                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid
+                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid,
+                   message_id
             FROM danmaku_messages
             WHERE type IN {DisplayableTypesSql}
             ORDER BY timestamp ASC, id ASC
@@ -380,7 +425,8 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                    total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
                    ul_level, wealth_level,
-                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid
+                   medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid,
+                   message_id
             FROM danmaku_messages
             ORDER BY timestamp ASC, id ASC;
             """;
@@ -502,6 +548,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             MedalGuardLevel = m.MedalGuardLevel,
             MedalIsLight = m.MedalIsLight,
             MedalAnchorUid = m.MedalAnchorUid,
+            MessageId = m.MessageId,
             RawCommand = m.RawCommand
         };
     }
@@ -514,7 +561,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         "price", "is_price_total", "total_coin", "guard_level", "medal_level",
         "medal_name", "coin_type", "duration", "face", "emots", "dm_type", "raw_command",
         "ul_level", "wealth_level", "medal_anchor", "medal_room_id", "medal_guard_level",
-        "medal_is_light", "medal_anchor_uid"
+        "medal_is_light", "medal_anchor_uid", "message_id"
     ];
 
     private static DanmakuMessage ReadRowToMessage(SqliteDataReader reader)
@@ -578,6 +625,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
             MedalGuardLevel = reader.IsDBNull(ordinals[24]) ? null : reader.GetInt32(ordinals[24]), // medal_guard_level
             MedalIsLight = reader.IsDBNull(ordinals[25]) ? null : reader.GetInt32(ordinals[25]) == 1, // medal_is_light
             MedalAnchorUid = reader.IsDBNull(ordinals[26]) ? null : (long?)reader.GetInt64(ordinals[26]), // medal_anchor_uid
+            MessageId = reader.IsDBNull(ordinals[27]) ? null : reader.GetString(ordinals[27]), // message_id
             Sender = new Sender
             {
                 Name = reader.GetString(ordinals[2]), // user

@@ -826,6 +826,93 @@ public class AdminController : ControllerBase
         return PhysicalFile(filePath, "text/plain", file);
     }
 
+    // ─── Ingest Node Endpoints ──────────────────────────────────────
+
+    /// <summary>列出所有采集节点（不返回 Token）。</summary>
+    [HttpGet("ingest-nodes")]
+    public async Task<IActionResult> GetIngestNodes()
+    {
+        var nodes = await _db.IngestNodes.AsNoTracking().OrderByDescending(n => n.CreatedAt).ToListAsync();
+        return Ok(nodes.Select(n => new
+        {
+            n.Id,
+            n.NodeId,
+            n.Name,
+            n.IsEnabled,
+            n.LastSeenAt,
+            n.TotalEvents,
+            n.CreatedAt
+        }));
+    }
+
+    /// <summary>
+    /// 创建采集节点。返回的 token 只在此次响应中出现一次，请立即保存。
+    /// </summary>
+    [HttpPost("ingest-nodes")]
+    public async Task<IActionResult> CreateIngestNode([FromBody] CreateIngestNodeDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.NodeId))
+        {
+            return BadRequest(new { error = "nodeId is required" });
+        }
+
+        var exists = await _db.IngestNodes.AnyAsync(n => n.NodeId == dto.NodeId);
+        if (exists)
+        {
+            return Conflict(new { error = $"nodeId '{dto.NodeId}' already exists" });
+        }
+
+        // 32 字节随机 Token，明文仅返回一次
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
+        var node = new Danmu.Server.Models.IngestNode
+        {
+            NodeId = dto.NodeId.Trim(),
+            Name = dto.Name,
+            TokenHash = hash,
+            IsEnabled = true,
+            CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+        };
+        _db.IngestNodes.Add(node);
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            node.Id,
+            node.NodeId,
+            node.Name,
+            token,
+            note = "请立即保存该 token，之后无法再次查看"
+        });
+    }
+
+    /// <summary>启用/停用节点，或删除（删除后其上报立即失效）。</summary>
+    [HttpPost("ingest-nodes/{id:int}/toggle")]
+    public async Task<IActionResult> ToggleIngestNode(int id, [FromBody] JsonElement body)
+    {
+        var node = await _db.IngestNodes.FindAsync(id);
+        if (node == null) return NotFound();
+        if (body.TryGetProperty("isEnabled", out var enabled))
+        {
+            node.IsEnabled = enabled.GetBoolean();
+            await _db.SaveChangesAsync();
+        }
+        return Ok(new { node.Id, node.IsEnabled });
+    }
+
+    [HttpDelete("ingest-nodes/{id:int}")]
+    public async Task<IActionResult> DeleteIngestNode(int id)
+    {
+        var node = await _db.IngestNodes.FindAsync(id);
+        if (node == null) return NotFound();
+        _db.IngestNodes.Remove(node);
+        await _db.SaveChangesAsync();
+        return Ok(new { deleted = true });
+    }
+
     // ─── BiliAccount Endpoints ──────────────────────────────────────
 
     [HttpGet("bili-accounts")]
@@ -1134,6 +1221,13 @@ public class AdminController : ControllerBase
 
         return Ok(new { success = true });
     }
+}
+
+public class CreateIngestNodeDto
+{
+    /// <summary>节点标识，采集端配置里填同一个值。</summary>
+    public string NodeId { get; set; } = "";
+    public string? Name { get; set; }
 }
 
 public class RoomDto

@@ -3,6 +3,8 @@ namespace Danmu.Server.Models;
 public class DanmakuMessage
 {
     public string Type { get; set; } = "comment";
+    /// <summary>B 站消息唯一 ID，多节点采集去重用；历史数据为空。</summary>
+    public string? MessageId { get; set; }
     public long Timestamp { get; set; }
     public string? Text { get; set; }
     public string? TextJpn { get; set; }
@@ -33,6 +35,12 @@ public class DanmakuMessage
 public class RecordedDanmakuEvent
 {
     public string Type { get; set; } = "unknown";
+    /// <summary>
+    /// B 站消息唯一 ID，用于多节点采集时跨机去重。
+    /// DANMU_MSG 取 info[0][15].extra.id_str；SEND_GIFT / SEND_GIFT_V2 取 tid；
+    /// SUPER_CHAT_MESSAGE 取 data.id。历史数据或个别消息缺失时为 null。
+    /// </summary>
+    public string? MessageId { get; set; }
     public long Timestamp { get; set; }
     public string User { get; set; } = "";
     public string Uid { get; set; } = "";

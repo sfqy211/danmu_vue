@@ -1,5 +1,26 @@
 version: '3'
 services:
+  # PostgreSQL 主库：Session / Room / IngestNode 等元数据。
+  # 弹幕正文仍按场次存放在 ./server/data/danmaku 下的 .db 文件里。
+  postgres:
+    image: postgres:16-alpine
+    container_name: danmu-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${PG_DATABASE:-danmu}
+      - POSTGRES_USER=${PG_USER:-danmu}
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./server/pgdata:/var/lib/postgresql/data
+    # 仅容器网络内可达，不对外暴露端口
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-danmu} -d ${PG_DATABASE:-danmu}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   danmu-viewer:
     build: .
     container_name: danmu-viewer
@@ -9,9 +30,15 @@ services:
       - ./server/data:/app/server/data
     env_file:
       - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      # SQLite database path (inside container)
+      # 主库使用 PostgreSQL；本地开发可改回 sqlite 并保留 SQLITE_DB_PATH
+      - DB_PROVIDER=${DB_PROVIDER:-postgres}
+      - PG_CONNECTION=Host=postgres;Port=5432;Database=${PG_DATABASE:-danmu};Username=${PG_USER:-danmu};Password=${PG_PASSWORD}
+      # 历史/回退用：SQLite 路径
       - SQLITE_DB_PATH=/app/server/data/danmaku.db
       # 原有配置保留
       - BILI_COOKIE=${BILI_COOKIE}
@@ -30,7 +57,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
 networks:
   default:
     external: true

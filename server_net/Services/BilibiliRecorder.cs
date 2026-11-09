@@ -981,6 +981,10 @@ public class BilibiliRecorder : IDisposable
             var faceUrl = TryGetNestedFace(modeInfo);
             var dmType = TryGetInt32(info[0], 12) ?? 0;
             var emots = TryExtractEmots(modeInfo);
+            // B 站弹幕唯一 ID（info[0][15].extra.id_str），用于多节点去重。
+            // 取不到时用 uid+时间戳+文本兜底，保证同一条弹幕在任何节点生成同样的键。
+            var messageId = TryExtractMessageId(modeInfo)
+                ?? BuildFallbackMessageId(GetString(info[2], 0), timestamp, GetString(info, 1));
             // For dmType=1 (emoticon-only), also try info[0][13] which has url/height/width
             if (dmType == 1 && emots == null)
             {
@@ -992,6 +996,7 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "comment",
+                    MessageId = messageId,
                     Timestamp = timestamp,
                     Text = GetString(info, 1) ?? "",
                     User = GetString(info[2], 1) ?? "",
@@ -1034,6 +1039,8 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "gift",
+                    // B 站礼物消息唯一 ID：tid 与 rnd 语义相同（时间戳+随机数），优先 tid
+                    MessageId = TryGetString(data, "tid") ?? TryGetString(data, "rnd"),
                     Timestamp = (TryGetInt64(data, "timestamp") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                     Name = TryGetString(data, "giftName") ?? TryGetString(data, "gift_name"),
                     Count = count > 0 ? count : 1,
@@ -1064,6 +1071,9 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "super_chat",
+                    // SC 的 data.id 在 SUPER_CHAT_MESSAGE 与 _JPN 两种下发中相同，
+                    // 既是本地去重窗口的键，也是跨节点去重的键
+                    MessageId = TryGetString(data, "id"),
                     Timestamp = (TryGetInt64(data, "ts") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                     Price = TryGetDouble(data, "price"),
                     IsPriceTotal = true,
@@ -1094,6 +1104,8 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "guard",
+                    // 舰长无独立消息 ID，用 uid+开通时间+等级构造稳定键（多节点一致）
+                    MessageId = $"guard-{TryGetString(data, "uid")}-{TryGetInt64(data, "start_time")}-{TryGetInt32(data, "guard_level")}",
                     Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                     Name = TryGetString(data, "gift_name") ?? "guard",
                     Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
@@ -1116,6 +1128,8 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "guard",
+                    // USER_TOAST_MSG 与 GUARD_BUY 描述同一笔购买，前缀区分以免互相吞掉
+                    MessageId = $"toast-{TryGetString(data, "uid")}-{TryGetInt64(data, "start_time")}-{TryGetInt32(data, "guard_level")}",
                     Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                     Name = TryGetString(data, "role_name") ?? "guard",
                     Count = Math.Max(1, TryGetInt32(data, "num") ?? 1),
@@ -1220,6 +1234,10 @@ public class BilibiliRecorder : IDisposable
             events.Add(new RecordedDanmakuEvent
             {
                 Type = "gift",
+                // V2 礼物唯一 ID：gift_item.tid（protobuf 字段 9）。社区协议定义里是 string，
+                // 但个别版本可能编码为 varint，两种形态都兼容。
+                MessageId = item.GetString(9)
+                    ?? (item.TryGetVarint(9, out var tidVarint) ? tidVarint.ToString() : null),
                 Timestamp = tsMs,
                 Name = string.IsNullOrWhiteSpace(name) ? "未知礼物" : name,
                 Count = count,
@@ -1388,6 +1406,46 @@ public class BilibiliRecorder : IDisposable
 
     /// <summary>
     /// Extract emoticon map from info[0][15].extra JSON string.
+    /// <summary>
+    /// 从 info[0][15].extra 中取弹幕唯一 ID（id_str，34 位十六进制）。
+    /// 该值由 B 站下发，同一弹幕在任何客户端收到时都相同，因此可作为跨节点去重键。
+    /// </summary>
+    private static string? TryExtractMessageId(JsonElement modeInfo)
+    {
+        if (modeInfo.ValueKind != JsonValueKind.Object) return null;
+        if (!modeInfo.TryGetProperty("extra", out var extraElement)) return null;
+
+        string? extraJson = extraElement.ValueKind switch
+        {
+            JsonValueKind.String => extraElement.GetString(),
+            _ => extraElement.ToString()
+        };
+        if (string.IsNullOrWhiteSpace(extraJson)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(extraJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            return TryGetString(doc.RootElement, "id_str");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 消息缺少 B 站唯一 ID 时的兜底键：uid + 服务器时间戳 + 文本哈希。
+    /// 只要各节点收到的是同一条消息，拼出的键就一致，仍可跨节点去重。
+    /// </summary>
+    internal static string BuildFallbackMessageId(string? uid, long timestamp, string? text)
+    {
+        var payload = $"{uid}|{timestamp}|{text}";
+        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(payload));
+        return "fp-" + Convert.ToHexString(hash, 0, 12).ToLowerInvariant();
+    }
+
+    /// <summary>
     /// The extra field contains an "emots" object keyed by trigger text (e.g. "[热]").
     /// </summary>
     private static Dictionary<string, EmoticonInfo>? TryExtractEmots(JsonElement modeInfo)
