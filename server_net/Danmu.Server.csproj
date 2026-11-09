@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
@@ -11,13 +11,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
     <PackageReference Include="Microsoft.Garnet" Version="1.0.99" />
-    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <!-- ImageSharp 固定 3.1.12：4.x 引入构建期许可证校验，未配置 SixLaborsLicenseKey 时 Release 发布失败。
+         如需升级 4.x（修复 NU1902/NU1903 漏洞警告），请先在 sixlabors.com 申请免费 Split License 并设置 <SixLaborsLicenseKey> -->
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-    <PackageReference Include="StackExchange.Redis" Version="2.11.8" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="StackExchange.Redis" Version="3.4.31" />
     <PackageReference Include="Tencent.QCloud.Cos.Sdk" Version="5.4.51" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
   </ItemGroup>
 
 </Project>
