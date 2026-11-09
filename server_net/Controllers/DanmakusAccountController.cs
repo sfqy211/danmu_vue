@@ -51,7 +51,12 @@ public class DanmakusAccountController : ControllerBase
         var node = await _db.IngestNodes.AsNoTracking()
             .FirstOrDefaultAsync(n => n.NodeId == CurrentNodeId);
 
-        var origin = $"{Request.Scheme}://{Request.Host}";
+        // 拼接对外的 origin。
+        //
+        // 注意不能直接用 Request.Scheme：线上是 Nginx/OpenResty → 容器内 HTTP，
+        // 后端看到的永远是 http，客户端据此推出的 WS 地址会是 ws://（明文），
+        // 公网会被拦。优先信任代理传来的 X-Forwarded-* 头，其次用配置项兜底。
+        var origin = ResolvePublicOrigin();
 
         // capacity：本节点默认并发连接数。放在节点表里没有对应字段，
         // 用环境变量 DANMAKUS_NODE_CAPACITY 统一配置（默认 10，够一台机器录 10 个直播间）。
@@ -171,6 +176,44 @@ public class DanmakusAccountController : ControllerBase
     {
         var text = uid.ToString();
         return await _db.Rooms.FirstOrDefaultAsync(r => r.Uid == text);
+    }
+
+    /// <summary>
+    /// 解析对外的 origin（scheme://host），供客户端推导 runtimeUrl / WS 地址。
+    ///
+    /// 线上链路是 公网 → Nginx(443, TLS) → 容器内 HTTP，所以后端看到的
+    /// Request.Scheme 恒为 http。若直接透传，客户端会推出 ws:// 并被公网拦掉。
+    ///
+    /// 优先级：
+    /// 1. X-Forwarded-Proto / X-Forwarded-Host（代理默认会传）
+    /// 2. 环境变量 PUBLIC_BASE_URL（显式配置，最可靠）
+    /// 3. 退回 Request 自身
+    /// </summary>
+    private string ResolvePublicOrigin()
+    {
+        var protoHeader = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+        var proto = string.IsNullOrWhiteSpace(protoHeader)
+            ? null
+            : protoHeader.Split(',')[0].Trim();
+
+        // X-Forwarded-Host 不一定配了，退到 Host 头（Nginx 默认会透传 Host）
+        var forwardedHost = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+        var host = !string.IsNullOrWhiteSpace(forwardedHost)
+            ? forwardedHost.Split(',')[0].Trim()
+            : Request.Host.Value;
+
+        if (proto is not null && !string.IsNullOrWhiteSpace(host))
+        {
+            return $"{proto}://{host}";
+        }
+
+        var configured = Environment.GetEnvironmentVariable("PUBLIC_BASE_URL");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured.TrimEnd('/');
+        }
+
+        return $"{Request.Scheme}://{Request.Host}";
     }
 
     private static long ParseLong(string? value)
