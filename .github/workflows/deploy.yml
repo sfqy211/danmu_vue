@@ -131,6 +131,26 @@ jobs:
             PYEOF
 
             cat > /tmp/danmu_root.conf <<'LOCEOF'
+            # danmakus 采集端的 Core Runtime WebSocket。
+            # 必须单独一个 location：下面通用 location 里的 `Connection ""`
+            # 会覆盖掉 `Connection: Upgrade`，握手返回的不是 101 而是普通 HTTP，
+            # 客户端直接报 "Expected 101 status code"。
+            # `^~` 前缀匹配优先级高于后面的 `location ^~ /`，顺序无关。
+            location ^~ /api/v2/core-runtime/ws {
+                proxy_pass http://danmu_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                # 采集端 15s 一个心跳，长连接意味着读超时不能短
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 3600s;
+                proxy_read_timeout 3600s;
+            }
+
             location ^~ / {
                 proxy_pass http://danmu_backend;
                 proxy_set_header Host $host;
