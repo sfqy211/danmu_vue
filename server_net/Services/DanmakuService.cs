@@ -192,6 +192,15 @@ public class DanmakuService
             pagedMessages = msgs;
             total = totalCount;
         }
+        else if (session.FilePath.StartsWith("ingest:", StringComparison.Ordinal))
+        {
+            // 采集端上报中的会话：数据已实时写入按 (uid, 开播时间) 命名的场次库，
+            // 只是 FilePath 还没转成 sqlite: 前缀（所有节点结束后才转）。
+            var relative = _sessionDb.GetRelativeDbPath(session.Uid ?? "", startTime);
+            var (msgs, totalCount) = await _sessionDb.GetPagedAsync("sqlite:" + relative, safePage, safePageSize);
+            pagedMessages = msgs;
+            total = totalCount;
+        }
         else
         {
             // 兼容旧路径（迁移期遗留的 JSONL/XML 文件）

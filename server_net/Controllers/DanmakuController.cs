@@ -108,7 +108,8 @@ public class DanmakuController : ControllerBase
         if (endTime.HasValue) query = query.Where(s => s.EndTime <= endTime);
 
         var rawSessions = await query.OrderByDescending(s => s.StartTime)
-            .Select(s => new { s.Id, s.Uid, s.RoomId, s.Title, s.UserName, s.StartTime, s.EndTime })
+            .Select(s => new { s.Id, s.Uid, s.RoomId, s.Title, s.UserName, s.StartTime, s.EndTime,
+                              s.NodeId, s.LiveStartTime, s.ProviderNodes })
             .ToListAsync();
 
         var sessions = rawSessions
