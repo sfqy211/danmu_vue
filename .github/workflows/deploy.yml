@@ -116,18 +116,22 @@ jobs:
             # 先在宿主机生成配置文件，再 docker cp 进容器。
             # 不能用 `docker exec sh -c "cat > file" <<EOF`：docker exec 未带 -i 时
             # 不会把 stdin 传给容器，文件会被截断为空（曾导致全站 404）。
-            # 用 python 生成配置：heredoc 会把缩进写进文件，且变量替换易出错。
-            # 生成后先校验非空，再 docker cp 进容器。
-            python3 - "$NEW_PRIMARY" "$BACKUP" > /tmp/danmu_root.conf <<'PYEOF'
+            # 生成两个文件：
+            # 1) upstream 必须放 http 层（conf.d/*.conf 被 include 到 http 块内）
+            # 2) location 放站点 proxy 目录（被 include 到 server 块内）
+            # 写错位置会报 "upstream directive is not allowed here"。
+            python3 - "$NEW_PRIMARY" "$BACKUP" > /tmp/danmu_upstream.conf <<'PYEOF'
             import sys
             primary, backup = sys.argv[1], sys.argv[2]
             print(f"""upstream danmu_backend {{
                 server 127.0.0.1:{primary} max_fails=2 fail_timeout=10s;
                 server 127.0.0.1:{backup} max_fails=2 fail_timeout=10s backup;
                 keepalive 32;
-            }}
+            }}""")
+            PYEOF
 
-            location ^~ / {{
+            cat > /tmp/danmu_root.conf <<'LOCEOF'
+            location ^~ / {
                 proxy_pass http://danmu_backend;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
@@ -146,17 +150,22 @@ jobs:
                 proxy_next_upstream_timeout 10s;
                 add_header X-Cache $upstream_cache_status;
                 add_header Strict-Transport-Security "max-age=31536000";
-            }}""")
-            PYEOF
+            }
+            LOCEOF
+            # 去掉 heredoc 引入的行首缩进
+            sed -i 's/^            //' /tmp/danmu_root.conf
 
-            if [ ! -s /tmp/danmu_root.conf ]; then
-              echo "ERROR: generated nginx config is empty, aborting (traffic not switched)"
-              exit 1
-            fi
-            echo "generated nginx config: $(wc -c < /tmp/danmu_root.conf) bytes"
+            for f in /tmp/danmu_upstream.conf /tmp/danmu_root.conf; do
+              if [ ! -s "$f" ]; then
+                echo "ERROR: generated $f is empty, aborting (traffic not switched)"
+                exit 1
+              fi
+              echo "generated $(basename $f): $(wc -c < $f) bytes"
+            done
 
+            sudo docker cp /tmp/danmu_upstream.conf "$NGINX_CONTAINER:/usr/local/openresty/nginx/conf/conf.d/danmu_upstream.conf"
             sudo docker cp /tmp/danmu_root.conf "$NGINX_CONTAINER:$PROXY_CONF_DIR/root.conf"
-            rm -f /tmp/danmu_root.conf
+            rm -f /tmp/danmu_upstream.conf /tmp/danmu_root.conf
 
             # ── 7. 校验配置并平滑重载（不中断现有连接）──
             sudo docker exec "$NGINX_CONTAINER" nginx -t
