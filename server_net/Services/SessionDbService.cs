@@ -17,6 +17,24 @@ public class SessionDbService
     // Issue #6a: Static constant for SQL type filter to prevent accidental injection
     private const string DisplayableTypesSql = "('comment','super_chat','gift','guard','gift_combo')";
 
+    /// <summary>
+    /// 舰长读取过滤：GUARD_BUY 与 USER_TOAST_MSG 描述同一笔上舰购买（同 uid+timestamp+guard_level）。
+    /// GUARD_BUY.price 是 B 站套餐原价（如舰长 198），USER_TOAST_MSG.price 是实付金额（优惠后如 168），
+    /// 且 toast 附带开通/续费文案。有 toast 的购买只保留 toast 一条，
+    /// 让历史场次库里已入库的双份记录在读取时也只出现一次（与 WriteBatchAsync 的入库去重同语义）。
+    /// 子查询按 t.timestamp 等值命中 idx_danmaku_timestamp 索引，且仅对 GUARD_BUY 行触发，开销可忽略。
+    /// </summary>
+    private const string GuardDedupSql = """
+        (raw_command IS NOT 'GUARD_BUY' OR NOT EXISTS (
+            SELECT 1 FROM danmaku_messages t
+            WHERE t.type = 'guard'
+              AND t.raw_command = 'USER_TOAST_MSG'
+              AND t.uid = danmaku_messages.uid
+              AND t.timestamp = danmaku_messages.timestamp
+              AND t.guard_level IS danmaku_messages.guard_level
+        ))
+        """;
+
     private readonly ILogger<SessionDbService> _logger;
     private readonly string _danmakuDir;
     // 活跃录制器持有的连接，按 uid 索引（同一 uid 同一时刻只有一个活跃 session）
@@ -327,8 +345,89 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         var pMedalAnchorUid = AddParam(cmd, "@medal_anchor_uid", SqliteType.Text);
         var pMessageId = AddParam(cmd, "@message_id", SqliteType.Text);
 
-        foreach (var e in events)
+        // ── 舰长入库去重（根因修复）──────────────────────────
+        // 同一笔上舰购买 B 站会同时下发 GUARD_BUY（套餐原价，如舰长 198）和
+        // USER_TOAST_MSG（实付金额，优惠后如 168，且带开通/续费文案）。
+        // 两条都入库会让回放页和统计对每笔上舰出现 ¥原价 + ¥实付 双行（bug：航海收入两次）。
+        // 规则：同键（uid+timestamp+guard_level）只保留 USER_TOAST_MSG；
+        // 房间只下发 GUARD_BUY 的极端情况不受影响，不会丢数据。
+        // 本机录制器、采集节点上报、XML 导入全部经过这里，一处去重全覆盖。
+        var eventList = events as IList<RecordedDanmakuEvent> ?? events.ToList();
+        var toastKeys = new HashSet<string>();
+        foreach (var e in eventList)
         {
+            if (e.Type == "guard" && e.RawCommand == "USER_TOAST_MSG")
+            {
+                toastKeys.Add(GuardPurchaseKey(e.Uid, e.Timestamp, e.GuardLevel));
+            }
+        }
+
+        // 跨批次兜底（guard 与 toast 分属两批、或多节点重叠上报）：
+        // 仅 guard 事件触发，量级极小；timestamp 等值命中 idx_danmaku_timestamp 索引。
+        await using var toastExistsCmd = conn.CreateCommand();
+        toastExistsCmd.Transaction = (SqliteTransaction)tx;
+        toastExistsCmd.CommandText = """
+            SELECT 1 FROM danmaku_messages
+            WHERE type = 'guard' AND raw_command = 'USER_TOAST_MSG'
+              AND uid = @dedupUid AND timestamp = @dedupTimestamp AND guard_level IS @dedupGuardLevel
+            LIMIT 1;
+            """;
+        var existsUid = toastExistsCmd.CreateParameter();
+        existsUid.ParameterName = "@dedupUid";
+        toastExistsCmd.Parameters.Add(existsUid);
+        var existsTimestamp = toastExistsCmd.CreateParameter();
+        existsTimestamp.ParameterName = "@dedupTimestamp";
+        toastExistsCmd.Parameters.Add(existsTimestamp);
+        var existsGuardLevel = toastExistsCmd.CreateParameter();
+        existsGuardLevel.ParameterName = "@dedupGuardLevel";
+        toastExistsCmd.Parameters.Add(existsGuardLevel);
+
+        await using var guardDeleteCmd = conn.CreateCommand();
+        guardDeleteCmd.Transaction = (SqliteTransaction)tx;
+        guardDeleteCmd.CommandText = """
+            DELETE FROM danmaku_messages
+            WHERE type = 'guard' AND raw_command = 'GUARD_BUY'
+              AND uid = @dedupUid AND timestamp = @dedupTimestamp AND guard_level IS @dedupGuardLevel;
+            """;
+        var deleteUid = guardDeleteCmd.CreateParameter();
+        deleteUid.ParameterName = "@dedupUid";
+        guardDeleteCmd.Parameters.Add(deleteUid);
+        var deleteTimestamp = guardDeleteCmd.CreateParameter();
+        deleteTimestamp.ParameterName = "@dedupTimestamp";
+        guardDeleteCmd.Parameters.Add(deleteTimestamp);
+        var deleteGuardLevel = guardDeleteCmd.CreateParameter();
+        deleteGuardLevel.ParameterName = "@dedupGuardLevel";
+        guardDeleteCmd.Parameters.Add(deleteGuardLevel);
+
+        foreach (var e in eventList)
+        {
+            if (e.Type == "guard")
+            {
+                if (e.RawCommand == "GUARD_BUY")
+                {
+                    // 同批次已有对应 toast，或库里已有（toast 先到：跨批次/多节点重叠上报）→ 丢弃原价行
+                    if (toastKeys.Contains(GuardPurchaseKey(e.Uid, e.Timestamp, e.GuardLevel)))
+                    {
+                        continue;
+                    }
+                    existsUid.Value = e.Uid ?? "";
+                    existsTimestamp.Value = e.Timestamp;
+                    existsGuardLevel.Value = (object?)e.GuardLevel ?? DBNull.Value;
+                    if (await toastExistsCmd.ExecuteScalarAsync() != null)
+                    {
+                        continue;
+                    }
+                }
+                else if (e.RawCommand == "USER_TOAST_MSG")
+                {
+                    // toast 后到：删掉先入库的同键 GUARD_BUY 原价行，由本条实付价行替代
+                    deleteUid.Value = e.Uid ?? "";
+                    deleteTimestamp.Value = e.Timestamp;
+                    deleteGuardLevel.Value = (object?)e.GuardLevel ?? DBNull.Value;
+                    await guardDeleteCmd.ExecuteNonQueryAsync();
+                }
+            }
+
             pType.Value = e.Type;
             pTimestamp.Value = e.Timestamp;
             pUser.Value = e.User ?? "";
@@ -384,6 +483,36 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         return p;
     }
 
+    // ─── 舰长去重 ───────────────────────────────────────────────
+
+    /// <summary>
+    /// 舰长购买去重键：同一笔上舰购买下发的 GUARD_BUY 与 USER_TOAST_MSG
+    /// 两条的 uid + timestamp + guard_level 完全一致，以此作键只保留一条（实付价的 toast）。
+    /// </summary>
+    public static string GuardPurchaseKey(string? uid, long timestamp, int? guardLevel)
+        => $"{uid ?? ""}|{timestamp}|{guardLevel?.ToString() ?? ""}";
+
+    /// <summary>
+    /// 舰长去重（内存版）：移除与 USER_TOAST_MSG 同键的 GUARD_BUY 原价行。
+    /// 与 WriteBatchAsync 的入库去重、GuardDedupSql 的读取过滤同语义，
+    /// 供 redis 在录场次等未落库数据的调用方使用。
+    /// </summary>
+    public static void RemoveDuplicateGuardEvents(List<DanmakuMessage> messages)
+    {
+        var toastKeys = new HashSet<string>();
+        foreach (var m in messages)
+        {
+            if (m.Type == "guard" && m.RawCommand == "USER_TOAST_MSG")
+            {
+                toastKeys.Add(GuardPurchaseKey(m.Sender.Uid, m.Timestamp, m.GuardLevel));
+            }
+        }
+
+        if (toastKeys.Count == 0) return;
+        messages.RemoveAll(m => m.Type == "guard" && m.RawCommand == "GUARD_BUY"
+            && toastKeys.Contains(GuardPurchaseKey(m.Sender.Uid, m.Timestamp, m.GuardLevel)));
+    }
+
     // ─── 读取（已结束 session，按需开连接） ─────────────────────
 
     /// <summary>
@@ -404,7 +533,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         try
         {
         await using var countCmd = conn.CreateCommand();
-        countCmd.CommandText = $"SELECT COUNT(*) FROM danmaku_messages WHERE type IN {DisplayableTypesSql}";
+        countCmd.CommandText = $"SELECT COUNT(*) FROM danmaku_messages WHERE type IN {DisplayableTypesSql} AND {GuardDedupSql}";
         var total = Convert.ToInt32(await countCmd.ExecuteScalarAsync() ?? 0);
 
         var safePageSize = Math.Max(1, pageSize);
@@ -419,7 +548,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                    medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid,
                    message_id
             FROM danmaku_messages
-            WHERE type IN {DisplayableTypesSql}
+            WHERE type IN {DisplayableTypesSql} AND {GuardDedupSql}
             ORDER BY timestamp ASC, id ASC
             LIMIT @pageSize OFFSET @offset;
             """;
@@ -466,6 +595,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
                    medal_anchor, medal_room_id, medal_guard_level, medal_is_light, medal_anchor_uid,
                    message_id
             FROM danmaku_messages
+            WHERE {GuardDedupSql}
             ORDER BY timestamp ASC, id ASC;
             """;
 

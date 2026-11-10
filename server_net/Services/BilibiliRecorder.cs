@@ -1146,7 +1146,9 @@ public class BilibiliRecorder : IDisposable
                 new RecordedDanmakuEvent
                 {
                     Type = "guard",
-                    // USER_TOAST_MSG 与 GUARD_BUY 描述同一笔购买，前缀区分以免互相吞掉
+                    // USER_TOAST_MSG 与 GUARD_BUY 描述同一笔购买，前缀区分以免入库时被 message_id
+                    // 唯一索引互相吞掉；两条最终由 SessionDbService.WriteBatchAsync 按购买键去重，
+                    // 只保留本条（price 是实付金额，GUARD_BUY 是套餐原价）
                     MessageId = $"toast-{TryGetString(data, "uid")}-{TryGetInt64(data, "start_time")}-{TryGetInt32(data, "guard_level")}",
                     Timestamp = (TryGetInt64(data, "start_time") ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000) * 1000,
                     Name = TryGetString(data, "role_name") ?? "guard",
