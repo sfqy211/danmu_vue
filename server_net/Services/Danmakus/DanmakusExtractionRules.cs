@@ -146,6 +146,7 @@ public static class DanmakusExtractionRules
             // 与 USER_TOAST_MSG 描述同一笔购买；两者 messageId 前缀不同，
             // 中心侧用 guard- / toast- 区分，避免互相吞掉
             // （与 BilibiliRecorder.CreateRecordedEvents 的处理保持一致）。
+            // 两条最终由 SessionDbService.WriteBatchAsync 按购买键去重，只保留 toast（实付价）。
             Rule("^GUARD_BUY$", "danmaku",
                 consts: new Dictionary<string, object> { ["type"] = "guard" },
                 fields: new Dictionary<string, object>

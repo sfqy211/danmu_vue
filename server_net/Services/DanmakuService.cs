@@ -183,6 +183,9 @@ public class DanmakuService
             var key = session.FilePath.Substring(6);
             var lines = await _redis.GetMessagesAsync(key + ":list");
             var allMessages = ParseRecordedEventLines(lines);
+            // 在录场次还没落库，入库去重管不到，这里内存去重一遍
+            // （GUARD_BUY 原价行与 USER_TOAST_MSG 实付行同键，保留 toast）
+            SessionDbService.RemoveDuplicateGuardEvents(allMessages);
             var displayable = FilterDisplayable(allMessages);
             total = displayable.Count;
             pagedMessages = displayable
@@ -734,16 +737,18 @@ public class DanmakuService
         var giftTimelineMap = new Dictionary<long, double>();
         var giftCountMap = new Dictionary<string, GiftStat>();
 
-        // 舰长去重：同一用户的 GUARD_BUY 和 USER_TOAST_MSG 只计一次，优先 USER_TOAST_MSG
-        var guardHasToast = new HashSet<string>(); // key: uid
+        // 舰长去重：同一笔购买（GUARD_BUY + USER_TOAST_MSG 同 uid+timestamp+guard_level）只计一次，
+        // 优先 USER_TOAST_MSG（实付价）。入库/读取层已去重，这里兜底未被过滤的调用路径。
+        // 键用完整购买键而非仅 uid：同用户多笔购买时，避免某笔只有 GUARD_BUY 也被误跳过。
+        var guardHasToast = new HashSet<string>();
 
-        // 第一遍：收集有 USER_TOAST_MSG 的用户
+        // 第一遍：收集有 USER_TOAST_MSG 的购买键
         foreach (var msg in messages)
         {
             if (msg.Type != "guard") continue;
             if (msg.RawCommand == "USER_TOAST_MSG")
             {
-                guardHasToast.Add(msg.Sender.Uid ?? "");
+                guardHasToast.Add(SessionDbService.GuardPurchaseKey(msg.Sender.Uid, msg.Timestamp, msg.GuardLevel));
             }
         }
 
@@ -756,7 +761,7 @@ public class DanmakuService
 
             // 舰长去重：跳过已有 USER_TOAST_MSG 的 GUARD_BUY
             if (msg.Type == "guard" && msg.RawCommand == "GUARD_BUY"
-                && guardHasToast.Contains(msg.Sender.Uid ?? ""))
+                && guardHasToast.Contains(SessionDbService.GuardPurchaseKey(msg.Sender.Uid, msg.Timestamp, msg.GuardLevel)))
             {
                 continue;
             }
