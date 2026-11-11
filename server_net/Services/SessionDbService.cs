@@ -588,7 +588,7 @@ var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource =
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT type, timestamp, user, uid, text, text_jpn, name, count, price, is_price_total,
                    total_coin, guard_level, medal_level, medal_name, coin_type, duration, face, emots, dm_type, raw_command,
                    ul_level, wealth_level,
